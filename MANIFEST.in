@@ -1,0 +1,19 @@
+graft docs
+graft examples
+graft src
+graft ci
+graft tests
+graft .github
+
+include .bumpversion.cfg
+include .coveragerc
+include .cookiecutterrc
+include .editorconfig
+include .isort.cfg
+
+include LICENSE
+include README.md
+
+include tox.ini tox_install.cmd .travis.yml appveyor.yml
+
+global-exclude *.py[cod] __pycache__ *.so *.dylib
