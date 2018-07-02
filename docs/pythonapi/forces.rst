@@ -1,5 +1,5 @@
-sample
-======
+force
+=====
 
-.. autoclass:: atomsmm.sample
+.. autoclass:: atomsmm.force
     :members:

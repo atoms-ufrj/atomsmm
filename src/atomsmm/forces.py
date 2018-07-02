@@ -46,5 +46,6 @@ class force:
 
     """
 
-    def __init__(self, dataset, potential, acfun=None, batchsize=None, **constants):
-        pass
+    def __init__(self, test=None):
+        if test is None:
+            raise InputError("test")

@@ -10,16 +10,12 @@
 [![PyPI Wheel](https://img.shields.io/pypi/wheel/atomsmm.svg)](https://pypi.python.org/pypi/atomsmm)
 [![Supported versions](https://img.shields.io/pypi/pyversions/atomsmm.svg)](https://pypi.python.org/pypi/atomsmm)
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1244233.svg)](https://doi.org/10.5281/zenodo.1244233)
+<!-- [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1244233.svg)](https://doi.org/10.5281/zenodo.1244233) -->
 
 Overview
 ========
 
-A friendly Python library for multistate analysis with MICS and MBAR.
-
-MICS = [Mixture of Independently Collected Samples]()
-
-MBAR = [Multistate Bennett Acceptance Ratio](https://aip.scitation.org/doi/10.1063/1.2978177)
+AtomsMM is an OpenMM customization.
 
 * Free software: MIT license
 

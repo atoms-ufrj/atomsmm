@@ -23,7 +23,7 @@ if os.getenv('SPELLCHECK'):
 
 source_suffix = '.rst'
 master_doc = 'index'
-project = 'MICS'
+project = 'AtomsMM'
 year = '2017'
 author = 'Charlles R. A. Abreu'
 copyright = '{0}, {1}'.format(year, author)

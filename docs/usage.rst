@@ -2,6 +2,6 @@
 Usage
 =====
 
-To use MICS in a project::
+To use AtomsMM in a project::
 
 	import atomsmm

@@ -1,6 +1,5 @@
-from atomsmm.cli import main
+import atomsmm
 
 
 def test_main():
-    assert main([]) == 0
-
+    assert atomsmm

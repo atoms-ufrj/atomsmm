@@ -17,8 +17,8 @@ When `reporting a bug <https://github.com/atoms-ufrj/atomsmm/issues>`_ please in
 Documentation improvements
 ==========================
 
-MICS could always use more documentation, whether as part of the
-official MICS docs, in docstrings, or even on the web in blog posts,
+AtomsMM could always use more documentation, whether as part of the
+official AtomsMM docs, in docstrings, or even on the web in blog posts,
 articles, and such.
 
 Feature requests and feedback

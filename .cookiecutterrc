@@ -34,7 +34,7 @@ default_context:
     license:                   'MIT license'
     linter:                    'flake8'
     package_name:              'atomsmm'
-    project_name:              'MICS'
+    project_name:              'AtomsMM'
     project_short_description: 'Mixtures of Independently Collected Samples'
     release_date:              'today'
     repo_name:                 'atomsmm'

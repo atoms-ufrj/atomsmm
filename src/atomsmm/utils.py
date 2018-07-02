@@ -7,6 +7,7 @@
 
 """
 
+
 class InputError(Exception):
     def __init__(self, msg):
         super(InputError, self).__init__("\033[1;31m" + msg + "\033[0m")
