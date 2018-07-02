@@ -1,11 +1,11 @@
 #!/bin/bash -eE
 :<<"::batch"
 @echo off
-pip install numpy six
+conda install --yes -c omnia openmm
 pip install %*
 goto :end
 ::batch
-pip install numpy six
+conda install --yes -c omnia openmm
 pip install $*
 exit $?
 :<<"::done"

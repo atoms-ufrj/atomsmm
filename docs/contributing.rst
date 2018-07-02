@@ -35,6 +35,14 @@ If you are proposing a feature:
 Development
 ===========
 
+Prerequisites:
+
+1. Anaconda or Miniconda
+
+2. Conda virtualenv
+
+3. Tox
+
 To set up `atomsmm` for local development:
 
 1. Fork `atomsmm <https://github.com/atoms-ufrj/atomsmm>`_
