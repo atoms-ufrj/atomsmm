@@ -24,7 +24,7 @@ def read(*names, **kwargs):
 
 setup(
     name='atomsmm',
-    version='0.2.0',
+    version='0.1.0',
     license='MIT license',
     description='Mixtures of Independently Collected Samples',
     long_description='%s\n%s' % (

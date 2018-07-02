@@ -6,7 +6,7 @@
 [![Coverage Status](https://codecov.io/github/atoms-ufrj/atomsmm/coverage.svg?branch=master)](https://codecov.io/github/atoms-ufrj/atomsmm)
 
 [![PyPI Package latest release](https://img.shields.io/pypi/v/atomsmm.svg)](https://pypi.python.org/pypi/atomsmm)
-[![Commits since latest release](https://img.shields.io/github/commits-since/atoms-ufrj/atomsmm/v0.2.0.svg)](https://github.com/atoms-ufrj/atomsmm/compare/v0.2.0...master)
+[![Commits since latest release](https://img.shields.io/github/commits-since/atoms-ufrj/atomsmm/v0.1.0.svg)](https://github.com/atoms-ufrj/atomsmm/compare/v0.1.0...master)
 [![PyPI Wheel](https://img.shields.io/pypi/wheel/atomsmm.svg)](https://pypi.python.org/pypi/atomsmm)
 [![Supported versions](https://img.shields.io/pypi/pyversions/atomsmm.svg)](https://pypi.python.org/pypi/atomsmm)
 
