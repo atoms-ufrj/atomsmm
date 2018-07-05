@@ -1,0 +1,6 @@
+name: openmm
+channels:
+  - omnia
+dependencies:
+  - python=3.6
+  - openmm

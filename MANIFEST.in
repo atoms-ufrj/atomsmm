@@ -14,6 +14,6 @@ include .isort.cfg
 include LICENSE
 include README.md
 
-include tox.ini tox_install.cmd .travis.yml appveyor.yml
+include tox.ini tox_install.cmd .travis.yml appveyor.yml readthedocs.yml
 
 global-exclude *.py[cod] __pycache__ *.so *.dylib
