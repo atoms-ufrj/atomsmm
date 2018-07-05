@@ -7,10 +7,12 @@
 
 """
 
+import simtk.openmm as mm
+
 from atomsmm.utils import InputError
 
 
-class force:
+class force(mm.CustomNonbondedForce):
     """
     A sample of configurations distributed according to a :term:`PDF`
     proportional to ``exp(-u(x))``. Each configuration ``x`` is represented
