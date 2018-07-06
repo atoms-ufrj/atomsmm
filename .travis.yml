@@ -30,7 +30,7 @@ install:
   - conda info -a
   - conda config --add channels omnia
   - conda config --add channels conda-forge
-  - conda create -q -n test-env python=$TRAVIS_PYTHON_VERSION tox openmm>=7.2
+  - conda create -q -n test-env python=$TRAVIS_PYTHON_VERSION six tox openmm
   - source activate test-env
   - chmod +x $HOME/miniconda/envs/test-env/bin/tox
   - virtualenv --version
