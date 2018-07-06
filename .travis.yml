@@ -10,9 +10,6 @@ env:
     - TOXENV=docs
 matrix:
   include:
-    - python: '2.7'
-      env:
-        - TOXENV=py27,report,coveralls,codecov
     - python: '3.5'
       env:
         - TOXENV=py35,report,coveralls,codecov
@@ -24,7 +21,15 @@ before_install:
   - uname -a
   - lsb_release -a
 install:
-  - pip install tox
+  - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+  - bash miniconda.sh -b -p $HOME/miniconda
+  - export PATH="$HOME/miniconda/bin:$PATH"
+  - hash -r
+  - conda config --set always_yes yes --set changeps1 no
+  - conda update -q conda
+  - conda info -a
+  - conda create -q -n test-environment python=$TRAVIS_PYTHON_VERSION tox openmm>=7.2
+  - source activate test-environment
   - virtualenv --version
   - easy_install --version
   - pip --version
