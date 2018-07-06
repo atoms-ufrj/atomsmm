@@ -1,7 +1,8 @@
 name: openmm
 channels:
+  - conda-forge
   - omnia
 dependencies:
   - python=3.6
   - openmm
-  - sphinxcontrib-bibtex
+  - sphinxcontrib-bibtex>=0.4
