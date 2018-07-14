@@ -8,13 +8,13 @@
 Overview
 ========
 
-AtomsMM is an OpenMM customization.
+AtomsMM is an OpenMM customization for the ATOMS group at UFRJ/Brazil.
 
 * Free software: MIT license
 
 Documentation
 =============
 
-https://atomsmm.readthedocs.io/en/stable
+<!-- https://atomsmm.readthedocs.io/en/stable -->
 
 https://atomsmm.readthedocs.io/en/latest

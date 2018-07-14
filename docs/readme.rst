@@ -3,7 +3,7 @@
 Overview
 ========
 
-Mixtures of Independently Collected Samples
+AtomsMM is an OpenMM customization for the ATOMS group at UFRJ/Brazil.
 
 * Free software: MIT license
 
@@ -42,4 +42,3 @@ Note, to combine the coverage data from all the tox environments run:
       - ::
 
             PYTEST_ADDOPTS=--cov-append tox
-
