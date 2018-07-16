@@ -7,9 +7,8 @@
 
 """
 
-import simtk.openmm as openmm
-
-from atomsmm.utils import InputError
+from simtk import openmm
+from simtk import unit
 
 
 class CustomNonbondedForce(openmm.CustomNonbondedForce):
@@ -19,9 +18,47 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
     .. _CustomNonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomNonbondedForce.html
 
     """
+    def __init__(self, energy):
+        super(CustomNonbondedForce, self).__init__(energy)
+        self.addPerParticleParameter("charge")
+        self.addPerParticleParameter("sigma")
+        self.addPerParticleParameter("epsilon")
 
-    def importParameters(self, force):
-        print("imported")
+    def addTo(self, system, capture=True, replace=False):
+        """
+        Add the nonbonded force to an OpenMM System_ object.
+
+        .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
+
+        Parameters
+        ----------
+            system : openmm.System
+                The system to which the nonbonded force is being added.
+            capture : Bool, optional, default=True
+                If True, the added nonbonded force will capture all particles and exceptions of the
+                system's first nonbonded force, if any.
+            replace : Bool, optional, default=False
+                If True, the added nonbonded force will replace the system's first nonbonded force,
+                if any.
+
+        """
+        forces = [system.getForce(i) for i in range(system.getNumForces())]
+        nbforces = [i for (i, f) in enumerate(forces) if isinstance(f, openmm.NonbondedForce)]
+        if capture and nbforces:
+            force = system.getForce(nbforces[0])
+            for index in range(force.getNumParticles()):
+                self.addParticle(force.getParticleParameters(index))
+            for index in range(force.getNumExceptions()):
+                i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
+                self.addExclusion(i, j)
+                chargeProd /= unit.elementary_charge**2
+                epsilon /= unit.kilojoules_per_mole
+                if chargeProd != 0.0 or epsilon != 0.0:
+                    # TODO: Add bond force for handling 1-4 interactions
+                    raise ValueError("Non-exclusion exceptions not handled yet.")
+        if replace and nbforces:
+            system.removeForce(nbforces[0])
+        system.addForce(self)
 
 
 class DampedSmoothedForce(CustomNonbondedForce):
@@ -44,11 +81,11 @@ class DampedSmoothedForce(CustomNonbondedForce):
 
     Parameters
     ----------
-        alpha : Number
+        alpha
             The damping parameter (in inverse distance unit).
-        rswitch : Number
+        rswitch
             The distance marking the start of the switching range.
-        rcut : Number
+        rcut
             The potential cut-off distance.
 
     """
@@ -57,19 +94,14 @@ class DampedSmoothedForce(CustomNonbondedForce):
 
         # Model expressions:
         energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kcoul*charge1*charge2*erfc(alpha*r)/r)*f;"
-        energy += "sigma = (sigma1+sigma2)/2";
+        energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         energy += "f = 1 - step(r - rswitch)*z^3*(10 - 15*z + 6*z^2);"
         energy += "z = (r^2 - rswitch^2)/(rcut^2 - rswitch^2);"
-        super(CustomNonbondedForce, self).__init__(energy)
-
-        # Per-particle parameters:
-        self.addPerParticleParameter("epsilon")
-        self.addPerParticleParameter("sigma")
-        self.addPerParticleParameter("charge")
+        super(DampedSmoothedForce, self).__init__(energy)
 
         # Global parameters:
-        self.addGlobalParameter("Kcoul", 138.935456)
+        self.addGlobalParameter("Kcoul", 138.935456*unit.kilojoules/unit.nanometer)
         self.addGlobalParameter("alpha", alpha)
         self.addGlobalParameter("rswitch", rswitch)
         self.addGlobalParameter("rcut", rcut)

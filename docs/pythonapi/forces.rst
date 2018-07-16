@@ -1,8 +1,8 @@
-force
-=====
+forces
+======
 
-.. autoclass:: atomsmm.CustomNonbondedForce
+.. autoclass:: atomsmm.forces.CustomNonbondedForce
     :members:
 
-.. autoclass:: atomsmm.DampedSmoothedForce
+.. autoclass:: atomsmm.forces.DampedSmoothedForce
     :members:
