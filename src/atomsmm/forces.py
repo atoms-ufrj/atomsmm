@@ -51,9 +51,7 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
             for index in range(force.getNumExceptions()):
                 i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
                 self.addExclusion(i, j)
-                chargeProd /= unit.elementary_charge**2
-                epsilon /= unit.kilojoules_per_mole
-                if chargeProd != 0.0 or epsilon != 0.0:
+                if chargeProd/chargeProd.unit != 0.0 or epsilon/epsilon.unit != 0.0:
                     # TODO: Add bond force for handling 1-4 interactions
                     raise ValueError("Non-exclusion exceptions not handled yet.")
         if replace and nbforces:
@@ -70,14 +68,14 @@ class DampedSmoothedForce(CustomNonbondedForce):
                    4\\epsilon\\left[\\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6\\right]
                    + \\frac{q_1 q_2}{4\\pi\\epsilon_0}\\frac{\\mathrm{erfc}(\\alpha r)}{r}
                \\right\\}f(r) \\\\
-        & f(r)=[1-\\theta(r-r_\\mathrm{switch})z^3(10-15z+6z^2)] \\\\
-        & z=\\frac{r^2-r_\\mathrm{switch}^2}{r_\\mathrm{cut}^2-r_\\mathrm{switch}^2} \\\\
+        & f(r)=[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
+        & u=\\frac{r^n-r_\\mathrm{switch}^n}{r_\\mathrm{cut}^n-r_\\mathrm{switch}^n} \\\\
         & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
         & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
 
     In the equations above, :math:`\\theta(x)` is the Heaviside step function. Note that the
-    switching function employed here, with `z` being a quadratic function of `r`, is slightly
-    different from the one normally used in OpenMM, in which `z` is a linear function of `r`.
+    switching function employed here, with `u` being a quadratic function of `r`, is slightly
+    different from the one normally used in OpenMM, in which `u` is a linear function of `r`.
 
     Parameters
     ----------
@@ -87,17 +85,22 @@ class DampedSmoothedForce(CustomNonbondedForce):
             The distance marking the start of the switching range.
         rcut
             The potential cut-off distance.
+        degree : int, optional, default=1
+            The degree `n` in the definition of the switching variable `u` (see above).
 
     """
 
-    def __init__(self, alpha, rswitch, rcut):
+    def __init__(self, alpha, rswitch, rcut, degree=1):
 
         # Model expressions:
         energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kcoul*charge1*charge2*erfc(alpha*r)/r)*f;"
+        if degree == 1:
+            energy += "f = 1;"
+        else:
+            energy += "f = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
+            energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        energy += "f = 1 - step(r - rswitch)*z^3*(10 - 15*z + 6*z^2);"
-        energy += "z = (r^2 - rswitch^2)/(rcut^2 - rswitch^2);"
         super(DampedSmoothedForce, self).__init__(energy)
 
         # Global parameters:
@@ -110,4 +113,8 @@ class DampedSmoothedForce(CustomNonbondedForce):
         self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
         self.setCutoffDistance(rcut)
         self.setUseLongRangeCorrection(False)
-        self.setUseSwitchingFunction(False)
+        if degree == 1:
+            self.setUseSwitchingFunction(True)
+            self.setSwitchingDistance(rswitch)
+        else:
+            self.setUseSwitchingFunction(False)
