@@ -35,7 +35,7 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
             system : openmm.System
                 The system to which the nonbonded force is being added.
             capture : Bool, optional, default=True
-                If True, the added nonbonded force will capture all particles and exceptions of the
+                If True, the added nonbonded force will capture all particles and exclusions of the
                 system's first nonbonded force, if any.
             replace : Bool, optional, default=False
                 If True, the added nonbonded force will replace the system's first nonbonded force,
@@ -50,10 +50,8 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
                 self.addParticle(force.getParticleParameters(index))
             for index in range(force.getNumExceptions()):
                 i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
-                self.addExclusion(i, j)
-                if chargeProd/chargeProd.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                    # TODO: Add bond force for handling 1-4 interactions
-                    raise ValueError("Non-exclusion exceptions not handled yet.")
+                if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
+                    self.addExclusion(i, j)
         if replace and nbforces:
             system.removeForce(nbforces[0])
         system.addForce(self)
@@ -165,7 +163,7 @@ class InnerRespaForce(CustomNonbondedForce):
         # Model expressions:
         sign = "-" if subtract else ""
         delta = "-1/rcut" if shift else ""
-        energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6) + K*charge1*charge2*(1/r %s));" % (sign, delta)
+        energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+K*charge1*charge2*(1/r%s));" % (sign, delta)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         super(InnerRespaForce, self).__init__(energy)
