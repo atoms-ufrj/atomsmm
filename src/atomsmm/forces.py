@@ -57,6 +57,7 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
         if replace and nbforces:
             system.removeForce(nbforces[0])
         system.addForce(self)
+        return self
 
 
 class DampedSmoothedForce(CustomNonbondedForce):
