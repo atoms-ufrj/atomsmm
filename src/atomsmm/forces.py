@@ -10,13 +10,11 @@
 from simtk import openmm
 from simtk import unit
 
-import atomsmm.utils as utils
-
 
 class Force:
     """
-    The basis class of an AtomsMM Force object, which is a list of OpenMM Force_ objects being
-    treated as a single one.
+    The basis class of an AtomsMM Force object, which is a list of OpenMM Force_ objects treated
+    as a single force.
 
     .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
 
@@ -24,14 +22,11 @@ class Force:
     ----------
         forces : list(openmm.Force)
             A list of OpenMM Force objects.
-        group : int, optional, default=0
-            The index of the force group to which all forces in the list will belong. Legal values
-            are between 0 and 31 (inclusive).
 
     """
-    def __init__(self, forces, group=0):
+    def __init__(self, forces):
         self.forces = forces
-        self.setForceGroup(group)
+        self.setForceGroup(0)
 
     def setForceGroup(self, group):
         """
@@ -64,9 +59,9 @@ class Force:
         """
         return self.forces[0].getForceGroup()
 
-    def AddTo(self, system):
+    def addTo(self, system):
         """
-        Add the AtomsMM force to an OpenMM System_ object.
+        Add the :class:`Force` object to an OpenMM System_ object.
 
         .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
 
@@ -85,6 +80,26 @@ class Force:
             system.addForce(force)
         return self
 
+    def importFrom(self, nbForce):
+        """
+        Import parameters from a provided OpenMM NonbondedForce_ object.
+
+        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+
+        Parameters
+        ----------
+            nbForce : openmm.NonbondedForce
+                The force from which the parameters will be imported.
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        for force in self.forces:
+            force.importFrom(nbForce)
+        return self
+
 
 class CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
@@ -99,39 +114,28 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
         self.addPerParticleParameter("sigma")
         self.addPerParticleParameter("epsilon")
 
-    def addTo(self, system, capture=True, replace=False):
+    def importFrom(self, force):
         """
-        Add the nonbonded force to an OpenMM System_ object.
+        Import all particles and exclusions from the a passed OpenMM NonbondedForce_ object.
 
-        .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
+        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
         Parameters
         ----------
-            system : openmm.System
-                The system to which the nonbonded force is being added.
-            capture : Bool, optional, default=True
-                If True, the added nonbonded force will capture all particles and exclusions of the
-                system's first nonbonded force, if any.
-            replace : Bool, optional, default=False
-                If True, the added nonbonded force will replace the system's first nonbonded force,
-                if any.
+            force : openmm.NonbondedForce
+                The force from which the particles and exclusions will be imported.
 
         """
-        force = utils.HijackNonbondedForce(system)
-        if capture:
-            for index in range(force.getNumParticles()):
-                self.addParticle(force.getParticleParameters(index))
-            for index in range(force.getNumExceptions()):
-                i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
-                if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
-                    self.addExclusion(i, j)
-        if not replace:
-            system.addForce(force)
-        system.addForce(self)
+        for index in range(force.getNumParticles()):
+            self.addParticle(force.getParticleParameters(index))
+        for index in range(force.getNumExceptions()):
+            i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
+            if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
+                self.addExclusion(i, j)
         return self
 
 
-class DampedSmoothedForce(CustomNonbondedForce):
+class DampedSmoothedForce(Force):
     """
     A damped-smoothed version of the Lennard-Jones/Coulomb potential.
 
@@ -163,6 +167,7 @@ class DampedSmoothedForce(CustomNonbondedForce):
         degree : int, optional, default=1
             The degree `n` in the definition of the switching variable `u` (see above).
 
+
     """
 
     def __init__(self, alpha, rswitch, rcut, degree=1):
@@ -176,26 +181,29 @@ class DampedSmoothedForce(CustomNonbondedForce):
             energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        super(DampedSmoothedForce, self).__init__(energy)
+
+        force = CustomNonbondedForce(energy)
 
         # Global parameters:
-        self.addGlobalParameter("Kcoul", 138.935456*unit.kilojoules/unit.nanometer)
-        self.addGlobalParameter("alpha", alpha)
-        self.addGlobalParameter("rswitch", rswitch)
-        self.addGlobalParameter("rcut", rcut)
+        force.addGlobalParameter("Kcoul", 138.935456*unit.kilojoules/unit.nanometer)
+        force.addGlobalParameter("alpha", alpha)
+        force.addGlobalParameter("rswitch", rswitch)
+        force.addGlobalParameter("rcut", rcut)
 
         # Configuration:
-        self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-        self.setCutoffDistance(rcut)
-        self.setUseLongRangeCorrection(False)
+        force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+        force.setCutoffDistance(rcut)
+        force.setUseLongRangeCorrection(False)
         if degree == 1:
-            self.setUseSwitchingFunction(True)
-            self.setSwitchingDistance(rswitch)
+            force.setUseSwitchingFunction(True)
+            force.setSwitchingDistance(rswitch)
         else:
-            self.setUseSwitchingFunction(False)
+            force.setUseSwitchingFunction(False)
+
+        super(DampedSmoothedForce, self).__init__([force])
 
 
-class InnerRespaForce(CustomNonbondedForce):
+class InnerRespaForce(Force):
     """
     A smoothed version of the Lennard-Jones/Coulomb potential.
 
@@ -239,17 +247,20 @@ class InnerRespaForce(CustomNonbondedForce):
         energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+K*charge1*charge2*(1/r%s));" % (sign, delta)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        super(InnerRespaForce, self).__init__(energy)
+
+        force = CustomNonbondedForce(energy)
 
         # Global parameters:
-        self.addGlobalParameter("K", 138.935456*unit.kilojoules/unit.nanometer)
-        self.addGlobalParameter("rswitch", rswitch)
+        force.addGlobalParameter("K", 138.935456*unit.kilojoules/unit.nanometer)
+        force.addGlobalParameter("rswitch", rswitch)
         if shift:
-            self.addGlobalParameter("rcut", rcut)
+            force.addGlobalParameter("rcut", rcut)
 
         # Configuration:
-        self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-        self.setCutoffDistance(rcut)
-        self.setUseLongRangeCorrection(False)
-        self.setUseSwitchingFunction(True)
-        self.setSwitchingDistance(rswitch)
+        force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+        force.setCutoffDistance(rcut)
+        force.setUseLongRangeCorrection(False)
+        force.setUseSwitchingFunction(True)
+        force.setSwitchingDistance(rswitch)
+
+        super(InnerRespaForce, self).__init__([force])
