@@ -44,7 +44,7 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
                 if any.
 
         """
-        force, ref = utils.FindNonbondedForce(system)
+        force = utils.HijackNonbondedForce(system)
         if capture:
             for index in range(force.getNumParticles()):
                 self.addParticle(force.getParticleParameters(index))
@@ -52,8 +52,8 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
                 i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
                 if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
                     self.addExclusion(i, j)
-        if replace:
-            system.removeForce(ref)
+        if not replace:
+            system.addForce(force)
         system.addForce(self)
         return self
 
