@@ -10,6 +10,8 @@
 from simtk import openmm
 from simtk import unit
 
+import atomsmm.utils as utils
+
 
 class CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
@@ -42,18 +44,16 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
                 if any.
 
         """
-        forces = [system.getForce(i) for i in range(system.getNumForces())]
-        nbforces = [i for (i, f) in enumerate(forces) if isinstance(f, openmm.NonbondedForce)]
-        if capture and nbforces:
-            force = system.getForce(nbforces[0])
+        force, ref = utils.FindNonbondedForce(system)
+        if capture:
             for index in range(force.getNumParticles()):
                 self.addParticle(force.getParticleParameters(index))
             for index in range(force.getNumExceptions()):
                 i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
                 if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
                     self.addExclusion(i, j)
-        if replace and nbforces:
-            system.removeForce(nbforces[0])
+        if replace:
+            system.removeForce(ref)
         system.addForce(self)
         return self
 
