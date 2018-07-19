@@ -23,14 +23,19 @@ platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)
 simulation.context.setPositions(pdb.positions)
 
-outputs = [stdout, 'output.csv']
+# outputs = [stdout, 'output.csv']
+outputs = [stdout]
 separators = ['\t', ',']
 for (out, sep) in zip(outputs, separators):
-    simulation.reporters.append(openmm.app.StateDataReporter(out, ndisp, step=True,
+    simulation.reporters.append(openmm.app.StateDataReporter(out, ndisp,
+        step=True,
         potentialEnergy=True,
         kineticEnergy=True,
         totalEnergy=True,
-        remainingTime=True, speed=True, totalSteps=nsteps, separator=sep))
+        remainingTime=True,
+        speed=True,
+        totalSteps=nsteps,
+        separator=sep))
 
 print('Running Production...')
 simulation.step(nsteps)
