@@ -36,7 +36,7 @@ def HijackNonbondedForce(system, position=0):
 
     Returns
     -------
-        force : openmm.NonbondedForce
+        openmm.NonbondedForce
             The hijacked NonbondedForce object.
 
     """

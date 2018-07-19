@@ -55,3 +55,5 @@ napoleon_use_rtype = False
 napoleon_use_param = False
 
 linkcheck_ignore = [r'^https://doi.org']
+
+autodoc_member_order = 'bysource'

@@ -13,6 +13,79 @@ from simtk import unit
 import atomsmm.utils as utils
 
 
+class Force:
+    """
+    The basis class of an AtomsMM Force object, which is a list of OpenMM Force_ objects being
+    treated as a single one.
+
+    .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
+
+    Parameters
+    ----------
+        forces : list(openmm.Force)
+            A list of OpenMM Force objects.
+        group : int, optional, default=0
+            The index of the force group to which all forces in the list will belong. Legal values
+            are between 0 and 31 (inclusive).
+
+    """
+    def __init__(self, forces, group=0):
+        self.forces = forces
+        self.setForceGroup(group)
+
+    def setForceGroup(self, group):
+        """
+        Set the force group to which this :class:`Force` object belongs.
+
+        Parameters
+        ----------
+            group : int
+                The group index. Legal values are between 0 and 31 (inclusive).
+
+        Returns
+        -------
+            :class:`Force`
+                Although the operation is done inline, the modified Force is returned for chaining
+                purposes.
+
+        """
+        for force in self.forces:
+            force.setForceGroup(group)
+
+    def getForceGroup(self):
+        """
+        Get the force group to which this :class:`Force` object belongs.
+
+        Returns
+        -------
+            int
+                The group index, whose value is between 0 and 31 (inclusive).
+
+        """
+        return self.forces[0].getForceGroup()
+
+    def AddTo(self, system):
+        """
+        Add the AtomsMM force to an OpenMM System_ object.
+
+        .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
+
+        Parameters
+        ----------
+            system : openmm.System
+                The system to which the force is being added.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        for force in self.forces:
+            system.addForce(force)
+        return self
+
+
 class CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
