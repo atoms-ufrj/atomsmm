@@ -108,11 +108,21 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
     .. _CustomNonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomNonbondedForce.html
 
     """
-    def __init__(self, energy):
+    def __init__(self, energy, cutoff_distance, switch_distance=None, **globalParameters):
         super(CustomNonbondedForce, self).__init__(energy)
         self.addPerParticleParameter("charge")
         self.addPerParticleParameter("sigma")
         self.addPerParticleParameter("epsilon")
+        for (name, value) in globalParameters.items():
+            self.addGlobalParameter(name, value)
+        self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+        self.setCutoffDistance(cutoff_distance)
+        self.setUseLongRangeCorrection(False)
+        if switch_distance is None:
+            self.setUseSwitchingFunction(False)
+        else:
+            self.setUseSwitchingFunction(True)
+            self.setSwitchingDistance(switch_distance)
 
     def importFrom(self, force):
         """
@@ -169,10 +179,7 @@ class DampedSmoothedForce(Force):
 
 
     """
-
     def __init__(self, alpha, rswitch, rcut, degree=1):
-
-        # Model expressions:
         energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kcoul*charge1*charge2*erfc(alpha*r)/r)*f;"
         if degree == 1:
             energy += "f = 1;"
@@ -181,25 +188,9 @@ class DampedSmoothedForce(Force):
             energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-
-        force = CustomNonbondedForce(energy)
-
-        # Global parameters:
-        force.addGlobalParameter("Kcoul", 138.935456*unit.kilojoules/unit.nanometer)
-        force.addGlobalParameter("alpha", alpha)
-        force.addGlobalParameter("rswitch", rswitch)
-        force.addGlobalParameter("rcut", rcut)
-
-        # Configuration:
-        force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-        force.setCutoffDistance(rcut)
-        force.setUseLongRangeCorrection(False)
-        if degree == 1:
-            force.setUseSwitchingFunction(True)
-            force.setSwitchingDistance(rswitch)
-        else:
-            force.setUseSwitchingFunction(False)
-
+        force = CustomNonbondedForce(energy, rcut, rswitch if degree == 1 else None,
+                                     Kcoul=138.935456*unit.kilojoules/unit.nanometer,
+                                     alpha=alpha, rswitch=rswitch, rcut=rcut)
         super(DampedSmoothedForce, self).__init__([force])
 
 
@@ -238,29 +229,13 @@ class InnerRespaForce(Force):
             If True, a potential shift is done for the Coulomb term at the cutoff distance.
 
     """
-
     def __init__(self, rswitch, rcut, subtract=False, shift=False):
-
-        # Model expressions:
         sign = "-" if subtract else ""
         delta = "-1/rcut" if shift else ""
         energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+K*charge1*charge2*(1/r%s));" % (sign, delta)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-
-        force = CustomNonbondedForce(energy)
-
-        # Global parameters:
-        force.addGlobalParameter("K", 138.935456*unit.kilojoules/unit.nanometer)
-        force.addGlobalParameter("rswitch", rswitch)
-        if shift:
-            force.addGlobalParameter("rcut", rcut)
-
-        # Configuration:
-        force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-        force.setCutoffDistance(rcut)
-        force.setUseLongRangeCorrection(False)
-        force.setUseSwitchingFunction(True)
-        force.setSwitchingDistance(rswitch)
-
+        force = CustomNonbondedForce(energy, rcut, rswitch,
+                                     K=138.935456*unit.kilojoules/unit.nanometer,
+                                     rswitch=rswitch, rcut=rcut)
         super(InnerRespaForce, self).__init__([force])
