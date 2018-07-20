@@ -10,6 +10,8 @@
 from simtk import openmm
 from simtk import unit
 
+from atomsmm.utils import InputError
+
 
 class Force:
     """
@@ -46,6 +48,7 @@ class Force:
         """
         for force in self.forces:
             force.setForceGroup(group)
+        return self
 
     def getForceGroup(self):
         """
@@ -115,6 +118,62 @@ class Force:
         """
         for force in self.forces:
             force.importFrom(nbForce)
+        return self
+
+
+class _NonbondedForce(openmm.NonbondedForce):
+    """
+    An extension of OpenMM's NonbondedForce_ class.
+
+    .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+
+    Parameters
+    ----------
+        cutoff_distance : Number or unit.Quantity
+            The cutoff distance being used for nonbonded interactions.
+        switch_distance :  Number or unit.Quantity, optional, default=None
+            The distance at which the switching function begins to reduce the interaction. If this
+            is None, then no switching will be done.
+
+    """
+    def __init__(self, cutoff_distance, switch_distance=None):
+        super(_NonbondedForce, self).__init__()
+        self.setNonbondedMethod(openmm.NonbondedForce.PME)
+        self.setCutoffDistance(cutoff_distance)
+        self.setUseDispersionCorrection(True)
+        if switch_distance is None:
+            self.setUseSwitchingFunction(False)
+        else:
+            self.setUseSwitchingFunction(True)
+            self.setSwitchingDistance(switch_distance)
+
+    def importFrom(self, force):
+        """
+        Import all particles and exclusion exceptions from the a passed OpenMM NonbondedForce_
+        object.
+
+        ..note:
+            Non-exclusion exceptions are not imported.
+
+        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+
+        Parameters
+        ----------
+            force : openmm.NonbondedForce
+                The force from which the particles and exclusions will be imported.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        for index in range(force.getNumParticles()):
+            self.addParticle(*force.getParticleParameters(index))
+        for index in range(force.getNumExceptions()):
+            i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
+            if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
+                self.addException(i, j, chargeProd, sigma, epsilon)
         return self
 
 
@@ -314,3 +373,37 @@ class InnerRespaForce(Force):
             globalParameters["rcut"] = rcut
         force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])
+        self.rswitch = rswitch
+        self.rcut = rcut
+        self.shifted = shifted
+
+
+class OuterRespaForce(Force):
+    """
+    The outermost force for RESPA.
+
+    Parameters
+    ----------
+        rswitch : Number or unit.Quantity
+            The distance marking the start of the switching range.
+        rcut : Number or unit.Quantity
+            The potential cut-off distance.
+        preceding : :class:`InnerRespaForce`
+            The InnerRespaForce object with which this Force is supposed to match.
+
+    """
+    def __init__(self, rswitch, rcut, preceding):
+        if not isinstance(preceding, InnerRespaForce):
+            raise InputError("argument 'preceding' must be an internal RESPA force")
+        if preceding.shifted:
+            energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*(1/r-1/rcut));"
+        else:
+            energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r);"
+        energy += "sigma = 0.5*(sigma1+sigma2);"
+        energy += "epsilon = sqrt(epsilon1*epsilon2);"
+        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        if preceding.shifted:
+            globalParams["rcut"] = rcut
+        discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
+        total = _NonbondedForce(rcut, rswitch)
+        super(OuterRespaForce, self).__init__([total, discount])
