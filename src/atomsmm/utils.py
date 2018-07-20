@@ -12,11 +12,6 @@ from copy import deepcopy
 from simtk import openmm
 
 
-class InputError(Exception):
-    def __init__(self, msg):
-        super(InputError, self).__init__("\033[1;31m" + msg + "\033[0m")
-
-
 def HijackNonbondedForce(system, position=0):
     """
     Searches for and extracts a NonbondedForce object from an OpenMM system.

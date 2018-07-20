@@ -11,8 +11,9 @@ import atomsmm
 def execute(subtract, shift, target):
     rcut = 10*unit.angstroms
     rswitch = 9.5*unit.angstroms
-    pdb = app.PDBFile('tests/data/q-SPC-FW.pdb')
-    forcefield = app.ForceField('tests/data/q-SPC-FW.xml')
+    case = 'tests/data/q-SPC-FW'
+    pdb = app.PDBFile(case + '.pdb')
+    forcefield = app.ForceField(case + '.xml')
     system = forcefield.createSystem(pdb.topology, nonbondedMethod=app.CutoffPeriodic)
     force = atomsmm.InnerRespaForce(rswitch, rcut, subtract, shift)
     force.importFrom(atomsmm.HijackNonbondedForce(system)).addTo(system)

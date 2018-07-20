@@ -20,11 +20,11 @@ class Force:
 
     Parameters
     ----------
-        forces : list(openmm.Force)
+        forces : list(openmm.Force), optional, default=[]
             A list of OpenMM Force objects.
 
     """
-    def __init__(self, forces):
+    def __init__(self, forces=[]):
         self.forces = forces
         self.setForceGroup(0)
 
@@ -57,7 +57,23 @@ class Force:
                 The group index, whose value is between 0 and 31 (inclusive).
 
         """
-        return self.forces[0].getForceGroup()
+        return self.forces[0].getForceGroup() if self.forces else 0
+
+    def includeExceptions(self):
+        """
+        Incorporate non-exclusion exceptions when importing parameters via method
+        :func:`~Force.importFrom`.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        exceptions = _ExceptionNonbondedForce()
+        exceptions.setForceGroup(self.getForceGroup())
+        self.forces.append(exceptions)
+        return self
 
     def addTo(self, system):
         """
@@ -90,6 +106,7 @@ class Force:
         ----------
             nbForce : openmm.NonbondedForce
                 The force from which the parameters will be imported.
+
         Returns
         -------
             :class:`Force`
@@ -101,7 +118,7 @@ class Force:
         return self
 
 
-class CustomNonbondedForce(openmm.CustomNonbondedForce):
+class _CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
 
@@ -125,7 +142,7 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     def __init__(self, energy, cutoff_distance, switch_distance=None,
                  parameters=["charge", "sigma", "epsilon"], **kwargs):
-        super(CustomNonbondedForce, self).__init__(energy)
+        super(_CustomNonbondedForce, self).__init__(energy)
         for name in parameters:
             self.addPerParticleParameter(name)
         for (name, value) in kwargs.items():
@@ -150,6 +167,11 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
             force : openmm.NonbondedForce
                 The force from which the particles and exclusions will be imported.
 
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
         """
         for index in range(force.getNumParticles()):
             self.addParticle(force.getParticleParameters(index))
@@ -157,6 +179,45 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
             i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
             if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
                 self.addExclusion(i, j)
+        return self
+
+
+class _ExceptionNonbondedForce(openmm.CustomBondForce):
+    """
+    A special class for handling OpenMM NonbondedForce_ exceptions.
+
+    .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+
+    """
+    def __init__(self):
+        energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r;"
+        super(_ExceptionNonbondedForce, self).__init__(energy)
+        self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
+        self.addPerBondParameter("chargeprod")
+        self.addPerBondParameter("sigma")
+        self.addPerBondParameter("epsilon")
+
+    def importFrom(self, force):
+        """
+        Import all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object.
+
+        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+
+        Parameters
+        ----------
+            force : openmm.NonbondedForce
+                The force from which the exceptions will be imported.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        for index in range(force.getNumExceptions()):
+            [i, j, chargeProd, sigma, epsilon] = force.getExceptionParameters(index)
+            if (chargeProd/chargeProd.unit != 0.0) or (epsilon/epsilon.unit != 0.0):
+                self.addBond(i, j, [chargeProd, sigma, epsilon])
         return self
 
 
@@ -192,10 +253,9 @@ class DampedSmoothedForce(Force):
         degree : int, optional, default=1
             The degree `n` in the definition of the switching variable `u` (see above).
 
-
     """
     def __init__(self, alpha, rswitch, rcut, degree=1):
-        energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kcoul*charge1*charge2*erfc(alpha*r)/r)*f;"
+        energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*erfc(alpha*r)/r)*f;"
         if degree == 1:
             energy += "f = 1;"
         else:
@@ -203,9 +263,9 @@ class DampedSmoothedForce(Force):
             energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        force = CustomNonbondedForce(energy, rcut, rswitch if degree == 1 else None,
-                                     Kcoul=138.935456*unit.kilojoules/unit.nanometer,
-                                     alpha=alpha, rswitch=rswitch, rcut=rcut)
+        force = _CustomNonbondedForce(energy, rcut, rswitch if degree == 1 else None,
+                                      Kc=138.935456*unit.kilojoules/unit.nanometer,
+                                      alpha=alpha, rswitch=rswitch, rcut=rcut)
         super(DampedSmoothedForce, self).__init__([force])
 
 
@@ -253,5 +313,5 @@ class InnerRespaForce(Force):
         globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if shift:
             globalParameters["rcut"] = rcut
-        force = CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
+        force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])
