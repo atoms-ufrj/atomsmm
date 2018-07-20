@@ -123,7 +123,13 @@ class Force:
 
 class _NonbondedForce(openmm.NonbondedForce):
     """
-    An extension of OpenMM's NonbondedForce_ class.
+    An extension of OpenMM's NonbondedForce_ class, but with exclusion exceptions only. By default,
+    long-range dispersion correction is employed and the method used for long-range electrostatic
+    interactions is `PME`.
+
+    ..note:
+        Non-exclusion exceptions must be handled separately using :class:`_ExceptionNonbondedForce`
+        objects.
 
     .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
@@ -149,11 +155,8 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exclusion exceptions from the a passed OpenMM NonbondedForce_
-        object.
-
-        ..note:
-            Non-exclusion exceptions are not imported.
+        Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object and
+        turn all non-exclusion exceptions into exclusion ones.
 
         .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
@@ -172,8 +175,7 @@ class _NonbondedForce(openmm.NonbondedForce):
             self.addParticle(*force.getParticleParameters(index))
         for index in range(force.getNumExceptions()):
             i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
-                self.addException(i, j, chargeProd, sigma, epsilon)
+            self.addException(i, j, 0.0*chargeProd, sigma, 0.0*epsilon)
         return self
 
 
