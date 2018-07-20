@@ -1,7 +1,7 @@
 """
 .. module:: forces
    :platform: Unix, Windows
-   :synopsis: a module for defining the class :class:`force`.
+   :synopsis: a module for defining the basis class :class:`Force` and derived classes.
 
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
 
@@ -271,11 +271,10 @@ class DampedSmoothedForce(Force):
 
 class InnerRespaForce(Force):
     """
-    A smoothed version of the Lennard-Jones/Coulomb potential.
+    A smoothed version of the Lennard-Jones + (optionally) shifted Coulomb potential.
 
     .. math::
-        & V(r)=(1-2\\delta_\\mathrm{sub})
-        \\left\\{
+        & V(r)=\\left\\{
             4\\epsilon\\left[
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
             \\right] +
@@ -288,9 +287,9 @@ class InnerRespaForce(Force):
         & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
         & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
 
-    In the equations above, :math:`\\theta(x)` is the Heaviside step function. The constants
-    :math:`\\delta_\\mathrm{sub}` and :math:`\\delta_\\mathrm{shift}` are the numerical values
-    (that is, 1 or 0) corresponding to the optional arguments `subtract` and `shift`.
+    In the equations above, :math:`\\theta(x)` is the Heaviside step function. The constant
+    :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional boolean
+    argument `shift`.
 
     Parameters
     ----------
@@ -298,20 +297,20 @@ class InnerRespaForce(Force):
             The distance marking the start of the switching range.
         rcut : Number or unit.Quantity
             The potential cut-off distance.
-        subtract : Bool, optional, default=False
-            If True, the computed potential is subtracted from the system energy.
-        shift : Bool, optional, default=False
-            If True, a potential shift is done for the Coulomb term at the cutoff distance.
+        shifted : Bool, optional, default=True
+            If True, a potential shift is done for the Coulomb term at the cutoff distance prior
+            to smoothing.
 
     """
-    def __init__(self, rswitch, rcut, subtract=False, shift=False):
-        sign = "-" if subtract else ""
-        delta = "-1/rcut" if shift else ""
-        energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+Kc*charge1*charge2*(1/r%s));" % (sign, delta)
+    def __init__(self, rswitch, rcut, shifted=True):
+        if shifted:
+            energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*(1/r-1/rcut);"
+        else:
+            energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r;"
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
-        if shift:
+        if shifted:
             globalParameters["rcut"] = rcut
         force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])

@@ -8,14 +8,14 @@ from simtk.openmm import app
 import atomsmm
 
 
-def execute(subtract, shift, target):
+def execute(shifted, target):
     rcut = 10*unit.angstroms
     rswitch = 9.5*unit.angstroms
     case = 'tests/data/q-SPC-FW'
     pdb = app.PDBFile(case + '.pdb')
     forcefield = app.ForceField(case + '.xml')
     system = forcefield.createSystem(pdb.topology, nonbondedMethod=app.CutoffPeriodic)
-    force = atomsmm.InnerRespaForce(rswitch, rcut, subtract, shift)
+    force = atomsmm.InnerRespaForce(rswitch, rcut, shifted)
     force.importFrom(atomsmm.HijackNonbondedForce(system)).addTo(system)
     integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
     platform = openmm.Platform.getPlatformByName('Reference')
@@ -26,13 +26,9 @@ def execute(subtract, shift, target):
     assert potential/potential.unit == pytest.approx(target)
 
 
-def test_defaults():
-    execute(False, False, 11517.016971940495)
+def test_unshifted():
+    execute(False, 11517.016971940495)
 
 
-def test_subtract():
-    execute(True, False, -11517.016971940495)
-
-
-def test_shift():
-    execute(False, True, 3097.9538355702375)
+def test_shifted():
+    execute(True, 3097.9538355702375)
