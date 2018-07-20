@@ -13,7 +13,7 @@ from simtk import unit
 
 class Force:
     """
-    The basis class of an AtomsMM Force object, which is a list of OpenMM Force_ objects treated
+    The basis class of every AtomsMM Force object, which is a list of OpenMM Force_ objects treated
     as a single force.
 
     .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
@@ -107,13 +107,28 @@ class CustomNonbondedForce(openmm.CustomNonbondedForce):
 
     .. _CustomNonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomNonbondedForce.html
 
+    Parameters
+    ----------
+        energy : str
+            An algebraic expression giving the interaction energy between two particles as a
+            function of their distance `r`, as well as any per-particle and global parameters.
+        cutoff_distance : Number or unit.Quantity
+            The cutoff distance being used for nonbonded interactions.
+        switch_distance :  Number or unit.Quantity, optional, default=None
+            The distance at which the switching function begins to reduce the interaction. If this
+            is None, then no switching will be done.
+        parameters : list(str), optional, default=["charge", "sigma", "epsilon"]
+            A list of nonbonded force parameters that depend on the individual particles.
+        **kwargs
+            Keyword arguments defining names and values of global nonbonded force parameters.
+
     """
-    def __init__(self, energy, cutoff_distance, switch_distance=None, **globalParameters):
+    def __init__(self, energy, cutoff_distance, switch_distance=None,
+                 parameters=["charge", "sigma", "epsilon"], **kwargs):
         super(CustomNonbondedForce, self).__init__(energy)
-        self.addPerParticleParameter("charge")
-        self.addPerParticleParameter("sigma")
-        self.addPerParticleParameter("epsilon")
-        for (name, value) in globalParameters.items():
+        for name in parameters:
+            self.addPerParticleParameter(name)
+        for (name, value) in kwargs.items():
             self.addGlobalParameter(name, value)
         self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
         self.setCutoffDistance(cutoff_distance)
@@ -168,11 +183,11 @@ class DampedSmoothedForce(Force):
 
     Parameters
     ----------
-        alpha
+        alpha : Number or unit.Quantity
             The damping parameter (in inverse distance unit).
-        rswitch
+        rswitch : Number or unit.Quantity
             The distance marking the start of the switching range.
-        rcut
+        rcut : Number or unit.Quantity
             The potential cut-off distance.
         degree : int, optional, default=1
             The degree `n` in the definition of the switching variable `u` (see above).
@@ -219,9 +234,9 @@ class InnerRespaForce(Force):
 
     Parameters
     ----------
-        rswitch
+        rswitch : Number or unit.Quantity
             The distance marking the start of the switching range.
-        rcut
+        rcut : Number or unit.Quantity
             The potential cut-off distance.
         subtract : Bool, optional, default=False
             If True, the computed potential is subtracted from the system energy.
@@ -232,10 +247,11 @@ class InnerRespaForce(Force):
     def __init__(self, rswitch, rcut, subtract=False, shift=False):
         sign = "-" if subtract else ""
         delta = "-1/rcut" if shift else ""
-        energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+K*charge1*charge2*(1/r%s));" % (sign, delta)
+        energy = "%s(4*epsilon*((sigma/r)^12-(sigma/r)^6)+Kc*charge1*charge2*(1/r%s));" % (sign, delta)
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        force = CustomNonbondedForce(energy, rcut, rswitch,
-                                     K=138.935456*unit.kilojoules/unit.nanometer,
-                                     rswitch=rswitch, rcut=rcut)
+        globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        if shift:
+            globalParameters["rcut"] = rcut
+        force = CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])
