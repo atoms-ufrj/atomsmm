@@ -287,17 +287,15 @@ class DampedSmoothedForce(Force):
     A damped-smoothed version of the Lennard-Jones/Coulomb potential.
 
     .. math::
-        & V(r)=(1-2\\delta_\\mathrm{sub})
-        \\left\\{
+        & V(r)=\\left\\{
             4\\epsilon\\left[
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
-            \\right] +
-            \\frac{q_1 q_2}{4\\pi\\epsilon_0}\\frac{\\mathrm{erfc}(r)}{r}
+            \\right]+\\frac{q_1 q_2}{4\\pi\\epsilon_0}\\frac{\\mathrm{erfc}(r)}{r}
         \\right\\}S(r) \\\\
-        & S(r)=[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
-        & u=\\frac{r^n-r_\\mathrm{switch}^n}{r_\\mathrm{cut}^n-r_\\mathrm{switch}^n} \\\\
         & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
-        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
+        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2} \\\\
+        & S(r)=[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
+        & u=\\frac{r^n-r_\\mathrm{switch}^n}{r_\\mathrm{cut}^n-r_\\mathrm{switch}^n}
 
     In the equations above, :math:`\\theta(x)` is the Heaviside step function. Note that the
     switching function employed here, with `u` being a quadratic function of `r`, is slightly
@@ -332,25 +330,21 @@ class DampedSmoothedForce(Force):
 
 class InnerRespaForce(Force):
     """
-    A smoothed version of the Lennard-Jones + (optionally) shifted Coulomb potential.
+    A smoothed version of the (optionally) shifted Lennard-Jones+Coulomb potential.
 
     .. math::
-        & V(r)=\\left\\{
-            4\\epsilon\\left[
+        & V(r)=\\left[U(r)-\\delta_\\mathrm{shift}U(r_\\mathrm{cut})\\right]S(r) \\\\
+        & U(r)=4\\epsilon\\left[
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
-            \\right] +
-            \\frac{q_1 q_2}{4\\pi\\epsilon_0}\\left(
-                \\frac{1}{r}-\\frac{\\delta_\\mathrm{shift}}{r_\\mathrm{cut}}
-            \\right)
-        \\right\\}S(r) \\\\
-        & S(r)=\\theta(r_\\mathrm{cut}-r)[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
-        & u=\\frac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}} \\\\
+            \\right]+\\frac{1}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r} \\\\
         & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
-        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
+        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2} \\\\
+        & S(r)=\\theta(r_\\mathrm{cut}-r)[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
+        & u=\\frac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}
 
     In the equations above, :math:`\\theta(x)` is the Heaviside step function. The constant
-    :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional boolean
-    argument `shift`.
+    :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional
+    boolean argument `shift`.
 
     Parameters
     ----------
@@ -364,15 +358,14 @@ class InnerRespaForce(Force):
 
     """
     def __init__(self, rswitch, rcut, shifted=True):
-        if shifted:
-            energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*(1/r-1/rcut);"
-        else:
-            energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r;"
+        potential = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r"
+        shifting = "-(4*epsilon*((sigma/rc)^12-(sigma/rc)^6) + Kc*charge1*charge2/rc);"
+        energy = potential + (shifting if shifted else ";")
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if shifted:
-            globalParameters["rcut"] = rcut
+            globalParameters["rc"] = rcut
         force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])
         self.rswitch = rswitch
@@ -397,15 +390,14 @@ class OuterRespaForce(Force):
     def __init__(self, rswitch, rcut, preceding):
         if not isinstance(preceding, InnerRespaForce):
             raise InputError("argument 'preceding' must be an internal RESPA force")
-        if preceding.shifted:
-            energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*(1/r-1/rcut));"
-        else:
-            energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r);"
+        potential = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r)"
+        shifting = "+(4*epsilon*((sigma/rc)^12-(sigma/rc)^6) + Kc*charge1*charge2/rc);"
+        energy = potential + (shifting if preceding.shifted else ";")
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if preceding.shifted:
-            globalParams["rcut"] = rcut
+            globalParams["rc"] = rcut
         discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
         total = _NonbondedForce(rcut, rswitch)
         super(OuterRespaForce, self).__init__([total, discount])

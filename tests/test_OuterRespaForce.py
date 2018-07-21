@@ -29,7 +29,6 @@ def execute(shifted, target):
     for i in range(2):
         state = simulation.context.getState(getEnergy=True, groups=set([i+1]))
         potential = state.getPotentialEnergy()
-        print(potential)
         assert potential/potential.unit == pytest.approx(target[i])
 
 
@@ -38,4 +37,4 @@ def test_unshifted():
 
 
 def test_shifted():
-    execute(True, [3694.364760247278, -897.6959934142387])
+    execute(True, [3934.08345914871, -1137.414692315671])
