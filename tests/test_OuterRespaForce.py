@@ -8,7 +8,16 @@ from simtk.openmm import app
 import atomsmm
 
 
-def execute(OuterForceType, shifted, target):
+def potentialEnergy(system, pdb):
+    integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    simulation = app.Simulation(pdb.topology, system, integrator, platform)
+    simulation.context.setPositions(pdb.positions)
+    state = simulation.context.getState(getEnergy=True)
+    return state.getPotentialEnergy()
+
+
+def execute(OuterForceType, shifted):
     rswitch_inner = 6.5*unit.angstroms
     rcut_inner = 7.0*unit.angstroms
     rswitch = 9.5*unit.angstroms
@@ -16,25 +25,30 @@ def execute(OuterForceType, shifted, target):
     case = 'tests/data/q-SPC-FW'
     pdb = app.PDBFile(case + '.pdb')
     forcefield = app.ForceField(case + '.xml')
+
     system = forcefield.createSystem(pdb.topology)
-    reference = atomsmm.HijackNonbondedForce(system)
+    nbforce = atomsmm.HijackNonbondedForce(system)
     innerforce = atomsmm.InnerRespaForce(rswitch_inner, rcut_inner, shifted).setForceGroup(1)
-    innerforce.importFrom(reference).addTo(system)
+    innerforce.importFrom(nbforce).addTo(system)
     outerforce = OuterForceType(rswitch, rcut, innerforce).setForceGroup(2)
-    outerforce.importFrom(reference).addTo(system)
-    integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
-    platform = openmm.Platform.getPlatformByName('Reference')
-    simulation = app.Simulation(pdb.topology, system, integrator, platform)
-    simulation.context.setPositions(pdb.positions)
-    for i in range(2):
-        state = simulation.context.getState(getEnergy=True, groups=set([i+1]))
-        potential = state.getPotentialEnergy()
-        assert potential/potential.unit == pytest.approx(target[i])
+    outerforce.importFrom(nbforce).addTo(system)
+
+    refsys = forcefield.createSystem(pdb.topology,
+                                     nonbondedMethod=openmm.app.PME,
+                                     nonbondedCutoff=rcut,
+                                     removeCMMotion=True)
+    force = refsys.getForce(refsys.getNumForces()-2)
+    force.setUseSwitchingFunction(True)
+    force.setSwitchingDistance(rswitch)
+
+    potential = potentialEnergy(system, pdb)
+    refpot = potentialEnergy(refsys, pdb)
+    assert potential/potential.unit == pytest.approx(refpot/refpot.unit)
 
 
 def test_unshifted():
-    execute(atomsmm.OuterRespaForce, False, [26864.363518197402, -24067.694751364364])
+    execute(atomsmm.OuterRespaForce, False)
 
 
 def test_shifted():
-    execute(atomsmm.OuterRespaForce, True, [3934.08345914871, -7877.112930968626])
+    execute(atomsmm.OuterRespaForce, True)

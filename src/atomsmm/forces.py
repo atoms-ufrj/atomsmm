@@ -327,6 +327,10 @@ class DampedSmoothedForce(Force):
         super(DampedSmoothedForce, self).__init__([force])
 
 
+def U(r):
+    return "4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s" % (r, r, r)
+
+
 class InnerRespaForce(Force):
     """
     A smoothed version of the (optionally) shifted Lennard-Jones+Coulomb potential.
@@ -357,17 +361,15 @@ class InnerRespaForce(Force):
 
     """
     def __init__(self, rswitch, rcut, shifted=True):
-        globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
-        energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r"
+        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if shifted:
-            rc = "rc0"
-            globalParameters[rc] = rcut
-            energy += "-(4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s);" % (rc, rc, rc)
+            globalParams["rc0"] = rcut
+            energy = "%s-(%s);" % (U("r"), U("rc0"))
         else:
-            energy += ";"
+            energy = "%s;" % U("r")
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
+        force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParams)
         super(InnerRespaForce, self).__init__([force])
         self.index = 0
         self.rswitch = rswitch
@@ -393,13 +395,12 @@ class OuterRespaForce(Force):
         if not isinstance(preceding, InnerRespaForce):
             raise InputError("argument 'preceding' must be an internal RESPA force")
         globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
-        energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r)"
         if preceding.shifted:
-            rc = "rc" + str(preceding.index + 1)
-            globalParams[rc] = rcut
-            energy += "+(4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s);" % (rc, rc, rc)
+            rci = "rc" + str(preceding.index)
+            globalParams[rci] = preceding.rcut
+            energy = "%s-(%s);" % (U(rci), U("r"))
         else:
-            energy += ";"
+            energy = "-(%s);" % U("r")
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
         discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
