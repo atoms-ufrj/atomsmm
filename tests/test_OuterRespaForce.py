@@ -8,7 +8,7 @@ from simtk.openmm import app
 import atomsmm
 
 
-def execute(shifted, target):
+def execute(OuterForceType, shifted, target):
     rswitch_inner = 6.5*unit.angstroms
     rcut_inner = 7.0*unit.angstroms
     rswitch = 9.5*unit.angstroms
@@ -20,7 +20,7 @@ def execute(shifted, target):
     reference = atomsmm.HijackNonbondedForce(system)
     innerforce = atomsmm.InnerRespaForce(rswitch_inner, rcut_inner, shifted).setForceGroup(1)
     innerforce.importFrom(reference).addTo(system)
-    outerforce = atomsmm.OuterRespaForce(rswitch, rcut, innerforce).setForceGroup(2)
+    outerforce = OuterForceType(rswitch, rcut, innerforce).setForceGroup(2)
     outerforce.importFrom(reference).addTo(system)
     integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
     platform = openmm.Platform.getPlatformByName('Reference')
@@ -33,8 +33,8 @@ def execute(shifted, target):
 
 
 def test_unshifted():
-    execute(False, [26864.363518197402, -24067.694751364364])
+    execute(atomsmm.OuterRespaForce, False, [26864.363518197402, -24067.694751364364])
 
 
 def test_shifted():
-    execute(True, [3934.08345914871, -1137.414692315671])
+    execute(atomsmm.OuterRespaForce, True, [3934.08345914871, -7877.112930968626])

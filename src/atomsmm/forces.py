@@ -123,13 +123,12 @@ class Force:
 
 class _NonbondedForce(openmm.NonbondedForce):
     """
-    An extension of OpenMM's NonbondedForce_ class, but with exclusion exceptions only. By default,
-    long-range dispersion correction is employed and the method used for long-range electrostatic
-    interactions is `PME`.
+    An extension of OpenMM's NonbondedForce_ class. By default, long-range dispersion correction is
+    employed and the method used for long-range electrostatic interactions is `PME`.
 
     ..note:
-        Non-exclusion exceptions must be handled separately using :class:`_ExceptionNonbondedForce`
-        objects.
+        All exceptions are turned into exclusions. Non-exclusion exceptions must be handled
+        separately using a :class:`_ExceptionNonbondedForce` object.
 
     .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
@@ -358,16 +357,19 @@ class InnerRespaForce(Force):
 
     """
     def __init__(self, rswitch, rcut, shifted=True):
-        potential = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r"
-        shifting = "-(4*epsilon*((sigma/rc)^12-(sigma/rc)^6) + Kc*charge1*charge2/rc);"
-        energy = potential + (shifting if shifted else ";")
+        globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r"
+        if shifted:
+            rc = "rc0"
+            globalParameters[rc] = rcut
+            energy += "-(4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s);" % (rc, rc, rc)
+        else:
+            energy += ";"
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        globalParameters = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
-        if shifted:
-            globalParameters["rc"] = rcut
         force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParameters)
         super(InnerRespaForce, self).__init__([force])
+        self.index = 0
         self.rswitch = rswitch
         self.rcut = rcut
         self.shifted = shifted
@@ -390,14 +392,16 @@ class OuterRespaForce(Force):
     def __init__(self, rswitch, rcut, preceding):
         if not isinstance(preceding, InnerRespaForce):
             raise InputError("argument 'preceding' must be an internal RESPA force")
-        potential = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r)"
-        shifting = "+(4*epsilon*((sigma/rc)^12-(sigma/rc)^6) + Kc*charge1*charge2/rc);"
-        energy = potential + (shifting if preceding.shifted else ";")
+        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        energy = "-(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2/r)"
+        if preceding.shifted:
+            rc = "rc" + str(preceding.index + 1)
+            globalParams[rc] = rcut
+            energy += "+(4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s);" % (rc, rc, rc)
+        else:
+            energy += ";"
         energy += "sigma = 0.5*(sigma1+sigma2);"
         energy += "epsilon = sqrt(epsilon1*epsilon2);"
-        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
-        if preceding.shifted:
-            globalParams["rc"] = rcut
         discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
         total = _NonbondedForce(rcut, rswitch)
         super(OuterRespaForce, self).__init__([total, discount])
