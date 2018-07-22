@@ -21,14 +21,13 @@ pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
 system = forcefield.createSystem(pdb.topology, rigid_water=True)
 nbforce = atomsmm.HijackNonbondedForce(system)
-atomsmm.InnerRespaForce(rswitch, rcut, shift).importFrom(nbforce).addTo(system)
+atomsmm.InnerRespaForce(rcut, rswitch, shift).importFrom(nbforce).addTo(system)
 integrator = openmm.VerletIntegrator(dt)
 platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)
 simulation.context.setPositions(pdb.positions)
 
 outputs = [stdout, 'output.csv']
-# outputs = [stdout]
 separators = ['\t', ',']
 for (out, sep) in zip(outputs, separators):
     simulation.reporters.append(openmm.app.StateDataReporter(out, ndisp,

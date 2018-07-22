@@ -28,9 +28,9 @@ def execute(OuterForceType, shifted):
 
     system = forcefield.createSystem(pdb.topology)
     nbforce = atomsmm.HijackNonbondedForce(system)
-    innerforce = atomsmm.InnerRespaForce(rswitch_inner, rcut_inner, shifted).setForceGroup(1)
+    innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)
-    outerforce = OuterForceType(rswitch, rcut, innerforce).setForceGroup(2)
+    outerforce = OuterForceType(innerforce, rcut, rswitch).setForceGroup(2)
     outerforce.importFrom(nbforce).addTo(system)
 
     refsys = forcefield.createSystem(pdb.topology,

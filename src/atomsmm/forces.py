@@ -140,14 +140,17 @@ class _NonbondedForce(openmm.NonbondedForce):
     ----------
         cutoff_distance : Number or unit.Quantity
             The cutoff distance being used for nonbonded interactions.
-        switch_distance :  Number or unit.Quantity, optional, default=None
+        switch_distance : Number or unit.Quantity, optional, default=None
             The distance at which the switching function begins to reduce the interaction. If this
             is None, then no switching will be done.
+        nonbondedMethod : method, optional, default=openmm.NonbondedForce.PME
+            The method used for handling long range nonbonded interactions.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None):
+    def __init__(self, cutoff_distance, switch_distance=None,
+                 nonbondedMethod=openmm.NonbondedForce.PME):
         super(_NonbondedForce, self).__init__()
-        self.setNonbondedMethod(openmm.NonbondedForce.PME)
+        self.setNonbondedMethod(nonbondedMethod)
         self.setCutoffDistance(cutoff_distance)
         self.setUseDispersionCorrection(True)
         if switch_distance is None:
@@ -222,7 +225,10 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exclusions from the a passed OpenMM NonbondedForce_ object.
+        Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object.
+
+        ..note:
+            All exceptions are turned into exclusions.
 
         .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
@@ -241,8 +247,7 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
             self.addParticle(force.getParticleParameters(index))
         for index in range(force.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeprod/chargeprod.unit == 0.0 and epsilon/epsilon.unit == 0.0:
-                self.addExclusion(i, j)
+            self.addExclusion(i, j)
         return self
 
 
@@ -307,16 +312,19 @@ class DampedSmoothedForce(Force):
     Parameters
     ----------
         alpha : Number or unit.Quantity
-            The damping parameter (in inverse distance unit).
-        rswitch : Number or unit.Quantity
-            The distance marking the start of the switching range.
-        rcut : Number or unit.Quantity
-            The potential cut-off distance.
+            The Coulomb damping parameter (in inverse distance unit).
+        cutoff_distance : Number or unit.Quantity
+            The distance at which the nonbonded interaction vanishes.
+        switch_distance : Number or unit.Quantity
+            The distance at which the switching function begins to smooth the approach of the
+            nonbonded interaction towards zero.
         degree : int, optional, default=1
             The degree `n` in the definition of the switching variable `u` (see above).
 
     """
-    def __init__(self, alpha, rswitch, rcut, degree=1):
+    def __init__(self, alpha, cutoff_distance, switch_distance, degree=1):
+        if switch_distance/switch_distance.unit < 0.0 or switch_distance >= cutoff_distance:
+            raise InputError("Switching distance must satisfy 0 <= r_switch < r_cutoff")
         energy = "S*(%s + erfc(alpha*r)*%s);" % (LennardJones("r"), Coulomb("r"))
         if degree == 1:
             energy += "S = 1;"
@@ -324,9 +332,10 @@ class DampedSmoothedForce(Force):
             energy += "S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
             energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
         energy += LorentzBerthelot()
-        force = _CustomNonbondedForce(energy, rcut, rswitch if degree == 1 else None,
+        force = _CustomNonbondedForce(energy, cutoff_distance,
+                                      switch_distance if degree == 1 else None,
                                       Kc=138.935456*unit.kilojoules/unit.nanometer,
-                                      alpha=alpha, rswitch=rswitch, rcut=rcut)
+                                      alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
         super(DampedSmoothedForce, self).__init__([force])
 
 
@@ -350,28 +359,29 @@ class InnerRespaForce(Force):
 
     Parameters
     ----------
-        rswitch : Number or unit.Quantity
-            The distance marking the start of the switching range.
-        rcut : Number or unit.Quantity
-            The potential cut-off distance.
+        cutoff_distance : Number or unit.Quantity
+            The distance at which the nonbonded interaction vanishes.
+        switch_distance : Number or unit.Quantity
+            The distance at which the switching function begins to smooth the approach of the
+            nonbonded interaction towards zero.
         shifted : Bool, optional, default=True
-            If True, a potential shift is done for the Coulomb term at the cutoff distance prior
-            to smoothing.
+            If True, a potential shift is done for both the Lennard-Jones and the Coulomb term
+            prior to the potential smoothing.
 
     """
-    def __init__(self, rswitch, rcut, shifted=True):
+    def __init__(self, cutoff_distance, switch_distance, shifted=True):
         globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if shifted:
-            globalParams["rc0"] = rcut
+            globalParams["rc0"] = cutoff_distance
             energy = "%s-(%s);" % (LennardJonesCoulomb("r"), LennardJonesCoulomb("rc0"))
         else:
             energy = "%s;" % LennardJonesCoulomb("r")
         energy += LorentzBerthelot()
-        force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParams)
+        force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
         super(InnerRespaForce, self).__init__([force])
         self.index = 0
-        self.rswitch = rswitch
-        self.rcut = rcut
+        self.rswitch = switch_distance
+        self.rcut = cutoff_distance
         self.shifted = shifted
 
 
@@ -381,25 +391,32 @@ class OuterRespaForce(Force):
 
     Parameters
     ----------
-        rswitch : Number or unit.Quantity
-            The distance marking the start of the switching range.
-        rcut : Number or unit.Quantity
-            The potential cut-off distance.
         preceding : :class:`InnerRespaForce`
             The InnerRespaForce object with which this Force is supposed to match.
+        cutoff_distance : Number or unit.Quantity
+            The distance at which the nonbonded interaction vanishes.
+        switch_distance : Number or unit.Quantity, optional, default=None
+            The distance at which the switching function begins to smooth the approach of the
+            nonbonded interaction towards zero. If this is None, then no switching will be done
+            prior to the potential cutoff.
 
     """
-    def __init__(self, rswitch, rcut, preceding):
+    def __init__(self, preceding, cutoff_distance, switch_distance=None,
+                 nonbondedMethod=openmm.NonbondedForce.PME):
         if not isinstance(preceding, InnerRespaForce):
             raise InputError("argument 'preceding' must be an internal RESPA force")
-        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        rsi = "rs" + str(preceding.index)
+        rci = "rc" + str(preceding.index)
+        globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
+                        rsi: preceding.rswitch, rci: preceding.rcut}
+        prefac = "step(%s-r)*S" % rci
         if preceding.shifted:
-            rci = "rc" + str(preceding.index)
-            globalParams[rci] = preceding.rcut
-            energy = "%s-(%s);" % (LennardJonesCoulomb(rci), LennardJonesCoulomb("r"))
+            energy = "%s*(%s-(%s));" % (prefac, LennardJonesCoulomb(rci), LennardJonesCoulomb("r"))
         else:
-            energy = "-(%s);" % LennardJonesCoulomb("r")
+            energy = "-%s*(%s);" % (prefac, LennardJonesCoulomb("r"))
+        energy += "S = 1 + step(r - %s)*u^3*(15*u - 6*u^2 - 10);" % rsi
+        energy += "u = (r - %s)/(%s - %s);" % (rsi, rci, rsi)
         energy += LorentzBerthelot()
-        discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
-        total = _NonbondedForce(rcut, rswitch)
+        discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
+        total = _NonbondedForce(cutoff_distance, switch_distance, nonbondedMethod)
         super(OuterRespaForce, self).__init__([total, discount])
