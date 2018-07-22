@@ -10,19 +10,34 @@ import atomsmm
 nsteps = 2000
 ndisp = 10
 dt = 1.0*unit.femtoseconds
+rswitchIn = 6.0*unit.angstroms
+rcutIn = 7.0*unit.angstroms
+rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
-rswitch = rcut - 1.0*unit.angstroms
 shift = True
+mts = False
+# mts = True
 
-# case = 'q-SPC-FW'
-case = 'emim_BCN4_Jiung2014'
+case = 'q-SPC-FW'
+# case = 'emim_BCN4_Jiung2014'
 
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
-system = forcefield.createSystem(pdb.topology, rigid_water=True)
-nbforce = atomsmm.HijackNonbondedForce(system)
-atomsmm.InnerRespaForce(rcut, rswitch, shift).importFrom(nbforce).addTo(system)
-integrator = openmm.VerletIntegrator(dt)
+system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
+                                 nonbondedCutoff=rcut, rigidWater=False)
+
+if mts:
+    nbforce = atomsmm.HijackNonbondedForce(system)
+    exceptions = atomsmm.Force().includeExceptions().setForceGroup(0)
+    innerForce = atomsmm.InnerRespaForce(rcutIn, rswitchIn, shift).setForceGroup(1)
+    outerForce = atomsmm.OuterRespaForce(innerForce, rcut, rswitch).setForceGroup(2)
+    for force in [exceptions, innerForce, outerForce]:
+        force.importFrom(nbforce)
+        force.addTo(system)
+    integrator = openmm.VerletIntegrator(dt)  # CHANGE HERE
+else:
+    integrator = openmm.VerletIntegrator(dt)
+
 platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)
 simulation.context.setPositions(pdb.positions)

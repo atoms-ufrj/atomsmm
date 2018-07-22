@@ -409,11 +409,10 @@ class OuterRespaForce(Force):
         rci = "rc" + str(preceding.index)
         globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
                         rsi: preceding.rswitch, rci: preceding.rcut}
-        prefac = "step(%s-r)*S" % rci
+        potential = "-(%s)" % LennardJonesCoulomb("r")
         if preceding.shifted:
-            energy = "%s*(%s-(%s));" % (prefac, LennardJonesCoulomb(rci), LennardJonesCoulomb("r"))
-        else:
-            energy = "-%s*(%s);" % (prefac, LennardJonesCoulomb("r"))
+            potential += "+" + LennardJonesCoulomb(rci)
+        energy = "step(%s-r)*S*(%s);" % (rci, potential)
         energy += "S = 1 + step(r - %s)*u^3*(15*u - 6*u^2 - 10);" % rsi
         energy += "u = (r - %s)/(%s - %s);" % (rsi, rci, rsi)
         energy += LorentzBerthelot()
