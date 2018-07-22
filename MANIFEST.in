@@ -16,4 +16,4 @@ include README.md
 
 include tox.ini tox_install.cmd .travis.yml readthedocs.yml
 
-global-exclude *.py[cod] __pycache__ *.so *.dylib
+global-exclude *.py[cod] __pycache__ *.so *.dylib *.csv *.pdb
