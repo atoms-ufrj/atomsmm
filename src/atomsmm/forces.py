@@ -10,7 +10,11 @@
 from simtk import openmm
 from simtk import unit
 
+from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
+from atomsmm.utils import LennardJones
+from atomsmm.utils import LennardJonesCoulomb
+from atomsmm.utils import LorentzBerthelot
 
 
 class Force:
@@ -173,8 +177,8 @@ class _NonbondedForce(openmm.NonbondedForce):
         for index in range(force.getNumParticles()):
             self.addParticle(*force.getParticleParameters(index))
         for index in range(force.getNumExceptions()):
-            i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
-            self.addException(i, j, 0.0*chargeProd, sigma, 0.0*epsilon)
+            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+            self.addException(i, j, 0.0*chargeprod, sigma, 0.0*epsilon)
         return self
 
 
@@ -236,8 +240,8 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
         for index in range(force.getNumParticles()):
             self.addParticle(force.getParticleParameters(index))
         for index in range(force.getNumExceptions()):
-            i, j, chargeProd, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeProd/chargeProd.unit == 0.0 and epsilon/epsilon.unit == 0.0:
+            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+            if chargeprod/chargeprod.unit == 0.0 and epsilon/epsilon.unit == 0.0:
                 self.addExclusion(i, j)
         return self
 
@@ -250,7 +254,7 @@ class _ExceptionNonbondedForce(openmm.CustomBondForce):
 
     """
     def __init__(self):
-        energy = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r;"
+        energy = "%s;" % LennardJonesCoulomb("r")
         super(_ExceptionNonbondedForce, self).__init__(energy)
         self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
         self.addPerBondParameter("chargeprod")
@@ -275,9 +279,9 @@ class _ExceptionNonbondedForce(openmm.CustomBondForce):
 
         """
         for index in range(force.getNumExceptions()):
-            [i, j, chargeProd, sigma, epsilon] = force.getExceptionParameters(index)
-            if (chargeProd/chargeProd.unit != 0.0) or (epsilon/epsilon.unit != 0.0):
-                self.addBond(i, j, [chargeProd, sigma, epsilon])
+            [i, j, chargeprod, sigma, epsilon] = force.getExceptionParameters(index)
+            if (chargeprod/chargeprod.unit != 0.0) or (epsilon/epsilon.unit != 0.0):
+                self.addBond(i, j, [chargeprod, sigma, epsilon])
         return self
 
 
@@ -313,22 +317,17 @@ class DampedSmoothedForce(Force):
 
     """
     def __init__(self, alpha, rswitch, rcut, degree=1):
-        energy = "(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*charge1*charge2*erfc(alpha*r)/r)*f;"
+        energy = "S*(%s + erfc(alpha*r)*%s);" % (LennardJones("r"), Coulomb("r"))
         if degree == 1:
-            energy += "f = 1;"
+            energy += "S = 1;"
         else:
-            energy += "f = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
+            energy += "S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
             energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
-        energy += "sigma = 0.5*(sigma1+sigma2);"
-        energy += "epsilon = sqrt(epsilon1*epsilon2);"
+        energy += LorentzBerthelot()
         force = _CustomNonbondedForce(energy, rcut, rswitch if degree == 1 else None,
                                       Kc=138.935456*unit.kilojoules/unit.nanometer,
                                       alpha=alpha, rswitch=rswitch, rcut=rcut)
         super(DampedSmoothedForce, self).__init__([force])
-
-
-def U(r):
-    return "4*epsilon*((sigma/%s)^12-(sigma/%s)^6) + Kc*charge1*charge2/%s" % (r, r, r)
 
 
 class InnerRespaForce(Force):
@@ -364,11 +363,10 @@ class InnerRespaForce(Force):
         globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
         if shifted:
             globalParams["rc0"] = rcut
-            energy = "%s-(%s);" % (U("r"), U("rc0"))
+            energy = "%s-(%s);" % (LennardJonesCoulomb("r"), LennardJonesCoulomb("rc0"))
         else:
-            energy = "%s;" % U("r")
-        energy += "sigma = 0.5*(sigma1+sigma2);"
-        energy += "epsilon = sqrt(epsilon1*epsilon2);"
+            energy = "%s;" % LennardJonesCoulomb("r")
+        energy += LorentzBerthelot()
         force = _CustomNonbondedForce(energy, rcut, rswitch, **globalParams)
         super(InnerRespaForce, self).__init__([force])
         self.index = 0
@@ -398,11 +396,10 @@ class OuterRespaForce(Force):
         if preceding.shifted:
             rci = "rc" + str(preceding.index)
             globalParams[rci] = preceding.rcut
-            energy = "%s-(%s);" % (U(rci), U("r"))
+            energy = "%s-(%s);" % (LennardJonesCoulomb(rci), LennardJonesCoulomb("r"))
         else:
-            energy = "-(%s);" % U("r")
-        energy += "sigma = 0.5*(sigma1+sigma2);"
-        energy += "epsilon = sqrt(epsilon1*epsilon2);"
+            energy = "-(%s);" % LennardJonesCoulomb("r")
+        energy += LorentzBerthelot()
         discount = _CustomNonbondedForce(energy, preceding.rcut, preceding.rswitch, **globalParams)
         total = _NonbondedForce(rcut, rswitch)
         super(OuterRespaForce, self).__init__([total, discount])
