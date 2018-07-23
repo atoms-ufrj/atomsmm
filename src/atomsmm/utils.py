@@ -25,10 +25,6 @@ def Coulomb(r):
     return "Kc*chargeprod/%s" % r
 
 
-def LennardJonesCoulomb(r):
-    return "%s + %s" % (LennardJones(r), Coulomb(r))
-
-
 def LorentzBerthelot():
     mixingRule = "chargeprod = charge1*charge2;"
     mixingRule += "sigma = 0.5*(sigma1+sigma2);"

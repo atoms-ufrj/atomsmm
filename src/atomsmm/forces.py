@@ -13,7 +13,6 @@ from simtk import unit
 from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
 from atomsmm.utils import LennardJones
-from atomsmm.utils import LennardJonesCoulomb
 from atomsmm.utils import LorentzBerthelot
 
 
@@ -259,7 +258,7 @@ class _ExceptionNonbondedForce(openmm.CustomBondForce):
 
     """
     def __init__(self):
-        energy = "%s;" % LennardJonesCoulomb("r")
+        energy = "%s+%s;" % (LennardJones("r"), Coulomb("r"))
         super(_ExceptionNonbondedForce, self).__init__(energy)
         self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
         self.addPerBondParameter("chargeprod")
@@ -370,13 +369,12 @@ class InnerRespaForce(Force):
 
     """
     def __init__(self, cutoff_distance, switch_distance, shifted=True):
-        globalParams = dict(Kc=138.935456*unit.kilojoules/unit.nanometer)
+        globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
+                        "rc0": cutoff_distance}
+        potential = "%s+%s" % (LennardJones("r"), Coulomb("r"))
         if shifted:
-            globalParams["rc0"] = cutoff_distance
-            energy = "%s-(%s);" % (LennardJonesCoulomb("r"), LennardJonesCoulomb("rc0"))
-        else:
-            energy = "%s;" % LennardJonesCoulomb("r")
-        energy += LorentzBerthelot()
+            potential += "-(%s+%s)" % (LennardJones("rc0"), Coulomb("rc0"))
+        energy = "%s; %s" % (potential, LorentzBerthelot())
         force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
         super(InnerRespaForce, self).__init__([force])
         self.index = 0
@@ -409,9 +407,9 @@ class OuterRespaForce(Force):
         rci = "rc" + str(preceding.index)
         globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
                         rsi: preceding.rswitch, rci: preceding.rcut}
-        potential = "-(%s)" % LennardJonesCoulomb("r")
+        potential = "-(%s+%s)" % (LennardJones("r"), Coulomb("r"))
         if preceding.shifted:
-            potential += "+" + LennardJonesCoulomb(rci)
+            potential += "+%s+%s" % (LennardJones(rci), Coulomb(rci))
         energy = "step(%s-r)*S*(%s);" % (rci, potential)
         energy += "S = 1 + step(r - %s)*u^3*(15*u - 6*u^2 - 10);" % rsi
         energy += "u = (r - %s)/(%s - %s);" % (rsi, rci, rsi)
