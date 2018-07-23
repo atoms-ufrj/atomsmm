@@ -22,7 +22,7 @@ case = 'emim_BCN4_Jiung2014'
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
 system = forcefield.createSystem(pdb.topology, rigid_water=True)
-nbforce = atomsmm.utils.HijackNonbondedForce(system)
+nbforce = atomsmm.utils.hijackNonbondedForce(system)
 atomsmm.DampedSmoothedForce(alpha, rcut, rswitch, degree).importFrom(nbforce).addTo(system)
 integrator = openmm.LangevinIntegrator(temp, 1.0/unit.picosecond, dt)
 platform = openmm.Platform.getPlatformByName('CUDA')

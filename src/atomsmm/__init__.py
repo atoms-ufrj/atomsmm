@@ -4,6 +4,6 @@ from atomsmm.forces import DampedSmoothedForce
 from atomsmm.forces import Force
 from atomsmm.forces import InnerRespaForce
 from atomsmm.forces import OuterRespaForce
-from atomsmm.utils import HijackNonbondedForce
+from atomsmm.utils import hijackNonbondedForce
 
-__all__ = ['Force', 'DampedSmoothedForce', 'InnerRespaForce', 'OuterRespaForce', 'HijackNonbondedForce']
+__all__ = ['Force', 'DampedSmoothedForce', 'InnerRespaForce', 'OuterRespaForce', 'hijackNonbondedForce']

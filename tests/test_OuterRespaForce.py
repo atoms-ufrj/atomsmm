@@ -27,7 +27,7 @@ def execute(OuterForceType, shifted):
     forcefield = app.ForceField(case + '.xml')
 
     system = forcefield.createSystem(pdb.topology)
-    nbforce = atomsmm.HijackNonbondedForce(system)
+    nbforce = atomsmm.hijackNonbondedForce(system)
     innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)
     outerforce = OuterForceType(innerforce, rcut, rswitch).setForceGroup(2)

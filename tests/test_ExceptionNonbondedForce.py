@@ -14,7 +14,7 @@ def test_exceptions():
     forcefield = app.ForceField(case + '.xml')
     system = forcefield.createSystem(pdb.topology, nonbondedMethod=app.CutoffPeriodic)
     force = atomsmm.forces.Force().includeExceptions()
-    force.importFrom(atomsmm.HijackNonbondedForce(system)).addTo(system)
+    force.importFrom(atomsmm.hijackNonbondedForce(system)).addTo(system)
     integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
     platform = openmm.Platform.getPlatformByName('Reference')
     simulation = app.Simulation(pdb.topology, system, integrator, platform)

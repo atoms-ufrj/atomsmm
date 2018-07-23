@@ -27,7 +27,7 @@ system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
                                  nonbondedCutoff=rcut, rigidWater=False)
 
 if mts:
-    nbforce = atomsmm.HijackNonbondedForce(system)
+    nbforce = atomsmm.hijackNonbondedForce(system)
     exceptions = atomsmm.Force().includeExceptions().setForceGroup(0)
     innerForce = atomsmm.InnerRespaForce(rcutIn, rswitchIn, shift).setForceGroup(1)
     outerForce = atomsmm.OuterRespaForce(innerForce, rcut, rswitch).setForceGroup(2)

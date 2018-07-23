@@ -32,7 +32,7 @@ def LorentzBerthelot():
     return mixingRule
 
 
-def HijackNonbondedForce(system, position=0):
+def hijackNonbondedForce(system, position=0):
     """
     Searches for and extracts a NonbondedForce object from an OpenMM system.
 
