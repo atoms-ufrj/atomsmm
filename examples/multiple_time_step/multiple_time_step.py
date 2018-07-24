@@ -7,7 +7,7 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 2000
+nsteps = 0
 ndisp = 10
 dt = 1.0*unit.femtoseconds
 rswitchIn = 6.0*unit.angstroms
@@ -16,10 +16,10 @@ rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = True
 mts = False
-# mts = True
+mts = True
 
-case = 'q-SPC-FW'
-# case = 'emim_BCN4_Jiung2014'
+# case = 'q-SPC-FW'
+case = 'emim_BCN4_Jiung2014'
 
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
@@ -37,6 +37,9 @@ if mts:
     integrator = openmm.VerletIntegrator(dt)  # CHANGE HERE
 else:
     integrator = openmm.VerletIntegrator(dt)
+
+for (term, energy) in atomsmm.utils.potentialEnergy(system, pdb.topology, pdb.positions).items():
+    print(term + ":", energy)
 
 platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)

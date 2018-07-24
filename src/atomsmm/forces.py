@@ -29,7 +29,7 @@ class Force:
             A list of OpenMM Force objects.
 
     """
-    def __init__(self, forces=[]):
+    def __init__(self, forces):
         self.forces = forces
         self.setForceGroup(0)
 
@@ -63,7 +63,7 @@ class Force:
                 The group index, whose value is between 0 and 31 (inclusive).
 
         """
-        return self.forces[0].getForceGroup() if self.forces else 0
+        return self.forces[0].getForceGroup()
 
     def includeExceptions(self):
         """
@@ -76,7 +76,7 @@ class Force:
                 The object is returned for chaining purposes.
 
         """
-        exceptions = _ExceptionNonbondedForce()
+        exceptions = _CustomBondForce()
         exceptions.setForceGroup(self.getForceGroup())
         self.forces.append(exceptions)
         return self
@@ -131,7 +131,7 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     ..note:
         All exceptions are turned into exclusions. Non-exclusion exceptions must be handled
-        separately using a :class:`_ExceptionNonbondedForce` object.
+        separately using a :class:`_CustomBondForce` object.
 
     .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
@@ -250,16 +250,16 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
         return self
 
 
-class _ExceptionNonbondedForce(openmm.CustomBondForce):
+class _CustomBondForce(openmm.CustomBondForce):
     """
-    A special class for handling OpenMM NonbondedForce_ exceptions.
+    An extension of OpenMM's CustomBondForce_ class used to handle NonbondedForce exceptions.
 
-    .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+    .. _CustomBondForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomBondForce.html
 
     """
     def __init__(self):
         energy = "%s+%s;" % (LennardJones("r"), Coulomb("r"))
-        super(_ExceptionNonbondedForce, self).__init__(energy)
+        super(_CustomBondForce, self).__init__(energy)
         self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
         self.addPerBondParameter("chargeprod")
         self.addPerBondParameter("sigma")
@@ -283,8 +283,8 @@ class _ExceptionNonbondedForce(openmm.CustomBondForce):
 
         """
         for index in range(force.getNumExceptions()):
-            [i, j, chargeprod, sigma, epsilon] = force.getExceptionParameters(index)
-            if (chargeprod/chargeprod.unit != 0.0) or (epsilon/epsilon.unit != 0.0):
+            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
                 self.addBond(i, j, [chargeprod, sigma, epsilon])
         return self
 
@@ -336,6 +336,15 @@ class DampedSmoothedForce(Force):
                                       Kc=138.935456*unit.kilojoules/unit.nanometer,
                                       alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
         super(DampedSmoothedForce, self).__init__([force])
+
+
+class NonbondedExceptionForce(Force):
+    """
+    A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
+
+    """
+    def __init__(self):
+        super(NonbondedExceptionForce, self).__init__([_CustomBondForce()])
 
 
 class InnerRespaForce(Force):

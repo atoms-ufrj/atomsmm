@@ -10,6 +10,7 @@
 from copy import deepcopy
 
 from simtk import openmm
+from simtk import unit
 
 
 class InputError(Exception):
@@ -60,3 +61,48 @@ def hijackNonbondedForce(system, position=0):
     force = deepcopy(system.getForce(index))
     system.removeForce(index)
     return force
+
+
+def splitPotentialEnergy(system, topology, positions):
+    """
+    Computes the potential energy of a system, with possible splitting into contributions of all
+    Force_ objects attached to the system.
+
+    .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
+
+    Parameters
+    ----------
+        system : openmm.System
+            The system whose energy is to be computed.
+        topology : openmm.app.topology.Topology
+            The topological information about a system.
+        positions : list(tuple)
+            A list of 3D vectors containing the positions of all atoms.
+
+    Returns
+    -------
+        unit.Quantity or dict(str, unit.Quantity)
+            The total potential energy or a dict containing all potential energy terms.
+
+    """
+    syscopy = deepcopy(system)
+    forces = [syscopy.getForce(i) for i in range(syscopy.getNumForces())]
+    for (index, force) in enumerate(forces):
+        force.setForceGroup(index)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    integrator = openmm.VerletIntegrator(0.0)
+    simulation = openmm.app.Simulation(topology, syscopy, integrator, platform)
+    simulation.context.setPositions(positions)
+    terms = dict()
+    energy = dict()
+    for (index, force) in enumerate(forces):
+        state = simulation.context.getState(getEnergy=True, groups=set([index]))
+        forceType = force.__class__.__name__
+        if forceType not in terms:
+            terms[forceType] = 0
+            energy[forceType] = state.getPotentialEnergy()
+        else:
+            terms[forceType] += 1
+            energy["%s(%d)" % (forceType, terms[forceType])] = state.getPotentialEnergy()
+    energy["Total"] = sum(energy.values(), 0.0*unit.kilojoules_per_mole)
+    return energy

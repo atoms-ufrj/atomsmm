@@ -8,7 +8,7 @@ from simtk.openmm import app
 import atomsmm
 
 
-def execute(OuterForceType, shifted):
+def execute(shifted):
     rswitch_inner = 6.5*unit.angstroms
     rcut_inner = 7.0*unit.angstroms
     rswitch = 9.5*unit.angstroms
@@ -19,11 +19,13 @@ def execute(OuterForceType, shifted):
 
     system = forcefield.createSystem(pdb.topology)
     nbforce = atomsmm.hijackNonbondedForce(system)
+    exceptions = atomsmm.NonbondedExceptionForce()
+    exceptions.importFrom(nbforce).addTo(system)
     innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)
-    outerforce = OuterForceType(innerforce, rcut, rswitch).setForceGroup(2)
+    outerforce = atomsmm.OuterRespaForce(innerforce, rcut, rswitch).setForceGroup(2)
     outerforce.importFrom(nbforce).addTo(system)
-    potential = atomsmm.splitPotentialEnergy(system, pdb.topology, pdb.positions)["Total"]
+    potential = atomsmm.splitPotentialEnergy(system, pdb.topology, pdb.positions)
 
     refsys = forcefield.createSystem(pdb.topology,
                                      nonbondedMethod=openmm.app.PME,
@@ -32,14 +34,16 @@ def execute(OuterForceType, shifted):
     force = refsys.getForce(refsys.getNumForces()-2)
     force.setUseSwitchingFunction(True)
     force.setSwitchingDistance(rswitch)
-    refpot = atomsmm.splitPotentialEnergy(refsys, pdb.topology, pdb.positions)["Total"]
+    refpot = atomsmm.splitPotentialEnergy(refsys, pdb.topology, pdb.positions)
 
-    assert potential/potential.unit == pytest.approx(refpot/refpot.unit)
+    E = potential["Total"]
+    refE = refpot["Total"]
+    assert E/E.unit == pytest.approx(refE/refE.unit)
+
+    E = potential["CustomBondForce"] + potential["NonbondedForce"]
+    refE = refpot["NonbondedForce"]
+    assert E/E.unit == pytest.approx(refE/refE.unit)
 
 
 def test_unshifted():
-    execute(atomsmm.OuterRespaForce, False)
-
-
-def test_shifted():
-    execute(atomsmm.OuterRespaForce, True)
+    execute(False)
