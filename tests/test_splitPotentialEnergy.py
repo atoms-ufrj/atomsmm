@@ -18,8 +18,8 @@ def execute(shifted):
     forcefield = app.ForceField(case + '.xml')
 
     system = forcefield.createSystem(pdb.topology)
-    nbforce = atomsmm.hijackNonbondedForce(system)
-    exceptions = atomsmm.NonbondedExceptionForce()
+    nbforce = atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))
+    exceptions = atomsmm.NonbondedExceptionsForce()
     exceptions.importFrom(nbforce).addTo(system)
     innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)

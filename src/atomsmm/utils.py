@@ -33,14 +33,9 @@ def LorentzBerthelot():
     return mixingRule
 
 
-def hijackNonbondedForce(system, position=0):
+def findNonbondedForce(system, position=0):
     """
-    Searches for and extracts a NonbondedForce object from an OpenMM system.
-
-    .. warning::
-
-        Side-effect: the passed system object will no longer have the hijacked NonbondedForce in
-        its force list.
+    Searches for a NonbondedForce object in an OpenMM system.
 
     Parameters
     ----------
@@ -52,12 +47,36 @@ def hijackNonbondedForce(system, position=0):
 
     Returns
     -------
-        openmm.NonbondedForce
-            The hijacked NonbondedForce object.
+        int
+            The index of the wanted NonbondedForce object.
 
     """
     forces = [system.getForce(i) for i in range(system.getNumForces())]
-    index = [i for (i, f) in enumerate(forces) if isinstance(f, openmm.NonbondedForce)][position]
+    return [i for (i, f) in enumerate(forces) if isinstance(f, openmm.NonbondedForce)][position]
+
+
+def hijackForce(system, index):
+    """
+    Extracts a Force_ object from an OpenMM system.
+
+    .. warning::
+
+        Side-effect: the passed system object will no longer have the hijacked Force_ object in
+        its force list.
+
+    Parameters
+    ----------
+        index : int
+            The index of the Force_ object to be hijacked.
+
+    Returns
+    -------
+        openmm.Force
+            The hijacked Force_ object.
+
+    .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
+
+    """
     force = deepcopy(system.getForce(index))
     system.removeForce(index)
     return force

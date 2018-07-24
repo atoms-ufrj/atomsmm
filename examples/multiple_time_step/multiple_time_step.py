@@ -16,7 +16,7 @@ rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = True
 mts = False
-mts = True
+# mts = True
 
 # case = 'q-SPC-FW'
 case = 'emim_BCN4_Jiung2014'
@@ -26,9 +26,10 @@ forcefield = app.ForceField('../../tests/data/%s.xml' % case)
 system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
                                  nonbondedCutoff=rcut, rigidWater=False)
 
+nbforceIndex = atomsmm.findNonbondedForce(system)
 if mts:
-    nbforce = atomsmm.hijackNonbondedForce(system)
-    exceptions = atomsmm.Force().includeExceptions().setForceGroup(0)
+    nbforce = atomsmm.hijackForce(system, nbforceIndex)
+    exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
     innerForce = atomsmm.InnerRespaForce(rcutIn, rswitchIn, shift).setForceGroup(1)
     outerForce = atomsmm.OuterRespaForce(innerForce, rcut, rswitch).setForceGroup(2)
     for force in [exceptions, innerForce, outerForce]:
@@ -36,9 +37,12 @@ if mts:
         force.addTo(system)
     integrator = openmm.VerletIntegrator(dt)  # CHANGE HERE
 else:
+    nbforce = system.getForce(nbforceIndex)
+    nbforce.setUseSwitchingFunction(True)
+    nbforce.setSwitchingDistance(rswitch)
     integrator = openmm.VerletIntegrator(dt)
 
-for (term, energy) in atomsmm.utils.potentialEnergy(system, pdb.topology, pdb.positions).items():
+for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
 
 platform = openmm.Platform.getPlatformByName('CUDA')

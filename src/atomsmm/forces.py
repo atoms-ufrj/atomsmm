@@ -338,13 +338,13 @@ class DampedSmoothedForce(Force):
         super(DampedSmoothedForce, self).__init__([force])
 
 
-class NonbondedExceptionForce(Force):
+class NonbondedExceptionsForce(Force):
     """
     A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
 
     """
     def __init__(self):
-        super(NonbondedExceptionForce, self).__init__([_CustomBondForce()])
+        super(NonbondedExceptionsForce, self).__init__([_CustomBondForce()])
 
 
 class InnerRespaForce(Force):
