@@ -5,6 +5,7 @@ Python API
     :glob:
 
     forces
+    integrators
     utils
 
 
