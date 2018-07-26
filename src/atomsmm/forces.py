@@ -102,7 +102,7 @@ class Force:
             system.addForce(force)
         return self
 
-    def importFrom(self, nbForce):
+    def importFrom(self, force):
         """
         Import parameters from a provided OpenMM NonbondedForce_ object.
 
@@ -110,7 +110,7 @@ class Force:
 
         Parameters
         ----------
-            nbForce : openmm.NonbondedForce
+            force : openmm.NonbondedForce
                 The force from which the parameters will be imported.
 
         Returns
@@ -119,8 +119,8 @@ class Force:
                 The object is returned for chaining purposes.
 
         """
-        for force in self.forces:
-            force.importFrom(nbForce)
+        for f in self.forces:
+            f.importFrom(force)
         return self
 
 
@@ -129,7 +129,7 @@ class _NonbondedForce(openmm.NonbondedForce):
     An extension of OpenMM's NonbondedForce_ class. By default, long-range dispersion correction is
     employed and the method used for long-range electrostatic interactions is `PME`.
 
-    ..note:
+    .. warning::
         All exceptions are turned into exclusions. Non-exclusion exceptions must be handled
         separately using a :class:`_CustomBondForce` object.
 
@@ -226,7 +226,7 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
         """
         Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object.
 
-        ..note:
+        .. warning::
             All exceptions are turned into exclusions.
 
         .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
@@ -365,7 +365,7 @@ class NearNonbondedForce(Force):
     :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional
     boolean argument `shifted`.
 
-    ..note:
+    .. note::
         Except for the shifting, this model is the "near" part of the RESPA2 scheme of
         Refs. :cite:`Zhou_2001` and :cite:`Morrone_2010`, with the switching function applied to
         the potential rather than to the force.
@@ -402,7 +402,7 @@ class FarNonbondedForce(Force):
     The complement of NearNonbondedForce and NonbondedExceptionsForce classes in order to form a
     complete OpenMM NonbondedForce.
 
-    ..note:
+    .. note::
         Except for the shifting, this model is the "far" part of the RESPA2 scheme of
         Refs. :cite:`Zhou_2001` and :cite:`Morrone_2010`, with the switching function applied to
         the potential rather than to the force.
