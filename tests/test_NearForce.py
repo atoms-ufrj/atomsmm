@@ -15,7 +15,7 @@ def execute(shifted, target):
     pdb = app.PDBFile(case + '.pdb')
     forcefield = app.ForceField(case + '.xml')
     system = forcefield.createSystem(pdb.topology, nonbondedMethod=app.CutoffPeriodic)
-    force = atomsmm.InnerRespaForce(rcut, rswitch, shifted)
+    force = atomsmm.NearNonbondedForce(rcut, rswitch, shifted)
     force.importFrom(atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))).addTo(system)
     integrator = openmm.VerletIntegrator(0.0*unit.femtoseconds)
     platform = openmm.Platform.getPlatformByName('Reference')

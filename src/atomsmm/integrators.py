@@ -8,11 +8,19 @@
 """
 
 from simtk import openmm
+from simtk import unit
 
 
 class VelocityVerletIntegrator(openmm.CustomIntegrator):
     """
-    A simple Verlocity Verlet integrator, with coordinates and momenta evaluated synchronously.
+    This class implements a simple Verlocity Verlet integrator, with coordinates and momenta
+    evaluated synchronously.
+
+    ..note:
+        The original OpenMM VerletIntegrator_ class implements a leap-frog version of the Verlet
+        method.
+
+    .. _VerletIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.VerletIntegrator.html
 
     Parameters
     ----------
@@ -31,3 +39,14 @@ class VelocityVerletIntegrator(openmm.CustomIntegrator):
         self.addConstrainPositions()
         self.addComputePerDof("v", "v+0.5*dt*f/m+(x-x1)/dt")
         self.addConstrainVelocities()
+
+
+class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
+    """
+    This class implements the Stochastic Velocity Rescaling algorithm of Bussi, Donadio, and
+    Parrinello :cite:`Bussi_2007`
+
+    """
+    def __init__(self, temperature=298*unit.kelvin, time_constant=100/unit.picoseconds,
+                 timestep=0.001*unit.picoseconds):
+        pass

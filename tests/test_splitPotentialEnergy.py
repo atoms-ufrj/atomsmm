@@ -21,9 +21,9 @@ def execute(shifted):
     nbforce = atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))
     exceptions = atomsmm.NonbondedExceptionsForce()
     exceptions.importFrom(nbforce).addTo(system)
-    innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
+    innerforce = atomsmm.NearNonbondedForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)
-    outerforce = atomsmm.OuterRespaForce(innerforce, rcut, rswitch).setForceGroup(2)
+    outerforce = atomsmm.FarNonbondedForce(innerforce, rcut, rswitch).setForceGroup(2)
     outerforce.importFrom(nbforce).addTo(system)
     potential = atomsmm.splitPotentialEnergy(system, pdb.topology, pdb.positions)
 

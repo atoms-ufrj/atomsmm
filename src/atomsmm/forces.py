@@ -347,7 +347,7 @@ class NonbondedExceptionsForce(Force):
         super(NonbondedExceptionsForce, self).__init__([_CustomBondForce()])
 
 
-class InnerRespaForce(Force):
+class NearNonbondedForce(Force):
     """
     A smoothed version of the (optionally) shifted Lennard-Jones+Coulomb potential.
 
@@ -363,7 +363,12 @@ class InnerRespaForce(Force):
 
     In the equations above, :math:`\\theta(x)` is the Heaviside step function. The constant
     :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional
-    boolean argument `shift`.
+    boolean argument `shifted`.
+
+    ..note:
+        Except for the shifting, this model is the "near" part of the RESPA2 scheme of
+        Refs. :cite:`Zhou_2001` and :cite:`Morrone_2010`, with the switching function applied to
+        the potential rather than to the force.
 
     Parameters
     ----------
@@ -385,32 +390,41 @@ class InnerRespaForce(Force):
             potential += "-(%s+%s)" % (LennardJones("rc0"), Coulomb("rc0"))
         energy = "%s; %s" % (potential, LorentzBerthelot())
         force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
-        super(InnerRespaForce, self).__init__([force])
+        super(NearNonbondedForce, self).__init__([force])
         self.index = 0
         self.rswitch = switch_distance
         self.rcut = cutoff_distance
         self.shifted = shifted
 
 
-class OuterRespaForce(Force):
+class FarNonbondedForce(Force):
     """
-    The outermost force for RESPA.
+    The complement of NearNonbondedForce and NonbondedExceptionsForce classes in order to form a
+    complete OpenMM NonbondedForce.
+
+    ..note:
+        Except for the shifting, this model is the "far" part of the RESPA2 scheme of
+        Refs. :cite:`Zhou_2001` and :cite:`Morrone_2010`, with the switching function applied to
+        the potential rather than to the force.
 
     Parameters
     ----------
-        preceding : :class:`InnerRespaForce`
-            The InnerRespaForce object with which this Force is supposed to match.
+        preceding : :class:`NearNonbondedForce`
+            The NearNonbondedForce object with which this Force is supposed to match.
         cutoff_distance : Number or unit.Quantity
             The distance at which the nonbonded interaction vanishes.
         switch_distance : Number or unit.Quantity, optional, default=None
             The distance at which the switching function begins to smooth the approach of the
             nonbonded interaction towards zero. If this is None, then no switching will be done
             prior to the potential cutoff.
+        nonbondedMethod : openmm.NonbondedForce.Method, optional, default=PME
+            The method to use for nonbonded interactions. Allowed values are NoCutoff,
+            CutoffNonPeriodic, CutoffPeriodic, Ewald, PME, or LJPME.
 
     """
     def __init__(self, preceding, cutoff_distance, switch_distance=None,
                  nonbondedMethod=openmm.NonbondedForce.PME):
-        if not isinstance(preceding, InnerRespaForce):
+        if not isinstance(preceding, NearNonbondedForce):
             raise InputError("argument 'preceding' must be an internal RESPA force")
         rsi = "rs" + str(preceding.index)
         rci = "rc" + str(preceding.index)
@@ -425,4 +439,4 @@ class OuterRespaForce(Force):
         energy += LorentzBerthelot()
         discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
         total = _NonbondedForce(cutoff_distance, switch_distance, nonbondedMethod)
-        super(OuterRespaForce, self).__init__([total, discount])
+        super(FarNonbondedForce, self).__init__([total, discount])

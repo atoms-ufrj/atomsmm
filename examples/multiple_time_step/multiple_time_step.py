@@ -30,8 +30,8 @@ nbforceIndex = atomsmm.findNonbondedForce(system)
 if mts:
     nbforce = atomsmm.hijackForce(system, nbforceIndex)
     exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
-    innerForce = atomsmm.InnerRespaForce(rcutIn, rswitchIn, shift).setForceGroup(1)
-    outerForce = atomsmm.OuterRespaForce(innerForce, rcut, rswitch).setForceGroup(2)
+    innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, shift).setForceGroup(1)
+    outerForce = atomsmm.FarNonbondedForce(innerForce, rcut, rswitch).setForceGroup(2)
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)

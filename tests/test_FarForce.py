@@ -19,7 +19,7 @@ def execute(OuterForceType, shifted):
 
     system = forcefield.createSystem(pdb.topology)
     nbforce = atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))
-    innerforce = atomsmm.InnerRespaForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
+    innerforce = atomsmm.NearNonbondedForce(rcut_inner, rswitch_inner, shifted).setForceGroup(1)
     innerforce.importFrom(nbforce).addTo(system)
     outerforce = OuterForceType(innerforce, rcut, rswitch).setForceGroup(2)
     outerforce.importFrom(nbforce).addTo(system)
@@ -38,8 +38,8 @@ def execute(OuterForceType, shifted):
 
 
 def test_unshifted():
-    execute(atomsmm.OuterRespaForce, False)
+    execute(atomsmm.FarNonbondedForce, False)
 
 
 def test_shifted():
-    execute(atomsmm.OuterRespaForce, True)
+    execute(atomsmm.FarNonbondedForce, True)
