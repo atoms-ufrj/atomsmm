@@ -48,6 +48,9 @@ class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
     This class implements the Stochastic Velocity Rescaling algorithm of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`
 
+    .. warning::
+        This integrator requires non-zero initial velocities for the system particles.
+
     Parameters
     ----------
         temperature : Number or unit.Quantity
@@ -62,9 +65,11 @@ class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
             :func:`~atomsmm.utils.countDegreesOfFreedom`.
 
     """
-    def __init__(self, temperature, frictionCoeff, stepSize, degreesOfFreedom):
+    def __init__(self, temperature, frictionCoeff, stepSize, degreesOfFreedom, randomSeed=None):
         super(BussiDonadioParrinelloIntegrator, self).__init__(stepSize)
-        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature
+        if randomSeed is not None:
+            self.setRandomNumberSeed(randomSeed)
+        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/unit.kilojoules_per_mole
         self._addVariableDeclarations()
         self._addRescaleVelocities(stepSize/2, 1.0/frictionCoeff, degreesOfFreedom, kT)
         self.addUpdateContextState()
@@ -85,7 +90,8 @@ class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
         self.addPerDofVariable("x1", 0)
 
     def _addRescaleVelocities(self, dt, tau, dof, kT):
-        d = (dof - 2 + dof % 2)/2 - 1/3
+        shape = (dof - 2 + dof % 2)/2
+        d = shape - 1/3
         c = 1/math.sqrt(9*d)
         self.addComputeGlobal("ready", "0")
         self.beginWhileBlock("ready = 0")
@@ -96,22 +102,22 @@ class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
         self.addComputeGlobal("Z", "1+%s*R" % c)
         self.endBlock()
         self.addComputeGlobal("Z", "Z^3")
-        clause = "select(c1, c2, 0);"
+        clause = "select(c1, 1, c2);"
         clause += "c1 = step(1-0.0331*y*y-u);"
         clause += "c2 = step(0.5*y+%s*(1-Z+log(Z))-log(u));" % d
         clause += "u = uniform;"
         clause += "y = R^2"
         self.addComputeGlobal("ready", clause)
         self.endBlock()
-        self.addComputeSum("TwoKE", "m*v^2")
+        self.addComputeSum("TwoKE", "m*v*v")
         self.addComputeGlobal("R", "gaussian")
-        factor = "A+C*B*(R^2+sumRs)+2*sqrt(C*B*A)*R;"
+        factor = "sqrt(A+C*B*(R^2+sumRs)+2*sqrt(C*B*A)*R);"
         factor += "C = %s/TwoKE;" % kT
         factor += "B = 1-A;"
         factor += "A = %s;" % math.exp(-dt/tau)
         if dof % 2 == 0:
-            factor += "sumRs = 2*%s*Z" % d
+            factor += "sumRs = 2*%s*Z;" % d
         else:
-            factor += "sumRs = 2*%s*Z+gaussian^2" % d
+            factor += "sumRs = 2*%s*Z+gaussian^2;" % d
         self.addComputeGlobal("factor", factor)
         self.addComputePerDof("v", "factor*v")
