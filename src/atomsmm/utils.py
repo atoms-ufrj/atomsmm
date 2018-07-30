@@ -33,6 +33,25 @@ def LorentzBerthelot():
     return mixingRule
 
 
+def countDegreesOfFreedom(system):
+    """
+    Counts the number of degrees of freedom in a system, given by:
+
+    .. math::
+        N_\\mathrm{DOF} = 3N_\\mathrm{moving particles} - 3 - N_\\mathrm{constraints}
+
+    Parameters
+    ----------
+        system : openmm.System
+            The system whose degrees of freedom will be summed up.
+
+    """
+    N = system.getNumParticles()
+    dof = sum(3 for i in range(N) if system.getParticleMass(i)/unit.dalton > 0) - 3
+    dof -= system.getNumConstraints()
+    return dof
+
+
 def findNonbondedForce(system, position=0):
     """
     Searches for a NonbondedForce object in an OpenMM system.
