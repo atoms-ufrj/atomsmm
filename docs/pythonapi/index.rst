@@ -6,7 +6,7 @@ Python API
 
     forces
     integrators
-    algorithms
+    propagators
     utils
 
 

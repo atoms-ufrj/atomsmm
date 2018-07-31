@@ -1,7 +1,7 @@
 """
-.. module:: algorithms
+.. module:: propagators
    :platform: Unix, Windows
-   :synopsis: a module for defining integration algorithm classes.
+   :synopsis: a module for defining integration propagator classes.
 
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
 
@@ -12,7 +12,7 @@ import math
 from simtk import unit
 
 
-class Algorithm:
+class Propagator:
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
@@ -27,13 +27,26 @@ class Algorithm:
         pass
 
 
-class VelocityVerlet(Algorithm):
+class HamiltonianPropagator(Propagator):
+    pass
+
+
+class ThermostatPropagator(Propagator):
+    pass
+
+
+class VelocityVerlet(HamiltonianPropagator):
     """
-    This class implements a simple Verlocity Verlet integration algorithm, in which coordinates and
+    This class implements a simple Verlocity Verlet integration propagator, in which coordinates and
     momenta are evaluated synchronously.
 
+    .. math::
+        e^{\\delta t \\, iL_\\mathrm{NVE}} = e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
+                                             e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}
+                                             e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
+
     .. note::
-        In the original OpenMM VerletIntegrator_ class, the implemented algorithm is a leap-frog
+        In the original OpenMM VerletIntegrator_ class, the implemented propagator is a leap-frog
         version of the Verlet method.
 
     .. _VerletIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.VerletIntegrator.html
@@ -53,15 +66,18 @@ class VelocityVerlet(Algorithm):
         integrator.addConstrainVelocities()
 
 
-class DummyThermostat(Algorithm):
+class DummyThermostat(ThermostatPropagator):
     def __init__(self):
         super(DummyThermostat, self).__init__()
 
 
-class BussiDonadioParrinelloThermostat(Algorithm):
+class BussiDonadioParrinelloThermostat(ThermostatPropagator):
     """
-    This class implements the Stochastic Velocity Rescaling algorithm of Bussi, Donadio, and
+    This class implements the Stochastic Velocity Rescaling propagator of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`.
+
+    .. math::
+        e^{\\delta t \\, iL_\\mathrm{T}} = e^{\\delta t \\alpha \\mathbf{p}^T \\nabla_\\mathbf{p}}
 
     .. warning::
         This integrator requires non-zero initial velocities for the system particles.
