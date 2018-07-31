@@ -6,6 +6,7 @@ Python API
 
     forces
     integrators
+    algorithms
     utils
 
 
