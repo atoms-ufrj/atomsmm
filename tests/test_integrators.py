@@ -46,4 +46,4 @@ def test_BussiDonadioParrinelloIntegrator():
                                                           10/unit.picoseconds,
                                                           1*unit.femtoseconds,
                                                           dof, 1)
-    execute(integrator, -5158.422165135104)
+    execute(integrator, -5155.97602603153)

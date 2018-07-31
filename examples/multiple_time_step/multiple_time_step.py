@@ -7,9 +7,11 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 0
+nsteps = 10000
 ndisp = 10
+temp = 300*unit.kelvin
 dt = 1.0*unit.femtoseconds
+friction = 10/unit.picoseconds
 rswitchIn = 6.0*unit.angstroms
 rcutIn = 7.0*unit.angstroms
 rswitch = 9.0*unit.angstroms
@@ -27,6 +29,7 @@ system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
                                  nonbondedCutoff=rcut, rigidWater=False)
 
 nbforceIndex = atomsmm.findNonbondedForce(system)
+dof = atomsmm.countDegreesOfFreedom(system)
 if mts:
     nbforce = atomsmm.hijackForce(system, nbforceIndex)
     exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
@@ -40,7 +43,7 @@ else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
     nbforce.setSwitchingDistance(rswitch)
-    integrator = openmm.VerletIntegrator(dt)
+    integrator = atomsmm.BussiDonadioParrinelloIntegrator(temp, friction, dt, dof)
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
@@ -48,6 +51,7 @@ for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, p
 platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)
 simulation.context.setPositions(pdb.positions)
+simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
@@ -57,6 +61,7 @@ for (out, sep) in zip(outputs, separators):
         potentialEnergy=True,
         kineticEnergy=True,
         totalEnergy=True,
+        temperature=True,
         remainingTime=True,
         speed=True,
         totalSteps=nsteps,
