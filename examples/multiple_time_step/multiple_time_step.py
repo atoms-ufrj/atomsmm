@@ -8,7 +8,7 @@ from sys import stdout
 import atomsmm
 
 nsteps = 10000
-ndisp = 10
+ndisp = 100
 temp = 300*unit.kelvin
 dt = 1.0*unit.femtoseconds
 friction = 10/unit.picoseconds
@@ -38,12 +38,14 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    integrator = openmm.VerletIntegrator(dt)  # CHANGE HERE
+    integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerlet())
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
     nbforce.setSwitchingDistance(rswitch)
-    integrator = atomsmm.BussiDonadioParrinelloIntegrator(temp, friction, dt, dof)
+    thermostat = atomsmm.BussiDonadioParrinelloThermostat(temp, 1/friction, dof)
+    integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerlet(), thermostat)
+
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)

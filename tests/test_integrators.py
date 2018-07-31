@@ -35,15 +35,15 @@ def execute(integrator, target):
 
 
 def test_VelocityVerletIntegrator():
-    integrator = atomsmm.VelocityVerletIntegrator(1.0*unit.femtoseconds)
+    nve = atomsmm.VelocityVerlet()
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve)
     execute(integrator, -5156.33314554173)
 
 
 def test_BussiDonadioParrinelloIntegrator():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     dof = atomsmm.countDegreesOfFreedom(system)
-    integrator = atomsmm.BussiDonadioParrinelloIntegrator(300*unit.kelvin,
-                                                          10/unit.picoseconds,
-                                                          1*unit.femtoseconds,
-                                                          dof, 1)
+    nve = atomsmm.VelocityVerlet()
+    thermostat = atomsmm.BussiDonadioParrinelloThermostat(300*unit.kelvin, 0.1*unit.picoseconds, dof)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve, thermostat, 1)
     execute(integrator, -5155.97602603153)

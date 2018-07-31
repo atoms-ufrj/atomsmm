@@ -24,6 +24,9 @@ class Algorithm:
         for (name, value) in self.perDofVariables.items():
             integrator.addPerDofVariable(name, value)
 
+    def addSteps(self, integrator, fraction=1):
+        pass
+
 
 class VelocityVerlet(Algorithm):
     """
@@ -51,7 +54,12 @@ class VelocityVerlet(Algorithm):
         integrator.addConstrainVelocities()
 
 
-class BussiDonadioParrinello(Algorithm):
+class DummyThermostat(Algorithm):
+    def __init__(self):
+        super(DummyThermostat, self).__init__()
+
+
+class BussiDonadioParrinelloThermostat(Algorithm):
     """
     This class implements the Stochastic Velocity Rescaling algorithm of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`.
@@ -71,7 +79,7 @@ class BussiDonadioParrinello(Algorithm):
 
     """
     def __init__(self, temperature, timeConstant, degreesOfFreedom):
-        super(BussiDonadioParrinello, self).__init__()
+        super(BussiDonadioParrinelloThermostat, self).__init__()
         self.globalVariables["R"] = 0
         self.globalVariables["Z"] = 0
         self.globalVariables["ready"] = 0
@@ -111,62 +119,13 @@ class BussiDonadioParrinello(Algorithm):
         integrator.addComputePerDof("v", "factor*v")
 
 
-class VelocityVerletIntegrator(openmm.CustomIntegrator):
-    """
-    This class implements a simple Verlocity Verlet integrator, with coordinates and momenta
-    evaluated synchronously.
-
-    ..note:
-        The original OpenMM VerletIntegrator_ class implements a leap-frog version of the Verlet
-        method.
-
-    .. _VerletIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.VerletIntegrator.html
-
-    Parameters
-    ----------
-        stepSize : Number or unit.Quantity
-           The step size with which to integrate the system (in picoseconds or in an explicitly
-           specified time unit).
-
-    """
-    def __init__(self, stepSize):
-        super(VelocityVerletIntegrator, self).__init__(stepSize)
-        algorithm = VelocityVerlet()
-        algorithm.addVariables(self)
-        algorithm.addSteps(self)
-
-
-class BussiDonadioParrinelloIntegrator(openmm.CustomIntegrator):
-    """
-    This class implements the Stochastic Velocity Rescaling algorithm of Bussi, Donadio, and
-    Parrinello :cite:`Bussi_2007`
-
-    .. warning::
-        This integrator requires non-zero initial velocities for the system particles.
-
-    Parameters
-    ----------
-        temperature : Number or unit.Quantity
-            The temperature of the heat bath (in Kelvin).
-        frictionCoeff : Number or unit.Quantity
-            The friction coefficient which couples the system to the heat bath (in inverse
-            picoseconds).
-        stepSize : Number or unit.Quantity
-            The step size with which to integrate the system (in picoseconds).
-        degreesOfFreedom : int
-            The number of degrees of freedom in the system, which can be retrieved via function
-            :func:`~atomsmm.utils.countDegreesOfFreedom`.
-
-    """
-    def __init__(self, temperature, frictionCoeff, stepSize, degreesOfFreedom, randomSeed=None):
-        super(BussiDonadioParrinelloIntegrator, self).__init__(stepSize)
+class GlobalThermostatIntegrator(openmm.CustomIntegrator):
+    def __init__(self, stepSize, nveIntegrator, thermostat=DummyThermostat(), randomSeed=None):
+        super(GlobalThermostatIntegrator, self).__init__(stepSize)
         if randomSeed is not None:
             self.setRandomNumberSeed(randomSeed)
-        nve = VelocityVerlet()
-        thermostat = BussiDonadioParrinello(temperature, 1.0/frictionCoeff, degreesOfFreedom)
-        nve.addVariables(self)
-        thermostat.addVariables(self)
-
+        for algorithm in [nveIntegrator, thermostat]:
+            algorithm.addVariables(self)
         thermostat.addSteps(self, 1/2)
-        nve.addSteps(self)
+        nveIntegrator.addSteps(self)
         thermostat.addSteps(self, 1/2)
