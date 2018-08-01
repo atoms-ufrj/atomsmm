@@ -7,12 +7,13 @@
 
 """
 
+from openmmtools.integrators import PrettyPrintableIntegrator
 from simtk import openmm
 
 from atomsmm.propagators import Propagator as DummyPropagator
 
 
-class GlobalThermostatIntegrator(openmm.CustomIntegrator):
+class GlobalThermostatIntegrator(openmm.CustomIntegrator, PrettyPrintableIntegrator):
     """
     This class extends OpenMM's CustomIntegrator_ class in order to facilitate the construction
     of NVT integrators which include a global thermostat, that is, one that acts equally and

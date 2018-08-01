@@ -23,7 +23,7 @@ class Propagator:
         for (name, value) in self.perDofVariables.items():
             integrator.addPerDofVariable(name, value)
 
-    def addSteps(self, integrator, fraction=1):
+    def addSteps(self, integrator, fraction=1.0):
         pass
 
 
@@ -55,13 +55,14 @@ class VelocityVerlet(HamiltonianPropagator):
         super(VelocityVerlet, self).__init__()
         self.perDofVariables["x0"] = 0
 
-    def addSteps(self, integrator, fraction=1):
+    def addSteps(self, integrator, fraction=1.0):
+        Dt = "; Dt=%s*dt" % fraction
         integrator.addUpdateContextState()
+        integrator.addComputePerDof("v", "v+0.5*Dt*f/m" + Dt)
         integrator.addComputePerDof("x0", "x")
-        integrator.addComputePerDof("v", "v+0.5*%s*dt*f/m" % fraction)
-        integrator.addComputePerDof("x", "x+%s*dt*v" % fraction)
+        integrator.addComputePerDof("x", "x+Dt*v" + Dt)
         integrator.addConstrainPositions()
-        integrator.addComputePerDof("v", "(x-x0)/dta+0.5*dta*f/m; dta=%s*dt" % fraction)
+        integrator.addComputePerDof("v", "(x-x0)/Dt+0.5*Dt*f/m" + Dt)
         integrator.addConstrainVelocities()
 
 
@@ -74,16 +75,16 @@ class RESPA(HamiltonianPropagator):
     Parameters
     ----------
         loops : list(int)
-            A list of `N-1` integers, where loops[i] determines how many iterations of force group
+            A list of `N` integers, where loops[i] determines how many iterations of force group
             `i` are executed for every iteration of force group `i+1`.
 
     """
     def __init__(self, loops):
         super(RESPA, self).__init__()
         self.perDofVariables["x0"] = 0
-        self.loops = loops + [1]
+        self.loops = loops
 
-    def addSteps(self, integrator, fraction=1):
+    def addSteps(self, integrator, fraction=1.0):
         integrator.addUpdateContextState()
         self._addSubsteps(integrator, self.loops, fraction)
         integrator.addConstrainVelocities()
@@ -91,20 +92,20 @@ class RESPA(HamiltonianPropagator):
     def _addSubsteps(self, integrator, loops, fraction):
         group = len(loops) - 1
         n = loops[group]
-        defDt = "; Dt=%s*dt" % fraction
-        defDv = "; Dv=0.5*%s*dt*f%d/m" % (fraction, group)
+        delta_v = "v+Dt*f%d/m" % group
+        half = "; Dt=%s*dt" % (0.5*fraction/n)
+        full = "; Dt=%s*dt" % (fraction/n)
         for i in range(n):
+            integrator.addComputePerDof("v", delta_v + (half if i == 0 else full))
             if group == 0:
                 integrator.addComputePerDof("x0", "x")
-                integrator.addComputePerDof("v", "v+Dv" + defDv)
-                integrator.addComputePerDof("x", "x+v*Dt" + defDt)
+                integrator.addComputePerDof("x", "x+v*Dt" + full)
                 integrator.addConstrainPositions()
-                integrator.addComputePerDof("v", "(x-x0)/Dt+Dv" + defDt + defDv)
-                integrator.addConstrainVelocities()
+                integrator.addComputePerDof("v", "(x-x0)/Dt" + full)
             else:
-                integrator.addComputePerDof("v", "v+Dv" + defDv)
-                self._addSubsteps(integrator, loops[0:group-1], fraction/n)
-                integrator.addComputePerDof("v", "v+Dv" + defDv)
+                self._addSubsteps(integrator, loops[0:group], fraction/n)
+            if i == n-1:
+                integrator.addComputePerDof("v", delta_v + half)
 
 
 class BussiDonadioParrinelloThermostat(ThermostatPropagator):
@@ -141,7 +142,7 @@ class BussiDonadioParrinelloThermostat(ThermostatPropagator):
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
 
-    def addSteps(self, integrator, fraction=1):
+    def addSteps(self, integrator, fraction=1.0):
         shape = (self.dof - 2 + self.dof % 2)/2
         d = shape - 1/3
         c = 1/math.sqrt(9*d)

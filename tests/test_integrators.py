@@ -35,14 +35,12 @@ def execute(integrator, target):
 
 
 def test_VelocityVerletIntegrator():
-    nve = atomsmm.VelocityVerlet()
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, atomsmm.VelocityVerlet())
     execute(integrator, -5156.33314554173)
 
 
 def test_RESPAIntegrator():
-    nve = atomsmm.RESPA([])
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, atomsmm.RESPA([1]))
     execute(integrator, -5156.33314554173)
 
 

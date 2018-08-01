@@ -7,10 +7,11 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 10000
+nsteps = 1000
 ndisp = 100
+seed = 5623
 temp = 300*unit.kelvin
-dt = 1.0*unit.femtoseconds
+dt = 2.0*unit.femtoseconds
 friction = 10/unit.picoseconds
 rswitchIn = 6.0*unit.angstroms
 rcutIn = 7.0*unit.angstroms
@@ -18,7 +19,7 @@ rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = True
 mts = False
-# mts = True
+mts = True
 
 # case = 'q-SPC-FW'
 case = 'emim_BCN4_Jiung2014'
@@ -38,7 +39,8 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerlet())
+    nve = atomsmm.RESPA([2,2,1])
+    integrator = atomsmm.GlobalThermostatIntegrator(dt, nve)
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
@@ -46,14 +48,16 @@ else:
     thermostat = atomsmm.BussiDonadioParrinelloThermostat(temp, 1/friction, dof)
     integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerlet(), thermostat)
 
+integrator.pretty_print()
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
 
 platform = openmm.Platform.getPlatformByName('CUDA')
-simulation = app.Simulation(pdb.topology, system, integrator, platform)
+properties = {"Precision": "mixed"}
+simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
 simulation.context.setPositions(pdb.positions)
-simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
+simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
