@@ -37,8 +37,7 @@ class ThermostatPropagator(Propagator):
 
 class VelocityVerlet(HamiltonianPropagator):
     """
-    This class implements a simple Verlocity Verlet integration propagator, in which coordinates and
-    momenta are evaluated synchronously.
+    This class implements a simple Verlocity Verlet propagator.
 
     .. math::
         e^{\\delta t \\, iL_\\mathrm{NVE}} = e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
@@ -54,21 +53,58 @@ class VelocityVerlet(HamiltonianPropagator):
     """
     def __init__(self):
         super(VelocityVerlet, self).__init__()
-        self.perDofVariables["x1"] = 0
+        self.perDofVariables["x0"] = 0
 
     def addSteps(self, integrator, fraction=1):
         integrator.addUpdateContextState()
+        integrator.addComputePerDof("x0", "x")
         integrator.addComputePerDof("v", "v+0.5*%s*dt*f/m" % fraction)
         integrator.addComputePerDof("x", "x+%s*dt*v" % fraction)
-        integrator.addComputePerDof("x1", "x")
         integrator.addConstrainPositions()
-        integrator.addComputePerDof("v", "v+0.5*dta*f/m+(x-x1)/dta; dta=%s*dt" % fraction)
+        integrator.addComputePerDof("v", "(x-x0)/dta+0.5*dta*f/m; dta=%s*dt" % fraction)
         integrator.addConstrainVelocities()
 
 
-class DummyThermostat(ThermostatPropagator):
-    def __init__(self):
-        super(DummyThermostat, self).__init__()
+class RESPA(HamiltonianPropagator):
+    """
+    This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
+    with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
+    `N-1` goes in the outermost loop (largest timestep).
+
+    Parameters
+    ----------
+        loops : list(int)
+            A list of `N-1` integers, where loops[i] determines how many iterations of force group
+            `i` are executed for every iteration of force group `i+1`.
+
+    """
+    def __init__(self, loops):
+        super(RESPA, self).__init__()
+        self.perDofVariables["x0"] = 0
+        self.loops = loops + [1]
+
+    def addSteps(self, integrator, fraction=1):
+        integrator.addUpdateContextState()
+        self._addSubsteps(integrator, self.loops, fraction)
+        integrator.addConstrainVelocities()
+
+    def _addSubsteps(self, integrator, loops, fraction):
+        group = len(loops) - 1
+        n = loops[group]
+        defDt = "; Dt=%s*dt" % fraction
+        defDv = "; Dv=0.5*%s*dt*f%d/m" % (fraction, group)
+        for i in range(n):
+            if group == 0:
+                integrator.addComputePerDof("x0", "x")
+                integrator.addComputePerDof("v", "v+Dv" + defDv)
+                integrator.addComputePerDof("x", "x+v*Dt" + defDt)
+                integrator.addConstrainPositions()
+                integrator.addComputePerDof("v", "(x-x0)/Dt+Dv" + defDt + defDv)
+                integrator.addConstrainVelocities()
+            else:
+                integrator.addComputePerDof("v", "v+Dv" + defDv)
+                self._addSubsteps(integrator, loops[0:group-1], fraction/n)
+                integrator.addComputePerDof("v", "v+Dv" + defDv)
 
 
 class BussiDonadioParrinelloThermostat(ThermostatPropagator):

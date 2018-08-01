@@ -40,6 +40,12 @@ def test_VelocityVerletIntegrator():
     execute(integrator, -5156.33314554173)
 
 
+def test_RESPAIntegrator():
+    nve = atomsmm.RESPA([])
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve)
+    execute(integrator, -5156.33314554173)
+
+
 def test_BussiDonadioParrinelloIntegrator():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     dof = atomsmm.countDegreesOfFreedom(system)

@@ -9,7 +9,7 @@
 
 from simtk import openmm
 
-from atomsmm.propagators import DummyThermostat
+from atomsmm.propagators import Propagator as DummyPropagator
 
 
 class GlobalThermostatIntegrator(openmm.CustomIntegrator):
@@ -37,13 +37,13 @@ class GlobalThermostatIntegrator(openmm.CustomIntegrator):
             The step size with which to integrate the system (in time unit).
         nveIntegrator : :class:`HamiltonianPropagator`
             The Hamiltonian propagator.
-        thermostat : :class:`ThermostatPropagator`, optional, default=DummyThermostat()
+        thermostat : :class:`ThermostatPropagator`, optional, default=DummyPropagator()
             The thermostat propagator.
         randomSeed : int, optional, default=None
             A seed for random numbers.
 
     """
-    def __init__(self, stepSize, nveIntegrator, thermostat=DummyThermostat(), randomSeed=None):
+    def __init__(self, stepSize, nveIntegrator, thermostat=DummyPropagator(), randomSeed=None):
         super(GlobalThermostatIntegrator, self).__init__(stepSize)
         if randomSeed is not None:
             self.setRandomNumberSeed(randomSeed)

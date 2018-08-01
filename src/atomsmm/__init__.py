@@ -5,6 +5,7 @@ from atomsmm.forces import FarNonbondedForce
 from atomsmm.forces import NearNonbondedForce
 from atomsmm.forces import NonbondedExceptionsForce
 from atomsmm.integrators import GlobalThermostatIntegrator
+from atomsmm.propagators import RESPA
 from atomsmm.propagators import BussiDonadioParrinelloThermostat
 from atomsmm.propagators import VelocityVerlet
 from atomsmm.utils import countDegreesOfFreedom
@@ -13,5 +14,5 @@ from atomsmm.utils import hijackForce
 from atomsmm.utils import splitPotentialEnergy
 
 __all__ = ['DampedSmoothedForce', 'NonbondedExceptionsForce', 'NearNonbondedForce', 'FarNonbondedForce',
-           'VelocityVerlet', 'BussiDonadioParrinelloThermostat', 'GlobalThermostatIntegrator',
+           'VelocityVerlet', 'RESPA', 'BussiDonadioParrinelloThermostat', 'GlobalThermostatIntegrator',
            'countDegreesOfFreedom', 'findNonbondedForce', 'hijackForce', 'splitPotentialEnergy']
