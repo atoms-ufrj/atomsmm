@@ -16,8 +16,13 @@ class Propagator:
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
+        self.persistent = list()
+
+    def declareVariables(self):
+        pass
 
     def addVariables(self, integrator):
+        self.declareVariables()
         for (name, value) in self.globalVariables.items():
             integrator.addGlobalVariable(name, value)
         for (name, value) in self.perDofVariables.items():
@@ -53,7 +58,10 @@ class VelocityVerletPropagator(HamiltonianPropagator):
     """
     def __init__(self):
         super(VelocityVerletPropagator, self).__init__()
+
+    def declareVariables(self):
         self.perDofVariables["x0"] = 0
+        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0):
         Dt = "; Dt=%s*dt" % fraction
@@ -81,8 +89,11 @@ class RespaPropagator(HamiltonianPropagator):
     """
     def __init__(self, loops):
         super(RespaPropagator, self).__init__()
-        self.perDofVariables["x0"] = 0
         self.loops = loops
+
+    def declareVariables(self):
+        self.perDofVariables["x0"] = 0
+        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0):
         integrator.addUpdateContextState()
@@ -132,15 +143,18 @@ class BussiThermostatPropagator(ThermostatPropagator):
     """
     def __init__(self, temperature, timeConstant, degreesOfFreedom):
         super(BussiThermostatPropagator, self).__init__()
+        self.tau = timeConstant.value_in_unit(unit.picoseconds)
+        self.dof = degreesOfFreedom
+        kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
+
+    def declareVariables(self):
         self.globalVariables["R"] = 0
         self.globalVariables["Z"] = 0
         self.globalVariables["ready"] = 0
         self.globalVariables["TwoKE"] = 0
         self.globalVariables["factor"] = 0
-        self.tau = timeConstant.value_in_unit(unit.picoseconds)
-        self.dof = degreesOfFreedom
-        kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
-        self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
+        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0):
         shape = (self.dof - 2 + self.dof % 2)/2
