@@ -34,20 +34,22 @@ def execute(integrator, target):
     assert potential/potential.unit == pytest.approx(target)
 
 
-def test_VelocityVerletIntegrator():
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, atomsmm.VelocityVerlet())
+def test_VelocityVerlet():
+    NVE = atomsmm.VelocityVerletPropagator()
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
     execute(integrator, -5156.33314554173)
 
 
-def test_RESPAIntegrator():
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, atomsmm.RESPA([1]))
+def test_Respa():
+    NVE = atomsmm.RespaPropagator([1])
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
     execute(integrator, -5156.33314554173)
 
 
-def test_BussiDonadioParrinelloIntegrator():
+def test_BussiThermostat():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     dof = atomsmm.countDegreesOfFreedom(system)
-    nve = atomsmm.VelocityVerlet()
-    thermostat = atomsmm.BussiDonadioParrinelloThermostat(300*unit.kelvin, 0.1*unit.picoseconds, dof)
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, nve, thermostat, 1)
+    NVE = atomsmm.VelocityVerletPropagator()
+    thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat, 1)
     execute(integrator, -5155.97602603153)

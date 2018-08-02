@@ -39,7 +39,7 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    nve = atomsmm.RESPA([2,2,1])
+    nve = atomsmm.RespaPropagator([2,2,1])
     integrator = atomsmm.GlobalThermostatIntegrator(dt, nve)
 else:
     nbforce = system.getForce(nbforceIndex)

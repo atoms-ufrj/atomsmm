@@ -35,7 +35,7 @@ class ThermostatPropagator(Propagator):
     pass
 
 
-class VelocityVerlet(HamiltonianPropagator):
+class VelocityVerletPropagator(HamiltonianPropagator):
     """
     This class implements a simple Verlocity Verlet propagator.
 
@@ -52,7 +52,7 @@ class VelocityVerlet(HamiltonianPropagator):
 
     """
     def __init__(self):
-        super(VelocityVerlet, self).__init__()
+        super(VelocityVerletPropagator, self).__init__()
         self.perDofVariables["x0"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
@@ -66,7 +66,7 @@ class VelocityVerlet(HamiltonianPropagator):
         integrator.addConstrainVelocities()
 
 
-class RESPA(HamiltonianPropagator):
+class RespaPropagator(HamiltonianPropagator):
     """
     This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
     with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
@@ -80,7 +80,7 @@ class RESPA(HamiltonianPropagator):
 
     """
     def __init__(self, loops):
-        super(RESPA, self).__init__()
+        super(RespaPropagator, self).__init__()
         self.perDofVariables["x0"] = 0
         self.loops = loops
 
@@ -108,7 +108,7 @@ class RESPA(HamiltonianPropagator):
                 integrator.addComputePerDof("v", delta_v + half)
 
 
-class BussiDonadioParrinelloThermostat(ThermostatPropagator):
+class BussiThermostatPropagator(ThermostatPropagator):
     """
     This class implements the Stochastic Velocity Rescaling propagator of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`.
@@ -131,7 +131,7 @@ class BussiDonadioParrinelloThermostat(ThermostatPropagator):
 
     """
     def __init__(self, temperature, timeConstant, degreesOfFreedom):
-        super(BussiDonadioParrinelloThermostat, self).__init__()
+        super(BussiThermostatPropagator, self).__init__()
         self.globalVariables["R"] = 0
         self.globalVariables["Z"] = 0
         self.globalVariables["ready"] = 0
@@ -162,10 +162,10 @@ class BussiDonadioParrinelloThermostat(ThermostatPropagator):
         integrator.endBlock()
         integrator.addComputeSum("TwoKE", "m*v*v")
         integrator.addComputeGlobal("R", "gaussian")
-        expression = "sqrt(A+C*B*(R^2+sumRs)+2*sqrt(C*B*A)*R);"
-        expression += "C = %s/TwoKE;" % self.kT
-        expression += "B = 1-A;"
-        expression += "A = exp(-dt*%s);" % (fraction/self.tau)
-        expression += "sumRs = 2*%s*Z;" % d if self.dof % 2 == 0 else "sumRs = 2*%s*Z;" % d
+        expression = "sqrt(A+C*B*(R^2+sumRs)+2*sqrt(C*B*A)*R)"
+        expression += "; C = %s/TwoKE" % self.kT
+        expression += "; B = 1-A"
+        expression += "; A = exp(-dt*%s)" % (fraction/self.tau)
+        expression += "; sumRs = 2*%s*Z" % d if self.dof % 2 == 0 else "; sumRs = 2*%s*Z" % d
         integrator.addComputeGlobal("factor", expression)
         integrator.addComputePerDof("v", "factor*v")
