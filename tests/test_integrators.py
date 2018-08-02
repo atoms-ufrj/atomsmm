@@ -12,25 +12,23 @@ def readSystem(case):
     pdb = app.PDBFile('tests/data/%s.pdb' % case)
     forcefield = app.ForceField('tests/data/%s.xml' % case)
     system = forcefield.createSystem(pdb.topology,
-                                     nonbondedMethod=app.CutoffPeriodic,
+                                     nonbondedMethod=app.PME,
                                      constraints=app.HBonds)
     return system, pdb.positions, pdb.topology
 
 
 def execute(integrator, target):
-    rcut = 10*unit.angstroms
-    rswitch = 9.5*unit.angstroms
-    alpha = 0.29/unit.angstroms
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
-    force = atomsmm.DampedSmoothedForce(alpha, rcut, rswitch, degree=2)
-    force.importFrom(atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))).addTo(system)
+    nbforce = atomsmm.findNonbondedForce(system)
+    system.getForce(nbforce).setReciprocalSpaceForceGroup(1)
     platform = openmm.Platform.getPlatformByName('Reference')
     simulation = app.Simulation(topology, system, integrator, platform)
     simulation.context.setPositions(positions)
     simulation.context.setVelocitiesToTemperature(300*unit.kelvin, 1)
-    simulation.step(2)
+    simulation.step(5)
     state = simulation.context.getState(getEnergy=True)
     potential = state.getPotentialEnergy()
+    print(potential, target)
     assert potential/potential.unit == pytest.approx(target)
 
 
@@ -61,13 +59,13 @@ def test_variable_names():
 def test_VelocityVerlet():
     NVE = atomsmm.VelocityVerletPropagator()
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
-    execute(integrator, -5156.33314554173)
+    execute(integrator, -13069.385589639898)
 
 
 def test_Respa():
-    NVE = atomsmm.RespaPropagator([1])
+    NVE = atomsmm.RespaPropagator([4, 1])
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
-    execute(integrator, -5156.33314554173)
+    execute(integrator, -13127.416646818641)
 
 
 def test_BussiThermostat():
@@ -76,4 +74,4 @@ def test_BussiThermostat():
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat, 1)
-    execute(integrator, -5155.97602603153)
+    execute(integrator, -13058.246567968486)
