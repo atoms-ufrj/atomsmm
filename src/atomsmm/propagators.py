@@ -8,6 +8,7 @@
 """
 
 import math
+from copy import deepcopy
 
 from simtk import unit
 
@@ -22,7 +23,6 @@ class Propagator:
         pass
 
     def addVariables(self, integrator):
-        self.declareVariables()
         for (name, value) in self.globalVariables.items():
             integrator.addGlobalVariable(name, value)
         for (name, value) in self.perDofVariables.items():
@@ -32,15 +32,31 @@ class Propagator:
         pass
 
 
-class HamiltonianPropagator(Propagator):
-    pass
+class TrotterSuzukiPropagator(Propagator):
+    """
+    This class implements Trotter Suzuki splitting propagator.
+
+    .. math::
+        e^{\\delta t \\, iL} = e^{\\frac{1}{2} \\delta t \\, iL\\mathrm{B}}
+                               e^{\\delta t \\, iL\\mathrm{A}}
+                               e^{\\frac{1}{2} \\delta t \\, iL\\mathrm{B}}
+
+    """
+    def __init__(self, propagatorA, propagatorB):
+        super(TrotterSuzukiPropagator, self).__init__()
+        self.A = deepcopy(propagatorA)
+        self.B = deepcopy(propagatorB)
+        for propagator in [self.A, self.B]:
+            self.globalVariables.update(propagator.globalVariables)
+            self.perDofVariables.update(propagator.perDofVariables)
+
+    def addSteps(self, integrator, fraction=1.0):
+        self.B.addSteps(integrator, 0.5*fraction)
+        self.A.addSteps(integrator, fraction)
+        self.B.addSteps(integrator, 0.5*fraction)
 
 
-class ThermostatPropagator(Propagator):
-    pass
-
-
-class VelocityVerletPropagator(HamiltonianPropagator):
+class VelocityVerletPropagator(Propagator):
     """
     This class implements a simple Verlocity Verlet propagator.
 
@@ -58,6 +74,7 @@ class VelocityVerletPropagator(HamiltonianPropagator):
     """
     def __init__(self):
         super(VelocityVerletPropagator, self).__init__()
+        self.declareVariables()
 
     def declareVariables(self):
         self.perDofVariables["x0"] = 0
@@ -74,7 +91,7 @@ class VelocityVerletPropagator(HamiltonianPropagator):
         integrator.addConstrainVelocities()
 
 
-class RespaPropagator(HamiltonianPropagator):
+class RespaPropagator(Propagator):
     """
     This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
     with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
@@ -89,6 +106,7 @@ class RespaPropagator(HamiltonianPropagator):
     """
     def __init__(self, loops):
         super(RespaPropagator, self).__init__()
+        self.declareVariables()
         self.loops = loops
 
     def declareVariables(self):
@@ -119,7 +137,7 @@ class RespaPropagator(HamiltonianPropagator):
                 integrator.addComputePerDof("v", delta_v + half)
 
 
-class BussiThermostatPropagator(ThermostatPropagator):
+class BussiThermostatPropagator(Propagator):
     """
     This class implements the Stochastic Velocity Rescaling propagator of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`.
@@ -143,6 +161,7 @@ class BussiThermostatPropagator(ThermostatPropagator):
     """
     def __init__(self, temperature, timeConstant, degreesOfFreedom):
         super(BussiThermostatPropagator, self).__init__()
+        self.declareVariables()
         self.tau = timeConstant.value_in_unit(unit.picoseconds)
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA

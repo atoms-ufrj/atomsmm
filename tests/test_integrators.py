@@ -75,3 +75,13 @@ def test_BussiThermostat():
     thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat, 1)
     execute(integrator, -13058.246567968486)
+
+
+def test_TrotterSuzuki():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    dof = atomsmm.countDegreesOfFreedom(system)
+    NVE = atomsmm.VelocityVerletPropagator()
+    thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
+    combination = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, combination, randomSeed=1)
+    execute(integrator, -13058.246567968486)
