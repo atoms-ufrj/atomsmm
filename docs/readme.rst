@@ -1,9 +1,8 @@
-
 ========
 Overview
 ========
 
-AtomsMM is an OpenMM customization for the ATOMS group at UFRJ/Brazil.
+AtomsMM is an OpenMM customization developed by the ATOMS group at UFRJ/Brazil.
 
 * Free software: MIT license
 

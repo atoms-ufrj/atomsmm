@@ -5,6 +5,12 @@
 
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
 
+.. _CustomBondForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomBondForce.html
+.. _CustomNonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomNonbondedForce.html
+.. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
+.. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+.. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
+
 """
 
 from simtk import openmm
@@ -20,8 +26,6 @@ class Force:
     """
     The basis class of every AtomsMM Force object, which is a list of OpenMM Force_ objects treated
     as a single force.
-
-    .. _Force: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Force.html
 
     Parameters
     ----------
@@ -85,8 +89,6 @@ class Force:
         """
         Add the :class:`Force` object to an OpenMM System_ object.
 
-        .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
-
         Parameters
         ----------
             system : openmm.System
@@ -133,8 +135,6 @@ class _NonbondedForce(openmm.NonbondedForce):
         All exceptions are turned into exclusions. Non-exclusion exceptions must be handled
         separately using a :class:`_CustomBondForce` object.
 
-    .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
-
     Parameters
     ----------
         cutoff_distance : Number or unit.Quantity
@@ -163,8 +163,6 @@ class _NonbondedForce(openmm.NonbondedForce):
         Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object and
         turn all non-exclusion exceptions into exclusion ones.
 
-        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
-
         Parameters
         ----------
             force : openmm.NonbondedForce
@@ -187,8 +185,6 @@ class _NonbondedForce(openmm.NonbondedForce):
 class _CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
-
-    .. _CustomNonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomNonbondedForce.html
 
     Parameters
     ----------
@@ -254,8 +250,6 @@ class _CustomBondForce(openmm.CustomBondForce):
     """
     An extension of OpenMM's CustomBondForce_ class used to handle NonbondedForce exceptions.
 
-    .. _CustomBondForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomBondForce.html
-
     """
     def __init__(self):
         energy = "%s+%s;" % (LennardJones("r"), Coulomb("r"))
@@ -268,8 +262,6 @@ class _CustomBondForce(openmm.CustomBondForce):
     def importFrom(self, force):
         """
         Import all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object.
-
-        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
 
         Parameters
         ----------

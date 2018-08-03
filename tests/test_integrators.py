@@ -82,6 +82,6 @@ def test_TrotterSuzuki():
     dof = atomsmm.countDegreesOfFreedom(system)
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
-    combination = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, combination, randomSeed=1)
+    integrator = atomsmm.TrotterSuzukiPropagator(NVE, thermostat).integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
     execute(integrator, -13058.246567968486)

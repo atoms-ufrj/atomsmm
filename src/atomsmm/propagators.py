@@ -1,19 +1,34 @@
 """
 .. module:: propagators
    :platform: Unix, Windows
-   :synopsis: a module for defining integration propagator classes.
+   :synopsis: a module for defining propagator classes.
 
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
+
+.. _CustomIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomIntegrator.html
+.. _VerletIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.VerletIntegrator.html
 
 """
 
 import math
 from copy import deepcopy
 
+from simtk import openmm
 from simtk import unit
 
 
 class Propagator:
+    """
+    This is the base class for propagators, which are building blocks for
+    constructing CustomIntegrator_ objects in OpenMM. Shortly, a propagator translates the effect
+    of an exponential operator like
+    :math:`e^{\\delta t \\, iL}`.
+    This effect can be either the exact solution of a system of deterministic or Stochastic
+    differential equations or an approximate solution obtained by a splitting scheme such as
+    :math:`e^{\\delta t \\, iL} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`,
+    for instance.
+
+    """
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
@@ -31,21 +46,49 @@ class Propagator:
     def addSteps(self, integrator, fraction=1.0):
         pass
 
+    def integrator(self, stepSize=1.0*unit.femtosecond):
+        """
+        This method generates an OpenMM CustomIntegrator_ object which implements the effect of the
+        propagator.
+
+        Parameters
+        ----------
+            stepSize : unit.Quantity, optional, default=1.0*unit.femtosecond
+                The step size with which to integrate the system (in time units).
+
+        Returns
+        -------
+            openmm.CustomIntegrator
+
+        """
+        integrator = openmm.CustomIntegrator(stepSize)
+        self.addVariables(integrator)
+        self.addSteps(integrator)
+        return integrator
+
 
 class TrotterSuzukiPropagator(Propagator):
     """
-    This class implements Trotter Suzuki splitting propagator.
+    This class combines two propagators :math:`A = e^{\\delta t \\, iL_A}` and
+    :math:`B = e^{\\delta t \\, iL_B}` by using the time-symmetric Trotter-Suzuki splitting scheme
+    :cite:`Suzuki_1976` :math:`C = B^{1/2} A B^{1/2}`, that is,
 
     .. math::
-        e^{\\delta t \\, iL} = e^{\\frac{1}{2} \\delta t \\, iL\\mathrm{B}}
-                               e^{\\delta t \\, iL\\mathrm{A}}
-                               e^{\\frac{1}{2} \\delta t \\, iL\\mathrm{B}}
+        e^{\\delta t \\, iL_C} = e^{{1/2} \\delta t \\, iL_B}
+                                 e^{\\delta t \\, iL_A}
+                                 e^{{1/2} \\delta t \\, iL_B}.
+
+    .. note::
+        It is possible to create nested Trotter-Suzuki propagators. If, for instance, :math:`B` is
+        a Trotter-Suzuki propagator given by :math:`E^{1/2} D E^{1/2}`, then an object instantiated
+        by `TrotterSuzukiPropagator(A,B)` will be a propagator corresponding to
+        :math:`E^{1/4} D^{1/2} E^{1/4} A E^{1/4} D^{1/2} E^{1/4}`.
 
     """
-    def __init__(self, propagatorA, propagatorB):
+    def __init__(self, A, B):
         super(TrotterSuzukiPropagator, self).__init__()
-        self.A = deepcopy(propagatorA)
-        self.B = deepcopy(propagatorB)
+        self.A = deepcopy(A)
+        self.B = deepcopy(B)
         for propagator in [self.A, self.B]:
             self.globalVariables.update(propagator.globalVariables)
             self.perDofVariables.update(propagator.perDofVariables)
@@ -68,8 +111,6 @@ class VelocityVerletPropagator(Propagator):
     .. note::
         In the original OpenMM VerletIntegrator_ class, the implemented propagator is a leap-frog
         version of the Verlet method.
-
-    .. _VerletIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.VerletIntegrator.html
 
     """
     def __init__(self):
