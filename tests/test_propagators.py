@@ -77,6 +77,16 @@ def test_BussiThermostat():
     execute(integrator, -13058.246567968486)
 
 
+def test_Chained():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    dof = atomsmm.countDegreesOfFreedom(system)
+    NVE = atomsmm.VelocityVerletPropagator()
+    thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
+    integrator = atomsmm.ChainedPropagator(NVE, thermostat).integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
+    execute(integrator, -13049.378821366568)
+
+
 def test_TrotterSuzuki():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     dof = atomsmm.countDegreesOfFreedom(system)

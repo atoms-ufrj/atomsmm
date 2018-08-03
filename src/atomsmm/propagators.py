@@ -67,6 +67,47 @@ class Propagator:
         return integrator
 
 
+class ChainedPropagator(Propagator):
+    """
+    This class combines two propagators :math:`A = e^{\\delta t \\, iL_A}` and
+    :math:`B = e^{\\delta t \\, iL_B}` by making :math:`C = A B`, that is,
+
+    .. math::
+        e^{\\delta t \\, iL_C} = e^{\\delta t \\, iL_A}
+                                 e^{\\delta t \\, iL_B}.
+
+    .. warning::
+        Propagators are applied to the system in the right-to-left direction. In general, the effect
+        of the chained propagator is non-commutative. Thus, `ChainedPropagator(A,B)` results in a
+        time-asymmetric propagators unless `A` and `B` commute.
+
+    .. note::
+        It is possible to create nested chained propagators. If, for instance, :math:`B` is
+        a chained propagator given by :math:`D E`, then an object instantiated
+        by `ChainedPropagator(A,B)` will be a propagator corresponding to
+        :math:`A D E`.
+
+    Parameters
+    ----------
+        A : :class:`Propagator`
+            The secondly applied propagator in the chain.
+        B : :class:`Propagator`
+            The firstly applied propagator in the chain.
+
+    """
+    def __init__(self, A, B):
+        super(ChainedPropagator, self).__init__()
+        self.A = deepcopy(A)
+        self.B = deepcopy(B)
+        for propagator in [self.A, self.B]:
+            self.globalVariables.update(propagator.globalVariables)
+            self.perDofVariables.update(propagator.perDofVariables)
+
+    def addSteps(self, integrator, fraction=1.0):
+        self.B.addSteps(integrator, fraction)
+        self.A.addSteps(integrator, fraction)
+
+
 class TrotterSuzukiPropagator(Propagator):
     """
     This class combines two propagators :math:`A = e^{\\delta t \\, iL_A}` and
@@ -83,6 +124,13 @@ class TrotterSuzukiPropagator(Propagator):
         a Trotter-Suzuki propagator given by :math:`E^{1/2} D E^{1/2}`, then an object instantiated
         by `TrotterSuzukiPropagator(A,B)` will be a propagator corresponding to
         :math:`E^{1/4} D^{1/2} E^{1/4} A E^{1/4} D^{1/2} E^{1/4}`.
+
+    Parameters
+    ----------
+        A : :class:`Propagator`
+            The central propagator of a Trotter-Suzuki splitting scheme.
+        B : :class:`Propagator`
+            The peripheral propagator of a Trotter-Suzuki splitting scheme.
 
     """
     def __init__(self, A, B):
