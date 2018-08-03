@@ -13,8 +13,9 @@
 import math
 from copy import deepcopy
 
-from simtk import openmm
 from simtk import unit
+
+import atomsmm
 
 
 class Propagator:
@@ -28,11 +29,18 @@ class Propagator:
     :math:`e^{\\delta t \\, iL} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`,
     for instance.
 
+    .. note::
+        One can visualize the steps of a propagator by simply using the `print()` function having
+        the propagator object as an argument.
+
     """
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
         self.persistent = list()
+
+    def __str__(self):
+        return self.integrator().pretty_format()
 
     def declareVariables(self):
         pass
@@ -61,7 +69,7 @@ class Propagator:
             openmm.CustomIntegrator
 
         """
-        integrator = openmm.CustomIntegrator(stepSize)
+        integrator = atomsmm.integrators.Integrator(stepSize)
         self.addVariables(integrator)
         self.addSteps(integrator)
         return integrator
