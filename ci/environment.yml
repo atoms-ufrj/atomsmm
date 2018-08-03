@@ -5,4 +5,5 @@ channels:
 dependencies:
   - python=3.6
   - openmm
+  - openmmtools
   - sphinxcontrib-bibtex>=0.4
