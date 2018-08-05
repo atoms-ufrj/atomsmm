@@ -45,7 +45,7 @@ else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
     nbforce.setSwitchingDistance(rswitch)
-    thermostat = atomsmm.VelocityRescalingPropagator(temp, 1/friction, dof)
+    thermostat = atomsmm.VelocityRescalingPropagator(temp, dof, 1/friction)
     NVE = atomsmm.VelocityVerletPropagator()
     integrator = atomsmm.TrotterSuzukiPropagator(NVE, thermostat).integrator(dt)
     integrator.setRandomNumberSeed(seed)

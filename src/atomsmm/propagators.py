@@ -251,14 +251,14 @@ class VelocityRescalingPropagator(Propagator):
     ----------
         temperature : Number or unit.Quantity
             The temperature of the heat bath (in Kelvin or in an explicit temperature unit).
-        timeConstant : Number or unit.Quantity
-            The relaxation time of thermostat (in picoseconds or in an explicit time unit).
         degreesOfFreedom : int
             The number of degrees of freedom in the system, which can be retrieved via function
             :func:`~atomsmm.utils.countDegreesOfFreedom`.
+        timeConstant : Number or unit.Quantity
+            The relaxation time of the thermostat (in picoseconds or in an explicit time unit).
 
     """
-    def __init__(self, temperature, timeConstant, degreesOfFreedom):
+    def __init__(self, temperature, degreesOfFreedom, timeConstant):
         super(VelocityRescalingPropagator, self).__init__()
         self.declareVariables()
         self.tau = timeConstant.value_in_unit(unit.picoseconds)
@@ -307,3 +307,61 @@ class VelocityRescalingPropagator(Propagator):
         # Note: the factor 2 above (multiplying d) is absent in the original paper, but has been
         # added afterwards (see https://sites.google.com/site/giovannibussi/Research/algorithms).
         integrator.addComputePerDof("v", expression)
+
+
+class NoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements the Nose-Hoover-Langevin propagator :cite:`Samoletov_2007,Leimkuhler_2009`.
+
+    .. math::
+        & \\frac{d\\mathbf{p}}{dt} = -\\frac{p_\\eta}{Q}\\mathbf{p} \\\\
+        & d p_\\eta = (\\mathbf{p}^T \\mathbf{M}^{-1} \\mathbf{p} - N_f k_B T)dt
+                    - \\gamma p_\\eta dt
+                    + \\sqrt{2 Q \\gamma k_B T}dW
+
+    This is like a Nose-Hoover chain :cite:`Tuckerman_1992`, but with the chain replaced by a
+    Langevin-type thermostat. As usual, :math:`Q = N_f k_B T \\tau^2`, where :math:`\\Ztau` is a
+    relaxation time.
+
+    Parameters
+    ----------
+        temperature : Number or unit.Quantity
+            The temperature of the heat bath (in Kelvin or in an explicit temperature unit).
+        degreesOfFreedom : int
+            The number of degrees of freedom in the system, which can be retrieved via function
+            :func:`~atomsmm.utils.countDegreesOfFreedom`.
+        timeConstant : Number or unit.Quantity
+            The relaxation time of the Nose-Hoover thermostat (in picoseconds or in an explicit
+            time unit).
+        frictionCoefficient : Number or unit.Quantity
+            The friction coefficient of the Langevin thermostat (in 1/picoseconds or in an explicit
+            inverse time unit).
+
+    """
+    def __init__(self, temperature, degreesOfFreedom, timeConstant, frictionCoefficient):
+        super(VelocityRescalingPropagator, self).__init__()
+        self.declareVariables()
+        self.tau = timeConstant.value_in_unit(unit.picoseconds)
+        self.gamma = frictionCoefficient.value_in_unit(1/unit.picoseconds)
+        self.dof = degreesOfFreedom
+        kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
+        self.NkT = degreesOfFreedom*self.kT
+        self.Q = self.NkT*self.tau^2
+
+    def declareVariables(self):
+        self.globalVariables["TwoKE"] = 0
+        self.globalVariables["p_NHL"] = 0
+        self.persistent = ["p_NHL"]
+
+    def addSteps(self, integrator, fraction=1.0):
+        half = "; Dt = %s*dt" % (fraction/2)
+        integrator.addComputeSum("TwoKE", "m*v*v")
+        integrator.addComputeGlobal("p_NHL", "p_NHL + Dt*(TwoKE - %s)" % self.NkT + half)
+        integrator.addComputePerDof("v", "exp(-Dt*p_NHL/%s)*v" % self.Q + half)
+        expression = "x*p_NHL + sqrt(%s*(1-x^2))*random" % (self.Q*self.kT)
+        expression += "; x = exp(-%s*dt)" % self.gamma
+        integrator.addComputeGlobal("p_NHL", expression)
+        integrator.addComputePerDof("v", "exp(-Dt*p_NHL/%s)*v" % self.Q + half)
+        integrator.addComputeSum("TwoKE", "m*v*v")
+        integrator.addComputeGlobal("p_NHL", "p_NHL + Dt*(TwoKE - %s)" % self.NkT + half)
