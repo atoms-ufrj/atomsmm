@@ -74,7 +74,7 @@ def test_BussiThermostat():
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat, 1)
-    execute(integrator, -13058.246567968486)
+    execute(integrator, -13064.351037463852)
 
 
 def test_Chained():
@@ -84,7 +84,7 @@ def test_Chained():
     thermostat = atomsmm.BussiThermostatPropagator(300*unit.kelvin, 0.1*unit.picoseconds, dof)
     integrator = atomsmm.ChainedPropagator(NVE, thermostat).integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
-    execute(integrator, -13049.378821366568)
+    execute(integrator, -13064.756951334914)
 
 
 def test_TrotterSuzuki():
@@ -95,4 +95,4 @@ def test_TrotterSuzuki():
     combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
-    execute(integrator, -13058.246567968486)
+    execute(integrator, -13064.351037463852)

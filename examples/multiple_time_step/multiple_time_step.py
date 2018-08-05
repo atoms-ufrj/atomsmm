@@ -7,7 +7,7 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 1000
+nsteps = 10000
 ndisp = 100
 seed = 5623
 temp = 300*unit.kelvin
@@ -19,7 +19,7 @@ rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = True
 mts = False
-mts = True
+# mts = True
 
 # case = 'q-SPC-FW'
 case = 'emim_BCN4_Jiung2014'
@@ -39,14 +39,16 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    nve = atomsmm.RespaPropagator([2,2,1])
+    NVE = atomsmm.RespaPropagator([2,2,1])
     integrator = atomsmm.GlobalThermostatIntegrator(dt, nve)
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
     nbforce.setSwitchingDistance(rswitch)
-    thermostat = atomsmm.BussiDonadioParrinelloThermostat(temp, 1/friction, dof)
-    integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerlet(), thermostat)
+    thermostat = atomsmm.BussiThermostatPropagator(temp, 1/friction, dof)
+    NVE = atomsmm.VelocityVerletPropagator()
+    integrator = atomsmm.TrotterSuzukiPropagator(NVE, thermostat).integrator(dt)
+    integrator.setRandomNumberSeed(seed)
 
 integrator.pretty_print()
 
