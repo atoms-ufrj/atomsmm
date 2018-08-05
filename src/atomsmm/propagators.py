@@ -234,7 +234,7 @@ class RespaPropagator(Propagator):
                 integrator.addComputePerDof("v", delta_v + half)
 
 
-class BussiThermostatPropagator(Propagator):
+class VelocityRescalingPropagator(Propagator):
     """
     This class implements the Stochastic Velocity Rescaling propagator of Bussi, Donadio, and
     Parrinello :cite:`Bussi_2007`, which is a global version of the Langevin thermostat
@@ -259,7 +259,7 @@ class BussiThermostatPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeConstant, degreesOfFreedom):
-        super(BussiThermostatPropagator, self).__init__()
+        super(VelocityRescalingPropagator, self).__init__()
         self.declareVariables()
         self.tau = timeConstant.value_in_unit(unit.picoseconds)
         self.dof = degreesOfFreedom
