@@ -356,14 +356,14 @@ class NoseHooverLangevinPropagator(Propagator):
         degreesOfFreedom : int
             The number of degrees of freedom in the system, which can be retrieved via function
             :func:`~atomsmm.utils.countDegreesOfFreedom`.
-        timeConstant : unit.Quantity
+        timeConstant : unit.Quantity (time)
             The relaxation time of the Nose-Hoover thermostat.
-        frictionCoefficient : unit.Quantity
+        frictionCoefficient : unit.Quantity (1/time)
             The friction coefficient of the Langevin thermostat.
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeConstant, frictionCoefficient):
-        super(VelocityRescalingPropagator, self).__init__()
+        super(NoseHooverLangevinPropagator, self).__init__()
         self.declareVariables()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
@@ -381,7 +381,7 @@ class NoseHooverLangevinPropagator(Propagator):
         kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
         N = self.degreesOfFreedom
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
-        gamma = self.frictionCoefficient.value_in_unit(1/unit.picoseconds)
+        gamma = self.frictionCoefficient.value_in_unit(unit.picoseconds**(-1))
         Q = N*kT*tau**2
         integrator.addComputeSum("TwoK", "m*v*v")
         integrator.addComputeGlobal("factor", "exp({}*p_NHL*dt)".format(-0.5*fraction/Q))
