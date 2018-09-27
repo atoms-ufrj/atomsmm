@@ -6,8 +6,10 @@ from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
 from .propagators import ChainedPropagator  # noqa: F401
+from .propagators import IsokineticPropagator  # noqa: F401
 from .propagators import NoseHooverLangevinPropagator  # noqa: F401
 from .propagators import RespaPropagator  # noqa: F401
+from .propagators import TranslationPropagator  # noqa: F401
 from .propagators import TrotterSuzukiPropagator  # noqa: F401
 from .propagators import VelocityRescalingPropagator  # noqa: F401
 from .propagators import VelocityVerletPropagator  # noqa: F401
@@ -34,6 +36,8 @@ __propagators__ = [
     'RespaPropagator',
     'VelocityRescalingPropagator',
     'NoseHooverLangevinPropagator',
+    'TranslationPropagator',
+    'IsokineticPropagator',
     ]  # noqa E123
 
 __utils__ = [

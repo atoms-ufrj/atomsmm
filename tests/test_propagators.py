@@ -96,3 +96,13 @@ def test_TrotterSuzuki():
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
     execute(integrator, -13064.351037463852)
+
+
+def test_Isokinetic():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    center = atomsmm.TranslationPropagator()
+    thermostat = atomsmm.IsokineticPropagator()
+    combined = atomsmm.TrotterSuzukiPropagator(center, thermostat)
+    integrator = combined.integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
+    execute(integrator, -12408.259330580884)

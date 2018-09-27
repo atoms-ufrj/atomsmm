@@ -20,14 +20,12 @@ import atomsmm
 
 class Propagator:
     """
-    This is the base class for propagators, which are building blocks for
-    constructing CustomIntegrator_ objects in OpenMM. Shortly, a propagator translates the effect
-    of an exponential operator like
-    :math:`e^{\\delta t \\, iL}`.
-    This effect can be either the exact solution of a system of deterministic or Stochastic
-    differential equations or an approximate solution obtained by a splitting scheme such as
-    :math:`e^{\\delta t \\, iL} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`,
-    for instance.
+    This is the base class for propagators, which are building blocks for constructing
+    CustomIntegrator_ objects in OpenMM. Shortly, a propagator translates the effect of an
+    exponential operator like :math:`e^{\\delta t \\, iL}`. This effect can be either the exact
+    solution of a system of deterministic or stochastic differential equations or an approximate
+    solution obtained by a splitting scheme such as, for instance,
+    :math:`e^{\\delta t \\, iL} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`.
 
     .. note::
         One can visualize the steps of a propagator by simply using the `print()` function having
@@ -157,7 +155,7 @@ class TrotterSuzukiPropagator(Propagator):
 
 class VelocityVerletPropagator(Propagator):
     """
-    This class implements a simple Verlocity Verlet propagator.
+    This class implements a Velocity Verlet propagator with constraints.
 
     .. math::
         e^{\\delta t \\, iL_\\mathrm{NVE}} = e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
@@ -232,6 +230,34 @@ class RespaPropagator(Propagator):
                 self._addSubsteps(integrator, loops[0:group], fraction/n)
             if i == n-1:
                 integrator.addComputePerDof("v", delta_v + half)
+
+
+class TranslationPropagator(Propagator):
+    """
+    This class implements a simple (unconstrained) translation propagator
+    :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
+
+    """
+    def __init__(self):
+        super(TranslationPropagator, self).__init__()
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("x", "x+{}*dt*v".format(fraction))
+
+
+class BoostPropagator(Propagator):
+    """
+    This class implements a simple (unconstrained) boost propagator
+    :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
+
+    """
+    def __init__(self):
+        super(BoostPropagator, self).__init__()
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
 class VelocityRescalingPropagator(Propagator):
@@ -389,4 +415,54 @@ class NoseHooverLangevinPropagator(Propagator):
         expression += "; G = (factor^2*TwoK-{})/{}".format(N*kT, gamma)
         expression += "; x = exp({}*dt)".format(-gamma*fraction)
         integrator.addComputeGlobal("p_NHL", expression)
+        integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "factor*exp({}*p_NHL*dt)*v".format(-0.5*fraction/Q))
+
+
+class IsokineticPropagator(Propagator):
+    """
+    This class implements an unconstrained isokinetic propagator, which  provides a solution for the
+    following :term:`ODE` system:
+
+    .. math::
+        & \\frac{d\\mathbf{p}}{dt} = \\mathbf{F} - \\alpha \\mathbf{p} \\\\
+        & \\alpha = \\frac{\\mathbf{p}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K}
+
+    where :math:`K = \\frac{1}{2} \\mathbf{p}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{p}` is the
+    kinetic energy, which is kept constant. The solution of the equation is:
+
+    .. math::
+        \\mathbf{p}(t) = \\frac{c^2 \\mathbf{p}_0 + g(t)\\mathbf{F}}{g^\\prime(t)}
+
+    where
+
+    .. math::
+        & g(t) = \\alpha_0 [\\cosh(ct) - 1] + c\\sinh(ct) \\\\
+        & g^\\prime(t) = c\\alpha_0 \\sinh(ct) + c^2\\cosh(ct) \\\\
+        & \\alpha_0 = \\frac{\\mathbf{p}_0^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K} \\\\
+        & c = \\sqrt{\\frac{\\mathbf{F}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K}}
+
+    """
+    def __init__(self):
+        super(IsokineticPropagator, self).__init__()
+        self.declareVariables()
+
+    def declareVariables(self):
+        self.globalVariables["pWp"] = 0
+        self.globalVariables["pWf"] = 0
+        self.globalVariables["fWf"] = 0
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addComputeSum("pWp", "m*v*v")
+        integrator.addComputeSum("pWf", "v*f")
+        integrator.addComputeSum("fWf", "f^2/m")
+        expression = "(c2*v + f*g/m)/gprime"
+        expression += "; g = a0*(x-1) + c*y"
+        expression += "; gprime = c*a0*y + c2*x"
+        expression += "; x = cosh({}*dt*c)".format(fraction)
+        expression += "; y = sinh({}*dt*c)".format(fraction)
+        expression += "; c = sqrt(c2)"
+        expression += "; a0 = pWf/pWp"
+        expression += "; c2 = fWf/pWp"
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("v", expression)

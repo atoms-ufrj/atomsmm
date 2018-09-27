@@ -16,9 +16,15 @@ from atomsmm.propagators import Propagator as DummyPropagator
 class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
     def __init__(self, stepSize):
         super(Integrator, self).__init__(stepSize)
+        self.obsoleteContextState = True
 
     def __str__(self):
         return self.pretty_format()
+
+    def addUpdateContextState(self):
+        if self.obsoleteContextState:
+            super(Integrator, self).addUpdateContextState()
+            self.obsoleteContextState = False
 
 
 class GlobalThermostatIntegrator(Integrator):
