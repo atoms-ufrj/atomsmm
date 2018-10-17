@@ -24,18 +24,20 @@ case = 'emim_BCN4_Jiung2014'
 
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
-system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
-                                 nonbondedCutoff=rcut, rigidWater=False)
+system = forcefield.createSystem(pdb.topology,
+                                 nonbondedMethod=openmm.app.PME,
+                                 nonbondedCutoff=rcut,
+                                 rigidWater=False,
+                                 constraints=None,
+                                 removeCMMotion=False)
 
 nbforceIndex = atomsmm.findNonbondedForce(system)
 dof = atomsmm.countDegreesOfFreedom(system)
 nbforce = system.getForce(nbforceIndex)
 nbforce.setUseSwitchingFunction(True)
 nbforce.setSwitchingDistance(rswitch)
-# thermostat = atomsmm.VelocityRescalingPropagator(temp, dof, 1/friction)
-thermostat = atomsmm.NoseHooverLangevinPropagator(temp, dof, 1/friction, friction)
 positions = atomsmm.TranslationPropagator()
-velocities = atomsmm.IsokineticPropagator()
+velocities = atomsmm.IsokineticPropagator(temp, dof)
 integrator = atomsmm.TrotterSuzukiPropagator(positions, velocities).integrator(dt)
 integrator.setRandomNumberSeed(seed)
 

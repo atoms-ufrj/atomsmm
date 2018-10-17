@@ -37,6 +37,17 @@ class Force:
         self.forces = forces
         self.setForceGroup(0)
 
+    def __iter__(self):
+        self.current = 0
+        return self
+
+    def __next__(self):
+        if self.current == len(self.forces):
+            raise StopIteration
+        else:
+            self.current += 1
+            return self.forces[self.current - 1]
+
     def setForceGroup(self, group):
         """
         Set the force group to which this :class:`Force` object belongs.

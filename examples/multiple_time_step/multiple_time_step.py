@@ -17,17 +17,17 @@ rswitchIn = 6.0*unit.angstroms
 rcutIn = 7.0*unit.angstroms
 rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
-shift = True
+shift = False
+# mts = False
 mts = False
-# mts = True
 
-# case = 'q-SPC-FW'
-case = 'emim_BCN4_Jiung2014'
+case = 'q-SPC-FW'
+# case = 'emim_BCN4_Jiung2014'
 
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
 system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
-                                 nonbondedCutoff=rcut, rigidWater=False)
+                                 nonbondedCutoff=rcut, rigidWater=False, constraints=None)
 
 nbforceIndex = atomsmm.findNonbondedForce(system)
 dof = atomsmm.countDegreesOfFreedom(system)
@@ -61,6 +61,10 @@ properties = {"Precision": "mixed"}
 simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
 simulation.context.setPositions(pdb.positions)
 simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
+
+state = simulation.context.getState(getEnergy=True)
+print(state.getPotentialEnergy())
+exit()
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']

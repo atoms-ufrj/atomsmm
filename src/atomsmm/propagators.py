@@ -25,7 +25,7 @@ class Propagator:
     exponential operator like :math:`e^{\\delta t \\, iL}`. This effect can be either the exact
     solution of a system of deterministic or stochastic differential equations or an approximate
     solution obtained by a splitting scheme such as, for instance,
-    :math:`e^{\\delta t \\, iL} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`.
+    :math:`e^{\\delta t \\, (iL_A+iL_B)} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`.
 
     .. note::
         One can visualize the steps of a propagator by simply using the `print()` function having
@@ -36,6 +36,7 @@ class Propagator:
         self.globalVariables = dict()
         self.perDofVariables = dict()
         self.persistent = list()
+        self.declareVariables()
 
     def __str__(self):
         return self.integrator().pretty_format()
@@ -84,14 +85,14 @@ class ChainedPropagator(Propagator):
 
     .. warning::
         Propagators are applied to the system in the right-to-left direction. In general, the effect
-        of the chained propagator is non-commutative. Thus, `ChainedPropagator(A,B)` results in a
-        time-asymmetric propagators unless `A` and `B` commute.
+        of the chained propagator is non-commutative. Thus, `ChainedPropagator(A, B)` results in a
+        time-asymmetric propagator unless `A` and `B` commute.
 
     .. note::
         It is possible to create nested chained propagators. If, for instance, :math:`B` is
-        a chained propagator given by :math:`D E`, then an object instantiated
-        by `ChainedPropagator(A,B)` will be a propagator corresponding to
-        :math:`A D E`.
+        a chained propagator given by :math:`B = D E`, then an object instantiated
+        by `ChainedPropagator(A, B)` will be a propagator corresponding to
+        :math:`C = A D E`.
 
     Parameters
     ----------
@@ -127,16 +128,16 @@ class TrotterSuzukiPropagator(Propagator):
 
     .. note::
         It is possible to create nested Trotter-Suzuki propagators. If, for instance, :math:`B` is
-        a Trotter-Suzuki propagator given by :math:`E^{1/2} D E^{1/2}`, then an object instantiated
-        by `TrotterSuzukiPropagator(A,B)` will be a propagator corresponding to
-        :math:`E^{1/4} D^{1/2} E^{1/4} A E^{1/4} D^{1/2} E^{1/4}`.
+        a Trotter-Suzuki propagator given by :math:`B = E^{1/2} D E^{1/2}`, then an object
+        instantiated by `TrotterSuzukiPropagator(A, B)` will be a propagator corresponding to
+        :math:`C = E^{1/4} D^{1/2} E^{1/4} A E^{1/4} D^{1/2} E^{1/4}`.
 
     Parameters
     ----------
         A : :class:`Propagator`
-            The central propagator of a Trotter-Suzuki splitting scheme.
+            The middle propagator of a Trotter-Suzuki splitting scheme.
         B : :class:`Propagator`
-            The peripheral propagator of a Trotter-Suzuki splitting scheme.
+            The side propagator of a Trotter-Suzuki splitting scheme.
 
     """
     def __init__(self, A, B):
@@ -437,23 +438,26 @@ class IsokineticPropagator(Propagator):
     where
 
     .. math::
-        & g(t) = \\alpha_0 [\\cosh(ct) - 1] + c\\sinh(ct) \\\\
+        & g(t) = \\alpha_0 \\cosh(ct) + c\\sinh(ct) - \\alpha_0 \\\\
         & g^\\prime(t) = c\\alpha_0 \\sinh(ct) + c^2\\cosh(ct) \\\\
         & \\alpha_0 = \\frac{\\mathbf{p}_0^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K} \\\\
         & c = \\sqrt{\\frac{\\mathbf{F}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K}}
 
     """
-    def __init__(self):
+    def __init__(self, temperature, degreesOfFreedom):
         super(IsokineticPropagator, self).__init__()
+        self.temperature = temperature
+        self.degreesOfFreedom = degreesOfFreedom
         self.declareVariables()
 
     def declareVariables(self):
-        self.globalVariables["pWp"] = 0
         self.globalVariables["pWf"] = 0
         self.globalVariables["fWf"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
-        integrator.addComputeSum("pWp", "m*v*v")
+        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
+        TwoK = (self.degreesOfFreedom - 1)*kT
         integrator.addComputeSum("pWf", "v*f")
         integrator.addComputeSum("fWf", "f^2/m")
         expression = "(c2*v + f*g/m)/gprime"
@@ -462,7 +466,7 @@ class IsokineticPropagator(Propagator):
         expression += "; x = cosh({}*dt*c)".format(fraction)
         expression += "; y = sinh({}*dt*c)".format(fraction)
         expression += "; c = sqrt(c2)"
-        expression += "; a0 = pWf/pWp"
-        expression += "; c2 = fWf/pWp"
+        expression += "; a0 = pWf/{}".format(TwoK)
+        expression += "; c2 = fWf/{}".format(TwoK)
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", expression)

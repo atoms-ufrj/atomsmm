@@ -8,12 +8,13 @@ from simtk.openmm import app
 import atomsmm
 
 
-def readSystem(case):
+def readSystem(case, constraints=app.HBonds):
     pdb = app.PDBFile('tests/data/%s.pdb' % case)
     forcefield = app.ForceField('tests/data/%s.xml' % case)
     system = forcefield.createSystem(pdb.topology,
                                      nonbondedMethod=app.PME,
-                                     constraints=app.HBonds)
+                                     constraints=constraints,
+                                     removeCMMotion=constraints is not None)
     return system, pdb.positions, pdb.topology
 
 
@@ -99,10 +100,11 @@ def test_TrotterSuzuki():
 
 
 def test_Isokinetic():
-    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014', constraints=None)
+    dof = atomsmm.countDegreesOfFreedom(system)
     center = atomsmm.TranslationPropagator()
-    thermostat = atomsmm.IsokineticPropagator()
+    thermostat = atomsmm.IsokineticPropagator(300*unit.kelvin, dof)
     combined = atomsmm.TrotterSuzukiPropagator(center, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
-    execute(integrator, -12408.259330580884)
+    execute(integrator, -12502.435492257948)
