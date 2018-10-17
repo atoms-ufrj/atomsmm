@@ -99,6 +99,18 @@ def test_TrotterSuzuki():
     execute(integrator, -13064.351037463852)
 
 
+def test_NoseHooverPropagator():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    dof = atomsmm.countDegreesOfFreedom(system)
+    NVE = atomsmm.VelocityVerletPropagator()
+    thermostat = atomsmm.NoseHooverPropagator(300*unit.kelvin, dof, 10*unit.femtoseconds)
+    thermostat = atomsmm.HighOrderSplitPropagator(thermostat, 3, 2)
+    combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
+    integrator = combined.integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
+    execute(integrator, -13065.637854682398)
+
+
 def test_Isokinetic():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014', constraints=None)
     dof = atomsmm.countDegreesOfFreedom(system)

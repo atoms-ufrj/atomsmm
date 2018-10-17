@@ -154,6 +154,58 @@ class TrotterSuzukiPropagator(Propagator):
         self.B.addSteps(integrator, 0.5*fraction)
 
 
+class HighOrderSplitPropagator(Propagator):
+    """
+    This class splits a propagator :math:`A = e^{\\delta t \\, iL_A}` by using a high-order,
+    time-symmetric Suzuki-Yoshida scheme :cite:`Suzuki_1985,Yoshida_1990,Suzuki_1991` given by
+
+    .. math::
+        e^{\\delta t \\, iL_A} = \\prod_{i=1}^{n_{sy}} \\prod_{j=1}^{n_{res}}  e^{\\frac{w_i}{n_{res}} \\delta t \\, iL_A},
+
+    where :math:`n_{sy}` is the number of employed Suzuki-Yoshida weights and :math:`n_{res}` is the
+    number of RESPA-like subdivisions.
+
+    Parameters
+    ----------
+        A : :class:`Propagator`
+            The propagator to be splitted by the high-order Suzuki-Yoshida scheme.
+        nsy : int, optional, default=3
+            The number of Suzuki-Yoshida weights to be employed. This must be 3, 7, or 15.
+        nres : int, optional, default=1
+            The number of RESPA-like subdivisions.
+
+    """
+    def __init__(self, A, nsy=3, nres=1):
+        if nsy not in [3, 7, 15]:
+            raise atomsmm.utils.InputError("HighOrderSplitPropagator only accepts nsy = 3, 7, or 15")
+        super(HighOrderSplitPropagator, self).__init__()
+        self.A = deepcopy(A)
+        self.nsy = nsy
+        self.nres = nres
+        self.globalVariables.update(self.A.globalVariables)
+        self.perDofVariables.update(self.A.perDofVariables)
+
+    def declareVariables(self):
+        self.globalVariables["hoscount"] = 0
+
+    def addSteps(self, integrator, fraction=1.0):
+        if self.nsy == 15:
+            weights = [0.102799849391985, -1.96061023297549, 1.93813913762276, -0.158240635368243,
+                       -1.44485223686048, 0.253693336566229, 0.914844246229740]
+        elif self.nsy == 7:
+            weights = [0.784513610477560, 0.235573213359357, -1.17767998417887]
+        else:
+            weights = [1/(2 - 2**(1/3))]
+        for w in list(reversed(weights)) + [1 - 2*sum(weights)] + weights:
+            if self.nres > 1:
+                integrator.addComputeGlobal("hoscount", "0")
+                integrator.beginWhileBlock("hoscount < {}".format(self.nres))
+                integrator.addComputeGlobal("hoscount", "hoscount+1")
+            self.A.addSteps(integrator, fraction*w/self.nres)
+            if self.nres > 1:
+                integrator.endBlock()
+
+
 class VelocityVerletPropagator(Propagator):
     """
     This class implements a Velocity Verlet propagator with constraints.
@@ -170,7 +222,6 @@ class VelocityVerletPropagator(Propagator):
     """
     def __init__(self):
         super(VelocityVerletPropagator, self).__init__()
-        self.declareVariables()
 
     def declareVariables(self):
         self.perDofVariables["x0"] = 0
@@ -202,7 +253,6 @@ class RespaPropagator(Propagator):
     """
     def __init__(self, loops):
         super(RespaPropagator, self).__init__()
-        self.declareVariables()
         self.loops = loops
 
     def declareVariables(self):
@@ -293,7 +343,6 @@ class VelocityRescalingPropagator(Propagator):
     """
     def __init__(self, temperature, degreesOfFreedom, timeConstant):
         super(VelocityRescalingPropagator, self).__init__()
-        self.declareVariables()
         self.tau = timeConstant.value_in_unit(unit.picoseconds)
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
@@ -340,6 +389,50 @@ class VelocityRescalingPropagator(Propagator):
         # Note: the factor 2 above (multiplying d) is absent in the original paper, but has been
         # added afterwards (see https://sites.google.com/site/giovannibussi/Research/algorithms).
         integrator.addComputePerDof("v", expression)
+
+
+class NoseHooverPropagator(Propagator):
+    """
+    This class implements a Nose-Hoove propagator.
+
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        degreesOfFreedom : int
+            The number of degrees of freedom in the system, which can be retrieved via function
+            :func:`~atomsmm.utils.countDegreesOfFreedom`.
+        timeConstant : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+
+    """
+    def __init__(self, temperature, degreesOfFreedom, timeConstant):
+        super(NoseHooverPropagator, self).__init__()
+        self.temperature = temperature
+        self.degreesOfFreedom = degreesOfFreedom
+        self.timeConstant = timeConstant
+
+    def declareVariables(self):
+        self.globalVariables["TwoK"] = 0
+        self.globalVariables["vscaling"] = 0
+        self.globalVariables["p_NH"] = 0
+        self.persistent = ["p_NH"]
+
+    def addSteps(self, integrator, fraction=1.0):
+        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
+        N = self.degreesOfFreedom
+        tau = self.timeConstant.value_in_unit(unit.picoseconds)
+        Q = N*kT*tau**2
+        integrator.addComputeSum("TwoK", "m*v*v")
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(TwoK-{})".format(0.5*fraction/Q, N*kT))
+        integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-fraction/Q))
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*TwoK-{})".format(0.5*fraction/Q, N*kT))
+        integrator.addComputePerDof("v", "vscaling*v")
+        integrator.addUpdateContextState()
 
 
 class NoseHooverLangevinPropagator(Propagator):
@@ -391,7 +484,6 @@ class NoseHooverLangevinPropagator(Propagator):
     """
     def __init__(self, temperature, degreesOfFreedom, timeConstant, frictionCoefficient):
         super(NoseHooverLangevinPropagator, self).__init__()
-        self.declareVariables()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeConstant = timeConstant
@@ -448,7 +540,6 @@ class IsokineticPropagator(Propagator):
         super(IsokineticPropagator, self).__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
-        self.declareVariables()
 
     def declareVariables(self):
         self.globalVariables["pWf"] = 0
