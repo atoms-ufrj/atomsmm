@@ -9,8 +9,11 @@
 
 import openmmtools.integrators as openmmtools
 from simtk import openmm
+from sympy import Symbol
+from sympy.parsing.sympy_parser import parse_expr
 
 from atomsmm.propagators import Propagator as DummyPropagator
+from atomsmm.utils import InputError
 
 
 class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
@@ -23,19 +26,44 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
     def __str__(self):
         return self.pretty_format()
 
+    def _requirements(self, variable, expression):
+        definitions = ("{}={}".format(variable, expression)).split(";")
+        names = set()
+        symbols = set()
+        for definition in definitions:
+            name, expr = definition.split("=")
+            names.add(Symbol(name.strip()))
+            symbols |= parse_expr(expr.replace("^", "**")).free_symbols
+        requirements = symbols - names
+        return list(str(element) for element in requirements)
+
+    def addGlobalVariable(self, name, initialValue):
+        super(Integrator, self).addGlobalVariable(name, initialValue)
+
+    def addPerDofVariable(self, name, initialValue):
+        super(Integrator, self).addPerDofVariable(name, initialValue)
+
     def addUpdateContextState(self):
         if self.obsoleteContextState:
             super(Integrator, self).addUpdateContextState()
             self.obsoleteContextState = False
 
-    def addComputePerDof(self, variable, expression):
-        self.obsoleteKinetic = variable == "v"
-        super(Integrator, self).addComputePerDof(variable, expression)
-
-    def addComputeKinetic(self):
-        if self.obsoleteKinetic:
+    def addComputeGlobal(self, variable, expression):
+        if variable == "mvv":
+            raise InputError("Cannot assign value to variable mvv")
+        if self.obsoleteKinetic and "mvv" in self._requirements(variable, expression):
             self.addComputeSum("mvv", "m*v*v")
             self.obsoleteKinetic = False
+        super(Integrator, self).addComputeGlobal(variable, expression)
+
+    def addComputePerDof(self, variable, expression):
+        if self.obsoleteKinetic and "mvv" in self._requirements(variable, expression):
+            self.addComputeSum("mvv", "m*v*v")
+            self.obsoleteKinetic = False
+        super(Integrator, self).addComputePerDof(variable, expression)
+        if variable == "v":
+            self.obsoleteKinetic = True
+
 
 class GlobalThermostatIntegrator(Integrator):
     """

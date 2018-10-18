@@ -353,7 +353,6 @@ class VelocityRescalingPropagator(Propagator):
         self.globalVariables["X"] = 0
         self.globalVariables["U"] = 0
         self.globalVariables["ready"] = 0
-        self.globalVariables["SumRs"] = 0
         self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0):
@@ -375,17 +374,16 @@ class VelocityRescalingPropagator(Propagator):
         integrator.addComputeGlobal("ready", "step(0.5*X^2+%s*(1-V+log(V))-log(U))" % d)
         integrator.endBlock()
         integrator.endBlock()
-        integrator.addComputeKinetic()
         odd = self.dof % 2 == 1
         if odd:
             integrator.addComputeGlobal("X", "gaussian")
-        expression = "factor*v"
-        expression += "; factor = sqrt(A+C*B*(gaussian^2+sumRs)+2*sqrt(C*B*A)*gaussian)"
+        expression = "vscaling*v"
+        expression += "; vscaling = sqrt(A+C*B*(gaussian^2+sumRs)+2*sqrt(C*B*A)*gaussian)"
         expression += "; C = %s/mvv" % self.kT
         expression += "; B = 1-A"
         expression += "; A = exp(-dt*%s)" % (fraction/self.tau)
         expression += "; sumRs = %s*V" % (2*d) + ("+X^2" if odd else "")
-        # Note: the factor 2 above (multiplying d) is absent in the original paper, but has been
+        # Note: the vscaling 2 above (multiplying d) is absent in the original paper, but has been
         # added afterwards (see https://sites.google.com/site/giovannibussi/Research/algorithms).
         integrator.addComputePerDof("v", expression)
 
@@ -425,7 +423,6 @@ class NoseHooverPropagator(Propagator):
         N = self.degreesOfFreedom
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
         Q = N*kT*tau**2
-        integrator.addComputeKinetic()
         integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(mvv-{})".format(0.5*fraction/Q, N*kT))
         integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-fraction/Q))
         integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*fraction/Q, N*kT))
@@ -488,7 +485,7 @@ class NoseHooverLangevinPropagator(Propagator):
         self.frictionCoefficient = frictionCoefficient
 
     def declareVariables(self):
-        self.globalVariables["factor"] = 0
+        self.globalVariables["vscaling"] = 0
         self.globalVariables["p_NHL"] = 0
         self.persistent = ["p_NHL"]
 
@@ -499,14 +496,13 @@ class NoseHooverLangevinPropagator(Propagator):
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
         gamma = self.frictionCoefficient.value_in_unit(unit.picoseconds**(-1))
         Q = N*kT*tau**2
-        integrator.addComputeKinetic()
-        integrator.addComputeGlobal("factor", "exp({}*p_NHL*dt)".format(-0.5*fraction/Q))
+        integrator.addComputeGlobal("vscaling", "exp({}*p_NHL*dt)".format(-0.5*fraction/Q))
         expression = "p_NHL*x+G*(1-x)+{}*sqrt(1-x^2)*gaussian".format(tau*kT*math.sqrt(N))
-        expression += "; G = (factor^2*mvv-{})/{}".format(N*kT, gamma)
+        expression += "; G = (vscaling^2*mvv-{})/{}".format(N*kT, gamma)
         expression += "; x = exp({}*dt)".format(-gamma*fraction)
         integrator.addComputeGlobal("p_NHL", expression)
         integrator.addUpdateContextState()
-        integrator.addComputePerDof("v", "factor*exp({}*p_NHL*dt)*v".format(-0.5*fraction/Q))
+        integrator.addComputePerDof("v", "vscaling*exp({}*p_NHL*dt)*v".format(-0.5*fraction/Q))
 
 
 class IsokineticPropagator(Propagator):
