@@ -353,7 +353,6 @@ class VelocityRescalingPropagator(Propagator):
         self.globalVariables["X"] = 0
         self.globalVariables["U"] = 0
         self.globalVariables["ready"] = 0
-        self.globalVariables["TwoK"] = 0
         self.globalVariables["SumRs"] = 0
         self.persistent = None
 
@@ -376,13 +375,13 @@ class VelocityRescalingPropagator(Propagator):
         integrator.addComputeGlobal("ready", "step(0.5*X^2+%s*(1-V+log(V))-log(U))" % d)
         integrator.endBlock()
         integrator.endBlock()
-        integrator.addComputeSum("TwoK", "m*v*v")
+        integrator.addComputeKinetic()
         odd = self.dof % 2 == 1
         if odd:
             integrator.addComputeGlobal("X", "gaussian")
         expression = "factor*v"
         expression += "; factor = sqrt(A+C*B*(gaussian^2+sumRs)+2*sqrt(C*B*A)*gaussian)"
-        expression += "; C = %s/TwoK" % self.kT
+        expression += "; C = %s/mvv" % self.kT
         expression += "; B = 1-A"
         expression += "; A = exp(-dt*%s)" % (fraction/self.tau)
         expression += "; sumRs = %s*V" % (2*d) + ("+X^2" if odd else "")
@@ -416,7 +415,6 @@ class NoseHooverPropagator(Propagator):
         self.timeConstant = timeConstant
 
     def declareVariables(self):
-        self.globalVariables["TwoK"] = 0
         self.globalVariables["vscaling"] = 0
         self.globalVariables["p_NH"] = 0
         self.persistent = ["p_NH"]
@@ -427,10 +425,10 @@ class NoseHooverPropagator(Propagator):
         N = self.degreesOfFreedom
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
         Q = N*kT*tau**2
-        integrator.addComputeSum("TwoK", "m*v*v")
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(TwoK-{})".format(0.5*fraction/Q, N*kT))
+        integrator.addComputeKinetic()
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(mvv-{})".format(0.5*fraction/Q, N*kT))
         integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-fraction/Q))
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*TwoK-{})".format(0.5*fraction/Q, N*kT))
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*fraction/Q, N*kT))
         integrator.addComputePerDof("v", "vscaling*v")
         integrator.addUpdateContextState()
 
@@ -490,7 +488,6 @@ class NoseHooverLangevinPropagator(Propagator):
         self.frictionCoefficient = frictionCoefficient
 
     def declareVariables(self):
-        self.globalVariables["TwoK"] = 0
         self.globalVariables["factor"] = 0
         self.globalVariables["p_NHL"] = 0
         self.persistent = ["p_NHL"]
@@ -502,10 +499,10 @@ class NoseHooverLangevinPropagator(Propagator):
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
         gamma = self.frictionCoefficient.value_in_unit(unit.picoseconds**(-1))
         Q = N*kT*tau**2
-        integrator.addComputeSum("TwoK", "m*v*v")
+        integrator.addComputeKinetic()
         integrator.addComputeGlobal("factor", "exp({}*p_NHL*dt)".format(-0.5*fraction/Q))
         expression = "p_NHL*x+G*(1-x)+{}*sqrt(1-x^2)*gaussian".format(tau*kT*math.sqrt(N))
-        expression += "; G = (factor^2*TwoK-{})/{}".format(N*kT, gamma)
+        expression += "; G = (factor^2*mvv-{})/{}".format(N*kT, gamma)
         expression += "; x = exp({}*dt)".format(-gamma*fraction)
         integrator.addComputeGlobal("p_NHL", expression)
         integrator.addUpdateContextState()
@@ -548,7 +545,7 @@ class IsokineticPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0):
         R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
-        TwoK = (self.degreesOfFreedom - 1)*kT
+        mvv = (self.degreesOfFreedom - 1)*kT
         integrator.addComputeSum("pWf", "v*f")
         integrator.addComputeSum("fWf", "f^2/m")
         expression = "(c2*v + f*g/m)/gprime"
@@ -557,7 +554,7 @@ class IsokineticPropagator(Propagator):
         expression += "; x = cosh({}*dt*c)".format(fraction)
         expression += "; y = sinh({}*dt*c)".format(fraction)
         expression += "; c = sqrt(c2)"
-        expression += "; a0 = pWf/{}".format(TwoK)
-        expression += "; c2 = fWf/{}".format(TwoK)
+        expression += "; a0 = pWf/{}".format(mvv)
+        expression += "; c2 = fWf/{}".format(mvv)
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", expression)

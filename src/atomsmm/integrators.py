@@ -16,6 +16,8 @@ from atomsmm.propagators import Propagator as DummyPropagator
 class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
     def __init__(self, stepSize):
         super(Integrator, self).__init__(stepSize)
+        self.addGlobalVariable("mvv", 0.0)
+        self.obsoleteKinetic = True
         self.obsoleteContextState = True
 
     def __str__(self):
@@ -26,6 +28,14 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
             super(Integrator, self).addUpdateContextState()
             self.obsoleteContextState = False
 
+    def addComputePerDof(self, variable, expression):
+        self.obsoleteKinetic = variable == "v"
+        super(Integrator, self).addComputePerDof(variable, expression)
+
+    def addComputeKinetic(self):
+        if self.obsoleteKinetic:
+            self.addComputeSum("mvv", "m*v*v")
+            self.obsoleteKinetic = False
 
 class GlobalThermostatIntegrator(Integrator):
     """
