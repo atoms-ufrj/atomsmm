@@ -404,13 +404,16 @@ class NoseHooverPropagator(Propagator):
             :func:`~atomsmm.utils.countDegreesOfFreedom`.
         timeConstant : unit.Quantity (time)
             The relaxation time of the Nose-Hoover thermostat.
+        nloops : int, optional, default=1
+            Number of RESPA-like subdivisions.
 
     """
-    def __init__(self, temperature, degreesOfFreedom, timeConstant):
+    def __init__(self, temperature, degreesOfFreedom, timeConstant, nloops=1):
         super(NoseHooverPropagator, self).__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeConstant = timeConstant
+        self.nloops = nloops
 
     def declareVariables(self):
         self.globalVariables["vscaling"] = 0
@@ -423,9 +426,13 @@ class NoseHooverPropagator(Propagator):
         N = self.degreesOfFreedom
         tau = self.timeConstant.value_in_unit(unit.picoseconds)
         Q = N*kT*tau**2
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(mvv-{})".format(0.5*fraction/Q, N*kT))
-        integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-fraction/Q))
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*fraction/Q, N*kT))
+        subfrac = fraction/self.nloops
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(mvv-{})".format(0.5*subfrac/Q, N*kT))
+        integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-subfrac/Q))
+        for loop in range(self.nloops-1):
+            integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(subfrac/Q, N*kT))
+            integrator.addComputeGlobal("vscaling", "vscaling*exp({}*p_NH*dt)".format(-subfrac/Q))
+        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*subfrac/Q, N*kT))
         integrator.addComputePerDof("v", "vscaling*v")
         integrator.addUpdateContextState()
 

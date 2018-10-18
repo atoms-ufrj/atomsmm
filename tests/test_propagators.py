@@ -19,6 +19,7 @@ def readSystem(case, constraints=app.HBonds):
 
 
 def execute(integrator, target):
+    print(integrator)
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     nbforce = atomsmm.findNonbondedForce(system)
     system.getForce(nbforce).setReciprocalSpaceForceGroup(1)
@@ -103,8 +104,8 @@ def test_NoseHooverPropagator():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
     dof = atomsmm.countDegreesOfFreedom(system)
     NVE = atomsmm.VelocityVerletPropagator()
-    thermostat = atomsmm.NoseHooverPropagator(300*unit.kelvin, dof, 10*unit.femtoseconds)
-    thermostat = atomsmm.HighOrderSplitPropagator(thermostat, 3, 2)
+    thermostat = atomsmm.NoseHooverPropagator(300*unit.kelvin, dof, 10*unit.femtoseconds, 2)
+    thermostat = atomsmm.HighOrderSplitPropagator(thermostat, 3)
     combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)

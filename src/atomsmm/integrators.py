@@ -37,11 +37,11 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         requirements = symbols - names
         return list(str(element) for element in requirements)
 
-    def addGlobalVariable(self, name, initialValue):
-        super(Integrator, self).addGlobalVariable(name, initialValue)
-
-    def addPerDofVariable(self, name, initialValue):
-        super(Integrator, self).addPerDofVariable(name, initialValue)
+    def _checkUpdate(self, variable, expression):
+        requirements = self._requirements(variable, expression)
+        if self.obsoleteKinetic and "mvv" in requirements:
+            super(Integrator, self).addComputeSum("mvv", "m*v*v")
+            self.obsoleteKinetic = False
 
     def addUpdateContextState(self):
         if self.obsoleteContextState:
@@ -50,16 +50,12 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
 
     def addComputeGlobal(self, variable, expression):
         if variable == "mvv":
-            raise InputError("Cannot assign value to variable mvv")
-        if self.obsoleteKinetic and "mvv" in self._requirements(variable, expression):
-            self.addComputeSum("mvv", "m*v*v")
-            self.obsoleteKinetic = False
+            raise InputError("Cannot assign value to global variable mvv")
+        self._checkUpdate(variable, expression)
         super(Integrator, self).addComputeGlobal(variable, expression)
 
     def addComputePerDof(self, variable, expression):
-        if self.obsoleteKinetic and "mvv" in self._requirements(variable, expression):
-            self.addComputeSum("mvv", "m*v*v")
-            self.obsoleteKinetic = False
+        self._checkUpdate(variable, expression)
         super(Integrator, self).addComputePerDof(variable, expression)
         if variable == "v":
             self.obsoleteKinetic = True
