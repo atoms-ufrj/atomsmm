@@ -154,16 +154,15 @@ class TrotterSuzukiPropagator(Propagator):
         self.B.addSteps(integrator, 0.5*fraction)
 
 
-class HighOrderSplitPropagator(Propagator):
+class SuzukiYoshidaPropagator(Propagator):
     """
     This class splits a propagator :math:`A = e^{\\delta t \\, iL_A}` by using a high-order,
     time-symmetric Suzuki-Yoshida scheme :cite:`Suzuki_1985,Yoshida_1990,Suzuki_1991` given by
 
     .. math::
-        e^{\\delta t \\, iL_A} = \\prod_{i=1}^{n_{sy}} \\prod_{j=1}^{n_{res}}  e^{\\frac{w_i}{n_{res}} \\delta t \\, iL_A},
+        e^{\\delta t \\, iL_A} = \\prod_{i=1}^{n_{sy}} e^{\\frac{w_i}{n_{res}} \\delta t \\, iL_A},
 
-    where :math:`n_{sy}` is the number of employed Suzuki-Yoshida weights and :math:`n_{res}` is the
-    number of RESPA-like subdivisions.
+    where :math:`n_{sy}` is the number of employed Suzuki-Yoshida weights.
 
     Parameters
     ----------
@@ -171,17 +170,14 @@ class HighOrderSplitPropagator(Propagator):
             The propagator to be splitted by the high-order Suzuki-Yoshida scheme.
         nsy : int, optional, default=3
             The number of Suzuki-Yoshida weights to be employed. This must be 3, 7, or 15.
-        nres : int, optional, default=1
-            The number of RESPA-like subdivisions.
 
     """
-    def __init__(self, A, nsy=3, nres=1):
+    def __init__(self, A, nsy=3):
         if nsy not in [3, 7, 15]:
-            raise atomsmm.utils.InputError("HighOrderSplitPropagator only accepts nsy = 3, 7, or 15")
-        super(HighOrderSplitPropagator, self).__init__()
+            raise atomsmm.utils.InputError("SuzukiYoshidaPropagator only accepts nsy = 3, 7, or 15")
+        super(SuzukiYoshidaPropagator, self).__init__()
         self.A = deepcopy(A)
         self.nsy = nsy
-        self.nres = nres
         self.globalVariables.update(self.A.globalVariables)
         self.perDofVariables.update(self.A.perDofVariables)
 
@@ -197,13 +193,35 @@ class HighOrderSplitPropagator(Propagator):
         else:
             weights = [1/(2 - 2**(1/3))]
         for w in list(reversed(weights)) + [1 - 2*sum(weights)] + weights:
-            if self.nres > 1:
-                integrator.addComputeGlobal("hoscount", "0")
-                integrator.beginWhileBlock("hoscount < {}".format(self.nres))
-                integrator.addComputeGlobal("hoscount", "hoscount+1")
-            self.A.addSteps(integrator, fraction*w/self.nres)
-            if self.nres > 1:
-                integrator.endBlock()
+            self.A.addSteps(integrator, fraction*w)
+
+
+class TranslationPropagator(Propagator):
+    """
+    This class implements a simple (unconstrained) translation propagator
+    :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
+
+    """
+    def __init__(self):
+        super(TranslationPropagator, self).__init__()
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("x", "x+{}*dt*v".format(fraction))
+
+
+class BoostPropagator(Propagator):
+    """
+    This class implements a simple (unconstrained) boost propagator
+    :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
+
+    """
+    def __init__(self):
+        super(BoostPropagator, self).__init__()
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
 class VelocityVerletPropagator(Propagator):
@@ -281,34 +299,6 @@ class RespaPropagator(Propagator):
                 self._addSubsteps(integrator, loops[0:group], fraction/n)
             if i == n-1:
                 integrator.addComputePerDof("v", delta_v + half)
-
-
-class TranslationPropagator(Propagator):
-    """
-    This class implements a simple (unconstrained) translation propagator
-    :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
-
-    """
-    def __init__(self):
-        super(TranslationPropagator, self).__init__()
-
-    def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
-        integrator.addComputePerDof("x", "x+{}*dt*v".format(fraction))
-
-
-class BoostPropagator(Propagator):
-    """
-    This class implements a simple (unconstrained) boost propagator
-    :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
-
-    """
-    def __init__(self):
-        super(BoostPropagator, self).__init__()
-
-    def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
-        integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
 class VelocityRescalingPropagator(Propagator):

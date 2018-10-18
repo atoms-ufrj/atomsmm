@@ -105,7 +105,7 @@ def test_NoseHooverPropagator():
     dof = atomsmm.countDegreesOfFreedom(system)
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.NoseHooverPropagator(300*unit.kelvin, dof, 10*unit.femtoseconds, 2)
-    thermostat = atomsmm.HighOrderSplitPropagator(thermostat, 3)
+    thermostat = atomsmm.SuzukiYoshidaPropagator(thermostat, 3)
     combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
