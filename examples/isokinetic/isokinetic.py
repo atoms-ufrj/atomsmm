@@ -7,7 +7,7 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 10000
+nsteps = 1
 ndisp = 100
 seed = 5623
 temp = 300*unit.kelvin
@@ -32,14 +32,11 @@ system = forcefield.createSystem(pdb.topology,
                                  removeCMMotion=False)
 
 nbforceIndex = atomsmm.findNonbondedForce(system)
-dof = atomsmm.countDegreesOfFreedom(system)
 nbforce = system.getForce(nbforceIndex)
 nbforce.setUseSwitchingFunction(True)
 nbforce.setSwitchingDistance(rswitch)
 positions = atomsmm.TranslationPropagator()
-velocities = atomsmm.IsokineticPropagator(temp, dof)
-integrator = atomsmm.TrotterSuzukiPropagator(positions, velocities).integrator(dt)
-integrator.setRandomNumberSeed(seed)
+integrator = atomsmm.SIN_R_Integrator(dt, temp, system.getNumParticles())
 
 integrator.pretty_print()
 
@@ -50,7 +47,12 @@ platform = openmm.Platform.getPlatformByName('CUDA')
 properties = {"Precision": "mixed"}
 simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
 simulation.context.setPositions(pdb.positions)
-simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
+integrator.initializeVelocities(simulation.context, 300*unit.kelvin)
+
+# state = simulation.context.getState(getVelocities=True)
+# masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
+# for (m, v) in zip(masses, state.getVelocities()):
+#     print((m*(v[0]**2+v[1]**2+v[2]**2)/(unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA)).in_units_of(unit.kelvin))
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
@@ -69,3 +71,6 @@ for (out, sep) in zip(outputs, separators):
 
 print('Running Production...')
 simulation.step(nsteps)
+state = simulation.context.getState(getVelocities=True)
+for v in state.getVelocities():
+    print(v)

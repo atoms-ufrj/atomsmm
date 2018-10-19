@@ -5,8 +5,8 @@ from .forces import FarNonbondedForce  # noqa: F401
 from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
+from .integrators import SIN_R_Integrator  # noqa: F401
 from .propagators import ChainedPropagator  # noqa: F401
-from .propagators import IsokineticPropagator  # noqa: F401
 from .propagators import NoseHooverLangevinPropagator  # noqa: F401
 from .propagators import NoseHooverPropagator  # noqa: F401
 from .propagators import RespaPropagator  # noqa: F401
@@ -29,6 +29,7 @@ __forces__ = [
 
 __integrators__ = [
     'GlobalThermostatIntegrator',
+    'SIN_R_Integrator',
     ]  # noqa E123
 
 __propagators__ = [
@@ -41,7 +42,6 @@ __propagators__ = [
     'NoseHooverPropagator',
     'NoseHooverLangevinPropagator',
     'TranslationPropagator',
-    'IsokineticPropagator',
     ]  # noqa E123
 
 __utils__ = [

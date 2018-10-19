@@ -13,6 +13,7 @@
 import math
 from copy import deepcopy
 
+import simtk.openmm as mm
 from simtk import unit
 
 import atomsmm
@@ -71,6 +72,8 @@ class Propagator:
         integrator = atomsmm.integrators.Integrator(stepSize)
         self.addVariables(integrator)
         self.addSteps(integrator)
+        if self.velocityInitializer is not None:
+            integrator.velocityInitializer = self.velocityInitializer
         return integrator
 
 
@@ -160,7 +163,7 @@ class SuzukiYoshidaPropagator(Propagator):
     time-symmetric Suzuki-Yoshida scheme :cite:`Suzuki_1985,Yoshida_1990,Suzuki_1991` given by
 
     .. math::
-        e^{\\delta t \\, iL_A} = \\prod_{i=1}^{n_{sy}} e^{\\frac{w_i}{n_{res}} \\delta t \\, iL_A},
+        e^{\\delta t \\, iL_A} = \\prod_{i=1}^{n_{sy}} e^{w_i \\delta t \\, iL_A},
 
     where :math:`n_{sy}` is the number of employed Suzuki-Yoshida weights.
 
@@ -222,6 +225,62 @@ class BoostPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0):
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
+
+
+class SIN_R_IsokineticPropagator(Propagator):
+    """
+    This class implements an unconstrained, massive isokinetic propagator, which  provides a
+    solution for the following :term:`ODE` system for every degree of freedom:
+
+    .. math::
+        & \\frac{dv_i}{dt} = \\frac{F_i}{m_i} - \\lambda_i v_i \\\\
+        & \\frac{dv_{1,i}}{dt} = - \\lambda_i v_{1,i} \\\\
+        & \\lambda_i = \\frac{F_i v_i}{m_i v_i^2 + \\frac{1}{2}Q_1 v_{1,i}^2}
+
+    where :math:`m_i v_i^2 + \\frac{1}{2}Q_1 v_{1,i}^2 = kT`.
+
+    """
+    def __init__(self, temperature, atoms):
+        super(SIN_R_IsokineticPropagator, self).__init__()
+        self.temperature = temperature
+        self.N = atoms
+
+    def declareVariables(self):
+        self.perDofVariables["v1"] = 0
+        self.perDofVariables["lambda0dt"] = 0
+        self.perDofVariables["bdt"] = 0
+        self.perDofVariables["coshxm1_x2"] = 0
+        self.perDofVariables["sinhx_x"] = 0
+        self.persistent = ["v1"]
+
+    def _initialize_velocities(self, integrator, kT):
+        values = list()
+        # mass = integrator.getPerDofVariableByName("m")
+        # print(mass)
+        for atom in range(self.N):
+            vx = random.gauss(0, 1)
+            vy = random.gauss(0, 1)
+            vz = random.gauss(0, 1)
+            value = mm.Vec3(vx, vy, vz)*math.sqrt(kT/(vx*vx + vy*vy + vz*vz))
+            values.append(value)
+        integrator.setPerDofVariableByName("v", values)
+
+    def addSteps(self, integrator, fraction=1.0):
+        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
+        integrator.addUpdateContextState()
+        integrator.addComputePerDof("lambda0dt", "{}*dt*f*v".format(fraction/kT))
+        integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/m)".format(fraction/math.sqrt(kT)))
+        integrator.addComputePerDof("sinhx_x", "sinh(bdt)/bdt")  # Include taylor expansion
+        integrator.addComputePerDof("coshxm1_x2", "(cosh(bdt)-1)/bdt^2")  # Include taylor expansion
+        expression = "(v + f*s/m)/sdif"
+        expression += "; s = (lambda0dt*coshxm1_x2 + sinhx_x)*dt"
+        expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
+        integrator.addComputePerDof("v", expression)
+        expression = "v1/sdif"
+        expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
+        integrator.addComputePerDof("v1", expression)
+        # integrator.addComputePerDof("v", "v1")
 
 
 class VelocityVerletPropagator(Propagator):
@@ -500,54 +559,3 @@ class NoseHooverLangevinPropagator(Propagator):
         integrator.addComputeGlobal("p_NHL", expression)
         integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "vscaling*exp({}*p_NHL*dt)*v".format(-0.5*fraction/Q))
-
-
-class IsokineticPropagator(Propagator):
-    """
-    This class implements an unconstrained isokinetic propagator, which  provides a solution for the
-    following :term:`ODE` system:
-
-    .. math::
-        & \\frac{d\\mathbf{p}}{dt} = \\mathbf{F} - \\alpha \\mathbf{p} \\\\
-        & \\alpha = \\frac{\\mathbf{p}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K}
-
-    where :math:`K = \\frac{1}{2} \\mathbf{p}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{p}` is the
-    kinetic energy, which is kept constant. The solution of the equation is:
-
-    .. math::
-        \\mathbf{p}(t) = \\frac{c^2 \\mathbf{p}_0 + g(t)\\mathbf{F}}{g^\\prime(t)}
-
-    where
-
-    .. math::
-        & g(t) = \\alpha_0 \\cosh(ct) + c\\sinh(ct) - \\alpha_0 \\\\
-        & g^\\prime(t) = c\\alpha_0 \\sinh(ct) + c^2\\cosh(ct) \\\\
-        & \\alpha_0 = \\frac{\\mathbf{p}_0^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K} \\\\
-        & c = \\sqrt{\\frac{\\mathbf{F}^\\mathrm{t} \\mathbf{M}^{-1} \\mathbf{F}}{2K}}
-
-    """
-    def __init__(self, temperature, degreesOfFreedom):
-        super(IsokineticPropagator, self).__init__()
-        self.temperature = temperature
-        self.degreesOfFreedom = degreesOfFreedom
-
-    def declareVariables(self):
-        self.globalVariables["pWf"] = 0
-        self.globalVariables["fWf"] = 0
-
-    def addSteps(self, integrator, fraction=1.0):
-        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
-        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
-        mvv = (self.degreesOfFreedom - 1)*kT
-        integrator.addComputeSum("pWf", "v*f")
-        integrator.addComputeSum("fWf", "f^2/m")
-        expression = "(c2*v + f*g/m)/gprime"
-        expression += "; g = a0*(x-1) + c*y"
-        expression += "; gprime = c*a0*y + c2*x"
-        expression += "; x = cosh({}*dt*c)".format(fraction)
-        expression += "; y = sinh({}*dt*c)".format(fraction)
-        expression += "; c = sqrt(c2)"
-        expression += "; a0 = pWf/{}".format(mvv)
-        expression += "; c2 = fWf/{}".format(mvv)
-        integrator.addUpdateContextState()
-        integrator.addComputePerDof("v", expression)
