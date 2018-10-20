@@ -7,9 +7,10 @@
 
 """
 
-import openmmtools.integrators as openmmtools
 import math
 import random
+
+import openmmtools.integrators as openmmtools
 from simtk import openmm
 from simtk import unit
 from sympy import Symbol
@@ -48,17 +49,12 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
             self.obsoleteKinetic = False
 
     def _adjustVelocities(self, velocities, masses, targetTwoK):
-        mtotal =  0*unit.dalton
-        ptotal = openmm.Vec3(0, 0, 0)*unit.dalton*unit.nanometer/unit.picosecond
-        for (m, v) in zip(masses, velocities):
-            mtotal += m
-            ptotal += m*v
+        mtotal = sum(masses)
+        ptotal = sum([m*v for (m, v) in zip(masses, velocities)], openmm.Vec3(0.0, 0.0, 0.0))
         vcm = ptotal/mtotal
         for i in range(len(velocities)):
             velocities[i] -= vcm
-        twoK = 0.0*unit.kilojoules_per_mole
-        for (m, v) in zip(masses, velocities):
-            twoK += m*(v[0]**2 + v[1]**2 + v[2]**2)
+        twoK = sum(m*(v[0]**2 + v[1]**2 + v[2]**2) for (m, v) in zip(masses, velocities))
         for i in range(len(velocities)):
             velocities[i] *= math.sqrt(targetTwoK/twoK)
 
@@ -79,14 +75,17 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         if variable == "v":
             self.obsoleteKinetic = True
 
-    def initializeVelocities(self, context, temperature):
-        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature
+    def initializeVelocities(self, context, temperature, seed=None):
+        if seed is not None:
+            random.seed(seed)
+        energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
+        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
         system = context.getSystem()
         N = system.getNumParticles()
-        masses = [system.getParticleMass(i) for i in range(N)]
+        masses = self.masses = [system.getParticleMass(i)/unit.dalton for i in range(N)]
         velocities = list()
         for m in masses:
-            sigma = (kT/m).sqrt()
+            sigma = math.sqrt(kT/m)
             v = sigma*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
             velocities.append(v)
         self._adjustVelocities(velocities, masses, 3*N*kT)
@@ -166,29 +165,47 @@ class SIN_R_Integrator(Integrator):
             A seed for random numbers.
 
     """
-    def __init__(self, stepSize, temperature, numberOfAtoms, seed=None):
+    def __init__(self, stepSize, temperature, timeConstant, seed=None):
         super(SIN_R_Integrator, self).__init__(stepSize)
+        self.seed = seed
         if seed is not None:
             self.setRandomNumberSeed(seed)
         translation = propagators.TranslationPropagator()
-        isokinetic = propagators.SIN_R_IsokineticPropagator(temperature, numberOfAtoms)
-        for propagator in [translation, isokinetic]:
-            propagator.addVariables(self)
-        isokinetic.addSteps(self, 1/2)
-        translation.addSteps(self)
-        isokinetic.addSteps(self, 1/2)
+        isoF = propagators.SIN_R_Isokinetic_F_Propagator(temperature)
+        isoN = propagators.SIN_R_Isokinetic_N_Propagator(temperature, timeConstant)
+        OU = propagators.SIN_R_ForcedOrnsteinUhlenbeckPropagator(temperature, timeConstant, 1/timeConstant)
+        propagator = propagators.TrotterSuzukiPropagator(OU, isoN)
+        propagator = propagators.TrotterSuzukiPropagator(propagator, translation)
+        propagator = propagators.TrotterSuzukiPropagator(propagator, isoF)
+        propagator.addVariables(self)
+        propagator.addSteps(self)
 
-    def initializeVelocities(self, context, temperature):
-        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature
-        system = context.getSystem()
-        N = system.getNumParticles()
-        masses = [system.getParticleMass(i) for i in range(N)]
-        velocities = list()
-        for m in masses:
-            vx = random.gauss(0, 1)
-            vy = random.gauss(0, 1)
-            vz = random.gauss(0, 1)
-            sigma = (kT/m).sqrt()
-            v = sigma*openmm.Vec3(vx, vy, vz)/math.sqrt(vx*vx + vy*vy + vz*vz)
-            velocities.append(v)
-        context.setVelocities(velocities)
+    def initializeVelocities(self, context, temperature, seed=None):
+        super().initializeVelocities(context, temperature/4, seed)
+        energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
+        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
+        state = context.getState(getVelocities=True)
+        v = state.getVelocities()*unit.picosecond/unit.nanometer
+        Q1 = self.getGlobalVariableByName("Q1")
+        Q2 = self.getGlobalVariableByName("Q2")
+        v1 = self.getPerDofVariableByName("v1")
+        v2 = self.getPerDofVariableByName("v2")
+        sigma1 = math.sqrt(kT/Q1)
+        sigma2 = math.sqrt(kT/Q2)
+        for (i, m) in enumerate(self.masses):
+            v1[i] = sigma1*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
+            v2[i] = sigma2*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
+            factor = [math.sqrt(kT/(m*x**2 + 0.5*Q1*y**2)) for (x, y) in zip(v[i], v1[i])]
+            v[i] = openmm.Vec3(*[f*x for (f, x) in zip(factor, v[i])])
+            v1[i] = openmm.Vec3(*[f*x for (f, x) in zip(factor, v1[i])])
+        context.setVelocities(v)
+        self.setPerDofVariableByName("v1", v1)
+        self.setPerDofVariableByName("v2", v2)
+
+    def check(self, context):
+        Q1 = self.getGlobalVariableByName("Q1")
+        v1s = self.getPerDofVariableByName("v1")
+        state = context.getState(getVelocities=True)
+        vs = state.getVelocities()*unit.picosecond/unit.nanometer
+        for (m, v, v1) in zip(self.masses, vs, v1s):
+            print([m*x**2 + 0.5*Q1*y**2 for (x, y) in zip(v, v1)])

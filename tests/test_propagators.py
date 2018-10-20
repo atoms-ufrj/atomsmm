@@ -110,14 +110,3 @@ def test_NoseHooverPropagator():
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
     execute(integrator, -13065.637854682398)
-
-
-def test_Isokinetic():
-    system, positions, topology = readSystem('emim_BCN4_Jiung2014', constraints=None)
-    dof = atomsmm.countDegreesOfFreedom(system)
-    center = atomsmm.TranslationPropagator()
-    thermostat = atomsmm.IsokineticPropagator(300*unit.kelvin, dof)
-    combined = atomsmm.TrotterSuzukiPropagator(center, thermostat)
-    integrator = combined.integrator(1*unit.femtoseconds)
-    integrator.setRandomNumberSeed(1)
-    execute(integrator, -12502.435492257948)

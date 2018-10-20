@@ -13,13 +13,18 @@
 import math
 from copy import deepcopy
 
-import simtk.openmm as mm
 from simtk import unit
 
 import atomsmm
 
 
 class Propagator:
+    mass_unit = unit.dalton
+    length_unit = unit.nanometer
+    time_unit = unit.picosecond
+    energy_unit = mass_unit*(length_unit/time_unit)**2
+    kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+
     """
     This is the base class for propagators, which are building blocks for constructing
     CustomIntegrator_ objects in OpenMM. Shortly, a propagator translates the effect of an
@@ -37,13 +42,12 @@ class Propagator:
         self.globalVariables = dict()
         self.perDofVariables = dict()
         self.persistent = list()
-        self.declareVariables()
-
-    def __str__(self):
-        return self.integrator().pretty_format()
 
     def declareVariables(self):
         pass
+
+    def __str__(self):
+        return self.integrator().pretty_format()
 
     def addVariables(self, integrator):
         for (name, value) in self.globalVariables.items():
@@ -72,8 +76,6 @@ class Propagator:
         integrator = atomsmm.integrators.Integrator(stepSize)
         self.addVariables(integrator)
         self.addSteps(integrator)
-        if self.velocityInitializer is not None:
-            integrator.velocityInitializer = self.velocityInitializer
         return integrator
 
 
@@ -183,6 +185,7 @@ class SuzukiYoshidaPropagator(Propagator):
         self.nsy = nsy
         self.globalVariables.update(self.A.globalVariables)
         self.perDofVariables.update(self.A.perDofVariables)
+        self.declareVariables()
 
     def declareVariables(self):
         self.globalVariables["hoscount"] = 0
@@ -227,60 +230,99 @@ class BoostPropagator(Propagator):
         integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
-class SIN_R_IsokineticPropagator(Propagator):
+class SIN_R_Isokinetic_F_Propagator(Propagator):
     """
     This class implements an unconstrained, massive isokinetic propagator, which  provides a
     solution for the following :term:`ODE` system for every degree of freedom:
 
     .. math::
-        & \\frac{dv_i}{dt} = \\frac{F_i}{m_i} - \\lambda_i v_i \\\\
-        & \\frac{dv_{1,i}}{dt} = - \\lambda_i v_{1,i} \\\\
-        & \\lambda_i = \\frac{F_i v_i}{m_i v_i^2 + \\frac{1}{2}Q_1 v_{1,i}^2}
+        & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda_{F} v \\\\
+        & \\frac{dv_1}{dt} = - \\lambda_F v_1 \\\\
+        & \\lambda_F = \\frac{F v}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    where :math:`m_i v_i^2 + \\frac{1}{2}Q_1 v_{1,i}^2 = kT`.
+    where :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
 
     """
-    def __init__(self, temperature, atoms):
-        super(SIN_R_IsokineticPropagator, self).__init__()
-        self.temperature = temperature
-        self.N = atoms
-
-    def declareVariables(self):
+    def __init__(self, temperature):
+        super(SIN_R_Isokinetic_F_Propagator, self).__init__()
+        self.globalVariables["kT"] = self.kB*temperature
         self.perDofVariables["v1"] = 0
+        self.persistent = ["kT", "v1"]
         self.perDofVariables["lambda0dt"] = 0
         self.perDofVariables["bdt"] = 0
         self.perDofVariables["coshxm1_x2"] = 0
         self.perDofVariables["sinhx_x"] = 0
-        self.persistent = ["v1"]
-
-    def _initialize_velocities(self, integrator, kT):
-        values = list()
-        # mass = integrator.getPerDofVariableByName("m")
-        # print(mass)
-        for atom in range(self.N):
-            vx = random.gauss(0, 1)
-            vy = random.gauss(0, 1)
-            vz = random.gauss(0, 1)
-            value = mm.Vec3(vx, vy, vz)*math.sqrt(kT/(vx*vx + vy*vy + vz*vz))
-            values.append(value)
-        integrator.setPerDofVariableByName("v", values)
 
     def addSteps(self, integrator, fraction=1.0):
-        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
-        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
         integrator.addUpdateContextState()
-        integrator.addComputePerDof("lambda0dt", "{}*dt*f*v".format(fraction/kT))
-        integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/m)".format(fraction/math.sqrt(kT)))
+        integrator.addComputePerDof("lambda0dt", "{}*dt*f*v/kT".format(fraction))
+        integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/(m*kT))".format(fraction))
         integrator.addComputePerDof("sinhx_x", "sinh(bdt)/bdt")  # Include taylor expansion
         integrator.addComputePerDof("coshxm1_x2", "(cosh(bdt)-1)/bdt^2")  # Include taylor expansion
-        expression = "(v + f*s/m)/sdif"
-        expression += "; s = (lambda0dt*coshxm1_x2 + sinhx_x)*dt"
+        expression = "(v + s*f/m)/sdif"
+        expression += "; s = {}*dt*(lambda0dt*coshxm1_x2 + sinhx_x)".format(fraction)
         expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
         integrator.addComputePerDof("v", expression)
         expression = "v1/sdif"
         expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
         integrator.addComputePerDof("v1", expression)
-        # integrator.addComputePerDof("v", "v1")
+
+
+class SIN_R_Isokinetic_N_Propagator(Propagator):
+    """
+    This class implements an unconstrained, massive isokinetic propagator, which  provides a
+    solution for the following :term:`ODE` system for every degree of freedom:
+
+    .. math::
+        & \\frac{dv}{dt} = - \\lambda_{N} v \\\\
+        & \\frac{dv_1}{dt} = - (\\lambda_N + v_2) v_1 \\\\
+        & \\lambda_N = \\frac{-\\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
+
+    where :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
+
+    """
+    def __init__(self, temperature, timeConstant):
+        super(SIN_R_Isokinetic_N_Propagator, self).__init__()
+        self.globalVariables["kT"] = self.kB*temperature
+        self.globalVariables["Q1"] = self.kB*temperature*timeConstant**2
+        self.perDofVariables["v1"] = 0
+        self.perDofVariables["v2"] = 0
+        self.persistent = ["kT", "Q1", "v1", "v2"]
+        self.perDofVariables["HIsoN"] = 0
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
+        integrator.addComputePerDof("HIsoN", "sqrt(kT/(m*v*v + 0.5*Q1*v1*v1))")
+        integrator.addComputePerDof("v", "v*HIsoN")
+        integrator.addComputePerDof("v1", "v1*HIsoN")
+
+
+class SIN_R_ForcedOrnsteinUhlenbeckPropagator(Propagator):
+    """
+    This class implements an unconstrained, massive Ornstein-Uhlenbeck propagator, which  provides a
+    solution for the following :term:`SDE` system for every degree of freedom:
+
+    .. math::
+        dv2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sigma dW
+
+    where :math:`\\sigma = \\sqrt{\\frac{2 \\gamma kT}{Q_2}}`.
+
+    """
+    def __init__(self, temperature, timeConstant, frictionCoefficient):
+        super(SIN_R_ForcedOrnsteinUhlenbeckPropagator, self).__init__()
+        self.globalVariables["kT"] = self.kB*temperature
+        self.globalVariables["Q1"] = self.kB*temperature*timeConstant**2
+        self.globalVariables["Q2"] = self.kB*temperature*timeConstant**2
+        self.globalVariables["friction"] = frictionCoefficient
+        self.perDofVariables["v1"] = 0
+        self.perDofVariables["v2"] = 0
+        self.persistent = ["kT", "Q1", "Q2", "friction", "v1", "v2", "tau"]
+
+    def addSteps(self, integrator, fraction=1.0):
+        expression = "x*v2 + G*(1 - x)/friction + sqrt(kT/Q2*(1 - x^2))*gaussian"
+        expression += "; G = (Q1*v1*v1 - kT)/Q2"
+        expression += "; x = exp(-{}*friction*dt)".format(fraction)
+        integrator.addComputePerDof("v2", expression)
 
 
 class VelocityVerletPropagator(Propagator):
@@ -299,6 +341,7 @@ class VelocityVerletPropagator(Propagator):
     """
     def __init__(self):
         super(VelocityVerletPropagator, self).__init__()
+        self.declareVariables()
 
     def declareVariables(self):
         self.perDofVariables["x0"] = 0
@@ -331,6 +374,7 @@ class RespaPropagator(Propagator):
     def __init__(self, loops):
         super(RespaPropagator, self).__init__()
         self.loops = loops
+        self.declareVariables()
 
     def declareVariables(self):
         self.perDofVariables["x0"] = 0
@@ -396,6 +440,7 @@ class VelocityRescalingPropagator(Propagator):
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
+        self.declareVariables()
 
     def declareVariables(self):
         self.globalVariables["V"] = 0
@@ -463,6 +508,7 @@ class NoseHooverPropagator(Propagator):
         self.degreesOfFreedom = degreesOfFreedom
         self.timeConstant = timeConstant
         self.nloops = nloops
+        self.declareVariables()
 
     def declareVariables(self):
         self.globalVariables["vscaling"] = 0
@@ -539,6 +585,7 @@ class NoseHooverLangevinPropagator(Propagator):
         self.degreesOfFreedom = degreesOfFreedom
         self.timeConstant = timeConstant
         self.frictionCoefficient = frictionCoefficient
+        self.declareVariables()
 
     def declareVariables(self):
         self.globalVariables["vscaling"] = 0

@@ -7,8 +7,8 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 1
-ndisp = 100
+nsteps = 100
+ndisp = 1
 seed = 5623
 temp = 300*unit.kelvin
 dt = 2.0*unit.femtoseconds
@@ -17,6 +17,7 @@ rswitchIn = 6.0*unit.angstroms
 rcutIn = 7.0*unit.angstroms
 rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
+tau = 10*unit.femtoseconds
 shift = True
 
 # case = 'q-SPC-FW'
@@ -35,10 +36,9 @@ nbforceIndex = atomsmm.findNonbondedForce(system)
 nbforce = system.getForce(nbforceIndex)
 nbforce.setUseSwitchingFunction(True)
 nbforce.setSwitchingDistance(rswitch)
-positions = atomsmm.TranslationPropagator()
-integrator = atomsmm.SIN_R_Integrator(dt, temp, system.getNumParticles())
-
-integrator.pretty_print()
+integrator = atomsmm.SIN_R_Integrator(dt, temp, tau, seed)
+# integrator = atomsmm.GlobalThermostatIntegrator(dt, atomsmm.VelocityVerletPropagator(), atomsmm.NoseHooverPropagator(temp, 3*system.getNumParticles()-3, tau))
+print(integrator)
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
@@ -47,7 +47,7 @@ platform = openmm.Platform.getPlatformByName('CUDA')
 properties = {"Precision": "mixed"}
 simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
 simulation.context.setPositions(pdb.positions)
-integrator.initializeVelocities(simulation.context, 300*unit.kelvin)
+integrator.initializeVelocities(simulation.context, 300*unit.kelvin, seed)
 
 # state = simulation.context.getState(getVelocities=True)
 # masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
@@ -69,8 +69,16 @@ for (out, sep) in zip(outputs, separators):
         separator=sep))
 # simulation.reporters.append(openmm.app.PDBReporter('output.pdb', nsteps))
 
+# integrator.check(simulation.context)
+
 print('Running Production...')
 simulation.step(nsteps)
-state = simulation.context.getState(getVelocities=True)
-for v in state.getVelocities():
-    print(v)
+
+# integrator.check(simulation.context)
+# masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
+# state = simulation.context.getState(getVelocities=True)
+# v1s = simulation.integrator.getPerDofVariableByName("v1")
+# Q1 = simulation.integrator.getGlobalVariableByName("Q1")
+# for (m, v, v1) in zip(masses, state.getVelocities(), v1s):
+#     for i in range(3):
+#         print((m/unit.dalton)*(v[i]*unit.picoseconds/unit.nanometer)**2, 0.5*Q1*v1[i]*v1[i])
