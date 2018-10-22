@@ -220,7 +220,27 @@ class BoostPropagator(Propagator):
         integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
-class SIN_R_Isokinetic_F_Propagator(Propagator):
+class SIN_R_BasePropagator(Propagator):
+    """
+    This is a base class for SIN(R) method propagators.
+
+    """
+    def __init__(self, temperature, timeConstant=None, frictionCoefficient=None):
+        super(SIN_R_BasePropagator, self).__init__()
+        self.globalVariables["kT"] = self.kB*temperature
+        self.perDofVariables["v1"] = 0
+        self.perDofVariables["v2"] = 0
+        self.persistent = ["kT", "v1", "v2"]
+        if timeConstant is not None:
+            self.globalVariables["Q1"] = self.kB*temperature*timeConstant**2
+            self.globalVariables["Q2"] = self.kB*temperature*timeConstant**2
+            self.persistent += ["Q1", "Q2"]
+        if frictionCoefficient is not None:
+            self.globalVariables["friction"] = frictionCoefficient
+            self.persistent += ["friction"]
+
+
+class SIN_R_Isokinetic_F_Propagator(SIN_R_BasePropagator):
     """
     This class implements an unconstrained, massive isokinetic propagator, which  provides a
     solution for the following :term:`ODE` system for every degree of freedom:
@@ -230,14 +250,11 @@ class SIN_R_Isokinetic_F_Propagator(Propagator):
         & \\frac{dv_1}{dt} = - \\lambda_F v_1 \\\\
         & \\lambda_F = \\frac{F v}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    where :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
+    where :math:`F` is constant and :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
 
     """
     def __init__(self, temperature):
-        super(SIN_R_Isokinetic_F_Propagator, self).__init__()
-        self.globalVariables["kT"] = self.kB*temperature
-        self.perDofVariables["v1"] = 0
-        self.persistent = ["kT", "v1"]
+        super(SIN_R_Isokinetic_F_Propagator, self).__init__(temperature)
         self.perDofVariables["lambda0dt"] = 0
         self.perDofVariables["bdt"] = 0
         self.perDofVariables["coshxm1_x2"] = 0
@@ -269,7 +286,7 @@ class SIN_R_Isokinetic_F_Propagator(Propagator):
         integrator.addComputePerDof("v1", expression)
 
 
-class SIN_R_Isokinetic_N_Propagator(Propagator):
+class SIN_R_Isokinetic_N_Propagator(SIN_R_BasePropagator):
     """
     This class implements an unconstrained, massive isokinetic propagator, which  provides a
     solution for the following :term:`ODE` system for every degree of freedom:
@@ -279,16 +296,11 @@ class SIN_R_Isokinetic_N_Propagator(Propagator):
         & \\frac{dv_1}{dt} = - (\\lambda_N + v_2) v_1 \\\\
         & \\lambda_N = \\frac{-\\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    where :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
+    where :math:`v_2` is constant and :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
 
     """
     def __init__(self, temperature, timeConstant):
-        super(SIN_R_Isokinetic_N_Propagator, self).__init__()
-        self.globalVariables["kT"] = self.kB*temperature
-        self.globalVariables["Q1"] = self.kB*temperature*timeConstant**2
-        self.perDofVariables["v1"] = 0
-        self.perDofVariables["v2"] = 0
-        self.persistent = ["kT", "Q1", "v1", "v2"]
+        super(SIN_R_Isokinetic_N_Propagator, self).__init__(temperature, timeConstant)
         self.perDofVariables["scalingFactor"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
@@ -298,7 +310,7 @@ class SIN_R_Isokinetic_N_Propagator(Propagator):
         integrator.addComputePerDof("v1", "v1*scalingFactor")
 
 
-class SIN_R_ForcedOrnsteinUhlenbeckPropagator(Propagator):
+class SIN_R_OrnsteinUhlenbeckPropagator(SIN_R_BasePropagator):
     """
     This class implements an unconstrained, massive Ornstein-Uhlenbeck propagator, which  provides a
     solution for the following :term:`SDE` system for every degree of freedom:
@@ -309,21 +321,33 @@ class SIN_R_ForcedOrnsteinUhlenbeckPropagator(Propagator):
     where :math:`\\sigma = \\sqrt{\\frac{2 \\gamma kT}{Q_2}}`.
 
     """
-    def __init__(self, temperature, timeConstant, frictionCoefficient):
-        super(SIN_R_ForcedOrnsteinUhlenbeckPropagator, self).__init__()
-        self.globalVariables["kT"] = self.kB*temperature
-        self.globalVariables["Q1"] = self.kB*temperature*timeConstant**2
-        self.globalVariables["Q2"] = self.kB*temperature*timeConstant**2
-        self.globalVariables["friction"] = frictionCoefficient
-        self.perDofVariables["v1"] = 0
-        self.perDofVariables["v2"] = 0
-        self.persistent = ["kT", "Q1", "Q2", "friction", "v1", "v2", "tau"]
+    def __init__(self, temperature, timeConstant, frictionCoefficient, forced=False):
+        super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeConstant, frictionCoefficient)
+        self.forced = forced
 
     def addSteps(self, integrator, fraction=1.0):
         expression = "x*v2 + G*(1 - x)/friction + sqrt(kT/Q2*(1 - x^2))*gaussian"
-        expression += "; G = (Q1*v1*v1 - kT)/Q2"
+        expression += "; G = (Q1*v1*v1 - kT)/Q2" if self.forced else "; G = 0"
         expression += "; x = exp(-{}*friction*dt)".format(fraction)
         integrator.addComputePerDof("v2", expression)
+
+
+class SIN_R_ThermostatBoostPropagator(SIN_R_BasePropagator):
+    """
+    This class implements an unconstrained, massive Ornstein-Uhlenbeck propagator, which  provides a
+    solution for the following :term:`SDE` system for every degree of freedom:
+
+    .. math::
+        dv2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sigma dW
+
+    where :math:`\\sigma = \\sqrt{\\frac{2 \\gamma kT}{Q_2}}`.
+
+    """
+    def __init__(self, temperature, timeConstant):
+        super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeConstant)
+
+    def addSteps(self, integrator, fraction=1.0):
+        integrator.addComputePerDof("v2", "v2 + {}*dt*(Q1*v1*v1 - kT)/Q2".format(fraction))
 
 
 class VelocityVerletPropagator(Propagator):

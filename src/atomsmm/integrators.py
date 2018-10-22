@@ -180,7 +180,7 @@ class SIN_R_Integrator(Integrator):
         translation = propagators.TranslationPropagator()
         isoF = propagators.SIN_R_Isokinetic_F_Propagator(temperature)
         isoN = propagators.SIN_R_Isokinetic_N_Propagator(temperature, timeConstant)
-        OU = propagators.SIN_R_ForcedOrnsteinUhlenbeckPropagator(temperature, timeConstant, 1/timeConstant)
+        OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeConstant, 1/timeConstant, forced=True)
         propagator = propagators.TrotterSuzukiPropagator(OU, isoN)
         propagator = propagators.TrotterSuzukiPropagator(propagator, translation)
         propagator = propagators.TrotterSuzukiPropagator(propagator, isoF)
