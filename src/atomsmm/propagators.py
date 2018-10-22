@@ -212,7 +212,6 @@ class TranslationPropagator(Propagator):
         super(TranslationPropagator, self).__init__()
 
     def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
         integrator.addComputePerDof("x", "x+{}*dt*v".format(fraction))
 
 
@@ -226,7 +225,6 @@ class BoostPropagator(Propagator):
         super(BoostPropagator, self).__init__()
 
     def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
 
 
@@ -254,7 +252,6 @@ class SIN_R_Isokinetic_F_Propagator(Propagator):
         self.perDofVariables["sinhx_x"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
         integrator.addComputePerDof("lambda0dt", "{}*dt*f*v/kT".format(fraction))
         integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/(m*kT))".format(fraction))
         integrator.addComputePerDof("sinhx_x", "sinh(bdt)/bdt")  # Include taylor expansion
@@ -349,7 +346,6 @@ class VelocityVerletPropagator(Propagator):
 
     def addSteps(self, integrator, fraction=1.0):
         Dt = "; Dt=%s*dt" % fraction
-        integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "v+0.5*Dt*f/m" + Dt)
         integrator.addComputePerDof("x0", "x")
         integrator.addComputePerDof("x", "x+Dt*v" + Dt)
@@ -381,7 +377,6 @@ class RespaPropagator(Propagator):
         self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0):
-        integrator.addUpdateContextState()
         self._addSubsteps(integrator, self.loops, fraction)
         integrator.addConstrainVelocities()
 
@@ -529,7 +524,6 @@ class NoseHooverPropagator(Propagator):
             integrator.addComputeGlobal("vscaling", "vscaling*exp({}*p_NH*dt)".format(-subfrac/Q))
         integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*subfrac/Q, N*kT))
         integrator.addComputePerDof("v", "vscaling*v")
-        integrator.addUpdateContextState()
 
 
 class NoseHooverLangevinPropagator(Propagator):
@@ -604,5 +598,4 @@ class NoseHooverLangevinPropagator(Propagator):
         expression += "; G = (vscaling^2*mvv-{})/{}".format(N*kT, gamma)
         expression += "; x = exp({}*dt)".format(-gamma*fraction)
         integrator.addComputeGlobal("p_NHL", expression)
-        integrator.addUpdateContextState()
         integrator.addComputePerDof("v", "vscaling*exp({}*p_NHL*dt)*v".format(-0.5*fraction/Q))

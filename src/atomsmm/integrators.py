@@ -9,6 +9,7 @@
 
 import math
 import random
+import re
 
 import openmmtools.integrators as openmmtools
 from simtk import openmm
@@ -26,12 +27,18 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         super(Integrator, self).__init__(stepSize)
         self.addGlobalVariable("mvv", 0.0)
         self.obsoleteKinetic = True
+        self.forceFinder = re.compile("f[0-9]*")
         self.obsoleteContextState = True
 
     def __str__(self):
         return self.pretty_format()
 
-    def _requirements(self, variable, expression):
+    def _required_variables(self, variable, expression):
+        """
+        Returns a list of strings containting the names of all global and per-dof variables
+        required in an OpenMM CustomIntegrator operation.
+
+        """
         definitions = ("{}={}".format(variable, expression)).split(";")
         names = set()
         symbols = set()
@@ -39,24 +46,16 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
             name, expr = definition.split("=")
             names.add(Symbol(name.strip()))
             symbols |= parse_expr(expr.replace("^", "**")).free_symbols
-        requirements = symbols - names
-        return list(str(element) for element in requirements)
+        return list(str(element) for element in (symbols - names))
 
     def _checkUpdate(self, variable, expression):
-        requirements = self._requirements(variable, expression)
+        requirements = self._required_variables(variable, expression)
         if self.obsoleteKinetic and "mvv" in requirements:
             super(Integrator, self).addComputeSum("mvv", "m*v*v")
             self.obsoleteKinetic = False
-
-    def _adjustVelocities(self, velocities, masses, targetTwoK):
-        mtotal = sum(masses)
-        ptotal = sum([m*v for (m, v) in zip(masses, velocities)], openmm.Vec3(0.0, 0.0, 0.0))
-        vcm = ptotal/mtotal
-        for i in range(len(velocities)):
-            velocities[i] -= vcm
-        twoK = sum(m*(v[0]**2 + v[1]**2 + v[2]**2) for (m, v) in zip(masses, velocities))
-        for i in range(len(velocities)):
-            velocities[i] *= math.sqrt(targetTwoK/twoK)
+        if self.obsoleteContextState and any(self.forceFinder.match(s) for s in requirements):
+            super(Integrator, self).addUpdateContextState()
+            self.obsoleteContextState = False
 
     def addUpdateContextState(self):
         if self.obsoleteContextState:
@@ -88,7 +87,15 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
             sigma = math.sqrt(kT/m)
             v = sigma*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
             velocities.append(v)
-        self._adjustVelocities(velocities, masses, 3*N*kT)
+        mtotal = sum(masses)
+        ptotal = sum([m*v for (m, v) in zip(masses, velocities)], openmm.Vec3(0.0, 0.0, 0.0))
+        vcm = ptotal/mtotal
+        for i in range(len(velocities)):
+            velocities[i] -= vcm
+        twoK = sum(m*(v[0]**2 + v[1]**2 + v[2]**2) for (m, v) in zip(masses, velocities))
+        factor = math.sqrt(3*N*kT/twoK)
+        for i in range(len(velocities)):
+            velocities[i] *= factor
         context.setVelocities(velocities)
 
 
