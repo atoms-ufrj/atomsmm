@@ -350,6 +350,47 @@ class SIN_R_ThermostatBoostPropagator(SIN_R_BasePropagator):
         integrator.addComputePerDof("v2", "v2 + {}*dt*(Q1*v1*v1 - kT)/Q2".format(fraction))
 
 
+class RespaPropagator(Propagator):
+    """
+    This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
+    with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
+    `N-1` goes in the outermost loop (largest timestep).
+
+    Parameters
+    ----------
+        loops : list(int)
+            A list of `N` integers, where loops[i] determines how many iterations of force group
+            `i` are executed for every iteration of force group `i+1`.
+
+    """
+    def __init__(self, loops):
+        super(RespaPropagator, self).__init__()
+        self.loops = loops
+        for (i, n) in enumerate(self.loops):
+            if n > 1:
+                self.globalVariables["n{}".format(i)] = 0
+        self.persistent = None
+
+    def addSteps(self, integrator, fraction=1.0):
+        self._addSubsteps(integrator, len(self.loops)-1, fraction)
+
+    def _addSubsteps(self, integrator, group, fraction):
+        n = self.loops[group]
+        if n > 1:
+            counter = "n{}".format(group)
+            integrator.addComputeGlobal(counter, "0")
+            integrator.beginWhileBlock("{} < {}".format(counter, n))
+        integrator.addComputePerDof("v","v + {}*dt*f{}/m".format(0.5*fraction/n, group))
+        if group == 0:
+            integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction/n))
+        else:
+            self._addSubsteps(integrator, group-1, fraction/n)
+        integrator.addComputePerDof("v","v + {}*dt*f{}/m".format(0.5*fraction/n, group))
+        if n > 1:
+            integrator.addComputeGlobal(counter, "{} + 1".format(counter))
+            integrator.endBlock()
+
+
 class VelocityVerletPropagator(Propagator):
     """
     This class implements a Velocity Verlet propagator with constraints.
@@ -380,51 +421,6 @@ class VelocityVerletPropagator(Propagator):
         integrator.addConstrainPositions()
         integrator.addComputePerDof("v", "(x-x0)/Dt+0.5*Dt*f/m" + Dt)
         integrator.addConstrainVelocities()
-
-
-class RespaPropagator(Propagator):
-    """
-    This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
-    with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
-    `N-1` goes in the outermost loop (largest timestep).
-
-    Parameters
-    ----------
-        loops : list(int)
-            A list of `N` integers, where loops[i] determines how many iterations of force group
-            `i` are executed for every iteration of force group `i+1`.
-
-    """
-    def __init__(self, loops):
-        super(RespaPropagator, self).__init__()
-        self.loops = loops
-        self.declareVariables()
-
-    def declareVariables(self):
-        self.perDofVariables["x0"] = 0
-        self.persistent = None
-
-    def addSteps(self, integrator, fraction=1.0):
-        self._addSubsteps(integrator, self.loops, fraction)
-        integrator.addConstrainVelocities()
-
-    def _addSubsteps(self, integrator, loops, fraction):
-        group = len(loops) - 1
-        n = loops[group]
-        delta_v = "v+Dt*f%d/m" % group
-        half = "; Dt=%s*dt" % (0.5*fraction/n)
-        full = "; Dt=%s*dt" % (fraction/n)
-        for i in range(n):
-            integrator.addComputePerDof("v", delta_v + (half if i == 0 else full))
-            if group == 0:
-                integrator.addComputePerDof("x0", "x")
-                integrator.addComputePerDof("x", "x+v*Dt" + full)
-                integrator.addConstrainPositions()
-                integrator.addComputePerDof("v", "(x-x0)/Dt" + full)
-            else:
-                self._addSubsteps(integrator, loops[0:group], fraction/n)
-            if i == n-1:
-                integrator.addComputePerDof("v", delta_v + half)
 
 
 class VelocityRescalingPropagator(Propagator):

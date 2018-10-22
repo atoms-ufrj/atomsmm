@@ -7,8 +7,8 @@ from sys import stdout
 
 import atomsmm
 
-nsteps = 10000
-ndisp = 100
+nsteps = 100
+ndisp = 10
 seed = 5623
 temp = 300*unit.kelvin
 dt = 2.0*unit.femtoseconds
@@ -19,7 +19,7 @@ rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = False
 # mts = False
-mts = False
+mts = True
 
 case = 'q-SPC-FW'
 # case = 'emim_BCN4_Jiung2014'
@@ -39,8 +39,7 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    NVE = atomsmm.RespaPropagator([2,2,1])
-    integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE)
+    NVE = atomsmm.RespaPropagator([5, 2, 1])
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
@@ -48,10 +47,9 @@ else:
     # thermostat = atomsmm.VelocityRescalingPropagator(temp, dof, 1/friction)
     thermostat = atomsmm.NoseHooverLangevinPropagator(temp, dof, 1/friction, friction)
     NVE = atomsmm.VelocityVerletPropagator()
-    integrator = atomsmm.TrotterSuzukiPropagator(NVE, thermostat).integrator(dt)
-    integrator.setRandomNumberSeed(seed)
 
-integrator.pretty_print()
+integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE)
+print(integrator)
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
@@ -64,7 +62,6 @@ simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
 
 state = simulation.context.getState(getEnergy=True)
 print(state.getPotentialEnergy())
-exit()
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
