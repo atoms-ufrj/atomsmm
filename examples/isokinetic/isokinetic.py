@@ -7,7 +7,7 @@ from sys import stdout
 
 import atomsmm
 
-platform = 'CUDA'
+platform = 'Reference'
 properties = dict(CUDA=dict(Precision = 'mixed'), Reference=dict())
 nsteps = 10
 ndisp = 1

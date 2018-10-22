@@ -19,12 +19,6 @@ import atomsmm
 
 
 class Propagator:
-    mass_unit = unit.dalton
-    length_unit = unit.nanometer
-    time_unit = unit.picosecond
-    energy_unit = mass_unit*(length_unit/time_unit)**2
-    kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
-
     """
     This is the base class for propagators, which are building blocks for constructing
     CustomIntegrator_ objects in OpenMM. Shortly, a propagator translates the effect of an
@@ -42,6 +36,8 @@ class Propagator:
         self.globalVariables = dict()
         self.perDofVariables = dict()
         self.persistent = list()
+
+    kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
 
     def declareVariables(self):
         pass
@@ -179,16 +175,12 @@ class SuzukiYoshidaPropagator(Propagator):
     """
     def __init__(self, A, nsy=3):
         if nsy not in [3, 7, 15]:
-            raise atomsmm.utils.InputError("SuzukiYoshidaPropagator only accepts nsy = 3, 7, or 15")
+            raise atomsmm.utils.InputError("SuzukiYoshidaPropagator accepts nsy = 3, 7, or 15 only")
         super(SuzukiYoshidaPropagator, self).__init__()
         self.A = deepcopy(A)
         self.nsy = nsy
         self.globalVariables.update(self.A.globalVariables)
         self.perDofVariables.update(self.A.perDofVariables)
-        self.declareVariables()
-
-    def declareVariables(self):
-        self.globalVariables["hoscount"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
         if self.nsy == 15:
@@ -254,12 +246,24 @@ class SIN_R_Isokinetic_F_Propagator(Propagator):
     def addSteps(self, integrator, fraction=1.0):
         integrator.addComputePerDof("lambda0dt", "{}*dt*f*v/kT".format(fraction))
         integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/(m*kT))".format(fraction))
-        integrator.addComputePerDof("sinhx_x", "sinh(bdt)/bdt")  # Include taylor expansion
-        integrator.addComputePerDof("coshxm1_x2", "(cosh(bdt)-1)/bdt^2")  # Include taylor expansion
+
+        expression = "select(step(bdt - 1E-4), direct, safe)"
+        expression += "; direct = sinh(bdt)/bdt"
+        expression += "; safe = ((x/42 + 1)*x/20 + 1)*x/6 + 1"
+        expression += "; x = bdt^2"
+        integrator.addComputePerDof("sinhx_x", expression)
+
+        expression = "select(step(bdt - 1E-3), direct, safe)"
+        expression += "; direct = (cosh(bdt)-1)/x"
+        expression += "; safe = ((x/56 + 1)*x/30 + 1)*x/24 + 0.5"
+        expression += "; x = bdt^2"
+        integrator.addComputePerDof("coshxm1_x2", expression)
+
         expression = "(v + s*f/m)/sdif"
         expression += "; s = {}*dt*(lambda0dt*coshxm1_x2 + sinhx_x)".format(fraction)
         expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
         integrator.addComputePerDof("v", expression)
+
         expression = "v1/sdif"
         expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
         integrator.addComputePerDof("v1", expression)
@@ -285,13 +289,13 @@ class SIN_R_Isokinetic_N_Propagator(Propagator):
         self.perDofVariables["v1"] = 0
         self.perDofVariables["v2"] = 0
         self.persistent = ["kT", "Q1", "v1", "v2"]
-        self.perDofVariables["HIsoN"] = 0
+        self.perDofVariables["scalingFactor"] = 0
 
     def addSteps(self, integrator, fraction=1.0):
         integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
-        integrator.addComputePerDof("HIsoN", "sqrt(kT/(m*v*v + 0.5*Q1*v1*v1))")
-        integrator.addComputePerDof("v", "v*HIsoN")
-        integrator.addComputePerDof("v1", "v1*HIsoN")
+        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v*v + 0.5*Q1*v1*v1))")
+        integrator.addComputePerDof("v", "v*scalingFactor")
+        integrator.addComputePerDof("v1", "v1*scalingFactor")
 
 
 class SIN_R_ForcedOrnsteinUhlenbeckPropagator(Propagator):
