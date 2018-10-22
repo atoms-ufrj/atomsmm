@@ -51,7 +51,7 @@ class Propagator:
         for (name, value) in self.perDofVariables.items():
             integrator.addPerDofVariable(name, value)
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         pass
 
     def integrator(self, stepSize=1.0*unit.femtosecond):
@@ -111,7 +111,7 @@ class ChainedPropagator(Propagator):
             self.globalVariables.update(propagator.globalVariables)
             self.perDofVariables.update(propagator.perDofVariables)
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         self.B.addSteps(integrator, fraction)
         self.A.addSteps(integrator, fraction)
 
@@ -149,7 +149,7 @@ class TrotterSuzukiPropagator(Propagator):
             self.globalVariables.update(propagator.globalVariables)
             self.perDofVariables.update(propagator.perDofVariables)
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         self.B.addSteps(integrator, 0.5*fraction)
         self.A.addSteps(integrator, fraction)
         self.B.addSteps(integrator, 0.5*fraction)
@@ -182,7 +182,7 @@ class SuzukiYoshidaPropagator(Propagator):
         self.globalVariables.update(self.A.globalVariables)
         self.perDofVariables.update(self.A.perDofVariables)
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.nsy == 15:
             weights = [0.102799849391985, -1.96061023297549, 1.93813913762276, -0.158240635368243,
                        -1.44485223686048, 0.253693336566229, 0.914844246229740]
@@ -203,8 +203,25 @@ class TranslationPropagator(Propagator):
     def __init__(self):
         super(TranslationPropagator, self).__init__()
 
-    def addSteps(self, integrator, fraction=1.0):
-        integrator.addComputePerDof("x", "x+{}*dt*v".format(fraction))
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction))
+
+
+class ConstrainedTranslationPropagator(Propagator):
+    """
+    This class implements a constrained translation propagator
+    :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
+
+    """
+    def __init__(self):
+        super(ConstrainedTranslationPropagator, self).__init__()
+        self.perDofVariables["x0"] = 0
+
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        integrator.addComputePerDof("x0", "x")
+        integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction))
+        integrator.addConstrainPositions()
+        integrator.addComputePerDof("v", "(x - x0)/({}*dt)".format(fraction))
 
 
 class BoostPropagator(Propagator):
@@ -216,8 +233,22 @@ class BoostPropagator(Propagator):
     def __init__(self):
         super(BoostPropagator, self).__init__()
 
-    def addSteps(self, integrator, fraction=1.0):
-        integrator.addComputePerDof("v", "v+{}*dt*f/m".format(fraction))
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
+
+
+class ConstrainedBoostPropagator(Propagator):
+    """
+    This class implements a constrained boost propagator
+    :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
+
+    """
+    def __init__(self):
+        super(ConstrainedBoostPropagator, self).__init__()
+
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
+        integrator.addConstrainVelocities()
 
 
 class SIN_R_BasePropagator(Propagator):
@@ -260,7 +291,7 @@ class SIN_R_Isokinetic_F_Propagator(SIN_R_BasePropagator):
         self.perDofVariables["coshxm1_x2"] = 0
         self.perDofVariables["sinhx_x"] = 0
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("lambda0dt", "{}*dt*f*v/kT".format(fraction))
         integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/(m*kT))".format(fraction))
 
@@ -303,7 +334,7 @@ class SIN_R_Isokinetic_N_Propagator(SIN_R_BasePropagator):
         super(SIN_R_Isokinetic_N_Propagator, self).__init__(temperature, timeConstant)
         self.perDofVariables["scalingFactor"] = 0
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
         integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v*v + 0.5*Q1*v1*v1))")
         integrator.addComputePerDof("v", "v*scalingFactor")
@@ -325,7 +356,7 @@ class SIN_R_OrnsteinUhlenbeckPropagator(SIN_R_BasePropagator):
         super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeConstant, frictionCoefficient)
         self.forced = forced
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         expression = "x*v2 + G*(1 - x)/friction + sqrt(kT/Q2*(1 - x^2))*gaussian"
         expression += "; G = (Q1*v1*v1 - kT)/Q2" if self.forced else "; G = 0"
         expression += "; x = exp(-{}*friction*dt)".format(fraction)
@@ -346,7 +377,7 @@ class SIN_R_ThermostatBoostPropagator(SIN_R_BasePropagator):
     def __init__(self, temperature, timeConstant):
         super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeConstant)
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v2", "v2 + {}*dt*(Q1*v1*v1 - kT)/Q2".format(fraction))
 
 
@@ -356,23 +387,64 @@ class RespaPropagator(Propagator):
     with `N` force groups, where group 0 goes in the innermost loop (shortest timestep) and group
     `N-1` goes in the outermost loop (largest timestep).
 
+    .. math::
+        e^{\\Delta t iL} = e^{\\frac{\\Delta t}{2} iL_\\mathrm{shell}}
+                           e^{\\Delta t iL_{N-1}}
+                           e^{\\frac{\\Delta t}{2} iL_\\mathrm{shell}}
+
+    where
+
+    .. math::
+        e^{\\Delta t iL_k} = \\prod_{j=1}^{n_k}
+                             e^{\\frac{\\Delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
+                             e^{\\frac{\\Delta t}{n_k} iL_{k-1}}
+                             e^{\\frac{\\Delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
+
+    and
+
+    .. math::
+        e^{\\Delta t iL_0} = \\prod_{j=1}^{n_0}
+                             e^{\\frac{\\Delta t}{2 n_0} iL_{\\mathrm{boost}, 0}}
+                             e^{\\frac{\\Delta t}{2 n_0} iL_\\mathrm{move}}
+                             e^{\\frac{\\Delta t}{n_0} iL_\\mathrm{core}}
+                             e^{\\frac{\\Delta t}{2 n_0} iL_\\mathrm{move}}
+                             e^{\\frac{\\Delta t}{2 n_0} iL_{\\mathrm{boost}, 0}}
+
     Parameters
     ----------
         loops : list(int)
             A list of `N` integers, where loops[i] determines how many iterations of force group
             `i` are executed for every iteration of force group `i+1`.
+        boost : :class:`Propagator`, optional, default=None
+            A propagator used to update the velocity of every atom based on the resultant force
+            acting on it. If this is none, then a standard, linear boosting is applied.
+        core : :class:`Propagator`, optional, default=None
+            An internal propagator used to control the configurational probability distribution
+            sampled by the RESPA scheme. If this is None, then no internal propagator is applied.
+        shell : :class:`Propagator`, optional, default=None
+            An external propagator used to control the configurational probability distribution
+            sampled by the RESPA scheme. If this is None, then no external propagator is applied.
 
     """
-    def __init__(self, loops):
+    def __init__(self, loops, boost=None, move=None, core=None, shell=None):
         super(RespaPropagator, self).__init__()
         self.loops = loops
+        self.core = core
+        self.shell = shell
+        self.boost = BoostPropagator() if boost is None else boost
+        self.move = TranslationPropagator()
+        for propagator in [x for x in [self.core, self.shell, self.boost, self.move] if x is not None]:
+            self.globalVariables.update(propagator.globalVariables)
+            self.perDofVariables.update(propagator.perDofVariables)
         for (i, n) in enumerate(self.loops):
             if n > 1:
                 self.globalVariables["n{}".format(i)] = 0
         self.persistent = None
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        self.shell and self.shell.addSteps(integrator, fraction)
         self._addSubsteps(integrator, len(self.loops)-1, fraction)
+        self.shell and self.shell.addSteps(integrator, fraction)
 
     def _addSubsteps(self, integrator, group, fraction):
         n = self.loops[group]
@@ -380,12 +452,17 @@ class RespaPropagator(Propagator):
             counter = "n{}".format(group)
             integrator.addComputeGlobal(counter, "0")
             integrator.beginWhileBlock("{} < {}".format(counter, n))
-        integrator.addComputePerDof("v","v + {}*dt*f{}/m".format(0.5*fraction/n, group))
+        self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
         if group == 0:
-            integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction/n))
+            if self.core is None:
+                self.move.addSteps(integrator, fraction/n)
+            else:
+                self.move.addSteps(integrator, 0.5*fraction/n)
+                self.core.addSteps(integrator, fraction/n)
+                self.move.addSteps(integrator, 0.5*fraction/n)
         else:
             self._addSubsteps(integrator, group-1, fraction/n)
-        integrator.addComputePerDof("v","v + {}*dt*f{}/m".format(0.5*fraction/n, group))
+        self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
         if n > 1:
             integrator.addComputeGlobal(counter, "{} + 1".format(counter))
             integrator.endBlock()
@@ -413,7 +490,7 @@ class VelocityVerletPropagator(Propagator):
         self.perDofVariables["x0"] = 0
         self.persistent = None
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         Dt = "; Dt=%s*dt" % fraction
         integrator.addComputePerDof("v", "v+0.5*Dt*f/m" + Dt)
         integrator.addComputePerDof("x0", "x")
@@ -468,7 +545,7 @@ class VelocityRescalingPropagator(Propagator):
         self.globalVariables["ready"] = 0
         self.persistent = None
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         a = (self.dof - 2 + self.dof % 2)/2
         d = a - 1/3
         c = 1/math.sqrt(9*d)
@@ -523,30 +600,21 @@ class NoseHooverPropagator(Propagator):
     """
     def __init__(self, temperature, degreesOfFreedom, timeConstant, nloops=1):
         super(NoseHooverPropagator, self).__init__()
-        self.temperature = temperature
-        self.degreesOfFreedom = degreesOfFreedom
-        self.timeConstant = timeConstant
         self.nloops = nloops
-        self.declareVariables()
-
-    def declareVariables(self):
+        self.globalVariables["LkT"] = degreesOfFreedom*self.kB*temperature
+        self.globalVariables["Q"] = degreesOfFreedom*self.kB*temperature*timeConstant**2
         self.globalVariables["vscaling"] = 0
-        self.globalVariables["p_NH"] = 0
-        self.persistent = ["p_NH"]
+        self.globalVariables["p_eta"] = 0
+        self.persistent = ["p_eta"]
 
-    def addSteps(self, integrator, fraction=1.0):
-        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
-        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
-        N = self.degreesOfFreedom
-        tau = self.timeConstant.value_in_unit(unit.picoseconds)
-        Q = N*kT*tau**2
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         subfrac = fraction/self.nloops
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(mvv-{})".format(0.5*subfrac/Q, N*kT))
-        integrator.addComputeGlobal("vscaling", "exp({}*p_NH*dt)".format(-subfrac/Q))
+        integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(mvv - LkT)".format(0.5*subfrac))
+        integrator.addComputeGlobal("vscaling", "exp(-{}*dt*p_eta/Q)".format(subfrac))
         for loop in range(self.nloops-1):
-            integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(subfrac/Q, N*kT))
-            integrator.addComputeGlobal("vscaling", "vscaling*exp({}*p_NH*dt)".format(-subfrac/Q))
-        integrator.addComputeGlobal("p_NH", "p_NH+{}*dt*(vscaling^2*mvv-{})".format(0.5*subfrac/Q, N*kT))
+            integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(subfrac))
+            integrator.addComputeGlobal("vscaling", "vscaling*exp(-{}*dt*p_eta/Q)".format(subfrac))
+        integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(0.5*subfrac))
         integrator.addComputePerDof("v", "vscaling*v")
 
 
@@ -597,12 +665,15 @@ class NoseHooverLangevinPropagator(Propagator):
             The friction coefficient of the Langevin thermostat.
 
     """
-    def __init__(self, temperature, degreesOfFreedom, timeConstant, frictionCoefficient):
+    def __init__(self, temperature, degreesOfFreedom, timeConstant, frictionCoefficient=None):
         super(NoseHooverLangevinPropagator, self).__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeConstant = timeConstant
-        self.frictionCoefficient = frictionCoefficient
+        if frictionCoefficient is None:
+            self.frictionCoefficient = 1/timeConstant
+        else:
+            self.frictionCoefficient = frictionCoefficient
         self.declareVariables()
 
     def declareVariables(self):
@@ -610,7 +681,7 @@ class NoseHooverLangevinPropagator(Propagator):
         self.globalVariables["p_NHL"] = 0
         self.persistent = ["p_NHL"]
 
-    def addSteps(self, integrator, fraction=1.0):
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
         N = self.degreesOfFreedom

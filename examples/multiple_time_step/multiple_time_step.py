@@ -11,15 +11,18 @@ nsteps = 100
 ndisp = 10
 seed = 5623
 temp = 300*unit.kelvin
-dt = 2.0*unit.femtoseconds
-friction = 10/unit.picoseconds
+dt = 1.0*unit.femtoseconds
+tau = 10*unit.femtoseconds
 rswitchIn = 6.0*unit.angstroms
 rcutIn = 7.0*unit.angstroms
 rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 shift = False
-# mts = False
+mts = False
 mts = True
+
+platform = 'CUDA'
+properties = dict(CUDA=dict(Precision = 'mixed'), CPU=dict(), Reference=dict())
 
 case = 'q-SPC-FW'
 # case = 'emim_BCN4_Jiung2014'
@@ -31,6 +34,7 @@ system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME,
 
 nbforceIndex = atomsmm.findNonbondedForce(system)
 dof = atomsmm.countDegreesOfFreedom(system)
+thermostat = atomsmm.NoseHooverPropagator(temp, dof, tau)
 if mts:
     nbforce = atomsmm.hijackForce(system, nbforceIndex)
     exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
@@ -39,24 +43,21 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    NVE = atomsmm.RespaPropagator([5, 2, 1])
+    integrator = atomsmm.RespaPropagator([5, 2, 1], shell=thermostat).integrator(dt)
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)
     nbforce.setSwitchingDistance(rswitch)
-    # thermostat = atomsmm.VelocityRescalingPropagator(temp, dof, 1/friction)
-    thermostat = atomsmm.NoseHooverLangevinPropagator(temp, dof, 1/friction, friction)
     NVE = atomsmm.VelocityVerletPropagator()
+    integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
 
-integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE)
 print(integrator)
 
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ":", energy)
 
-platform = openmm.Platform.getPlatformByName('CUDA')
-properties = {"Precision": "mixed"}
-simulation = app.Simulation(pdb.topology, system, integrator, platform, properties)
+simulation = app.Simulation(pdb.topology, system, integrator,
+                            openmm.Platform.getPlatformByName(platform), properties[platform])
 simulation.context.setPositions(pdb.positions)
 simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
 

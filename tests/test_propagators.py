@@ -65,9 +65,11 @@ def test_VelocityVerlet():
 
 
 def test_Respa():
-    NVE = atomsmm.RespaPropagator([4, 1])
+    boost = atomsmm.propagators.ConstrainedBoostPropagator()
+    move = atomsmm.propagators.ConstrainedTranslationPropagator()
+    NVE = atomsmm.RespaPropagator([4, 1], boost=boost, move=move)
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
-    execute(integrator, -13127.416646818641)
+    execute(integrator, -13138.812975862904)
 
 
 def test_BussiThermostat():
@@ -109,4 +111,4 @@ def test_NoseHooverPropagator():
     combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
-    execute(integrator, -13065.637854682398)
+    execute(integrator, -13062.540122895782)

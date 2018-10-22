@@ -14,10 +14,10 @@
     </Residue>
   </Residues>
   <HarmonicBondForce>
-    <Bond type1="OW" type2="HW" length="0.100000001" k="886306.750"/>
+    <Bond type1="OW" type2="HW" length="0.10000000" k="443153.375"/>
   </HarmonicBondForce>
   <HarmonicAngleForce>
-    <Angle type1="HW" type2="OW" type3="HW" angle="1.95476878" k="635.131226"/>
+    <Angle type1="HW" type2="OW" type3="HW" angle="1.95476878" k="317.565613"/>
   </HarmonicAngleForce>
   <PeriodicTorsionForce>
   </PeriodicTorsionForce>
