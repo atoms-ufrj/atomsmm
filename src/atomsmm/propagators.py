@@ -199,29 +199,25 @@ class TranslationPropagator(Propagator):
     This class implements a simple (unconstrained) translation propagator
     :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
 
+    Parameters
+    ----------
+        constrained : bool, optional, default=True
+            If true, distance constraints are taken into account.
+
     """
-    def __init__(self):
+    def __init__(self, constrained=True):
         super(TranslationPropagator, self).__init__()
+        self.constrained = constrained
+        if constrained:
+            self.perDofVariables["x0"] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        if self.constrained:
+            integrator.addComputePerDof("x0", "x")
         integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction))
-
-
-class ConstrainedTranslationPropagator(Propagator):
-    """
-    This class implements a constrained translation propagator
-    :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
-
-    """
-    def __init__(self):
-        super(ConstrainedTranslationPropagator, self).__init__()
-        self.perDofVariables["x0"] = 0
-
-    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("x0", "x")
-        integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction))
-        integrator.addConstrainPositions()
-        integrator.addComputePerDof("v", "(x - x0)/({}*dt)".format(fraction))
+        if self.constrained:
+            integrator.addConstrainPositions()
+            integrator.addComputePerDof("v", "(x - x0)/({}*dt)".format(fraction))
 
 
 class BoostPropagator(Propagator):
@@ -229,26 +225,19 @@ class BoostPropagator(Propagator):
     This class implements a simple (unconstrained) boost propagator
     :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
 
+    Parameters
+    ----------
+        constrained : bool, optional, default=True
+            If true, distance constraints are taken into account.
+
     """
-    def __init__(self):
+    def __init__(self, constrained=True):
         super(BoostPropagator, self).__init__()
+        self.constrained = constrained
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
-
-
-class ConstrainedBoostPropagator(Propagator):
-    """
-    This class implements a constrained boost propagator
-    :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
-
-    """
-    def __init__(self):
-        super(ConstrainedBoostPropagator, self).__init__()
-
-    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
-        integrator.addConstrainVelocities()
+        self.constrained and integrator.addConstrainVelocities()
 
 
 class SIN_R_BasePropagator(Propagator):

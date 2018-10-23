@@ -65,11 +65,11 @@ def test_VelocityVerlet():
 
 
 def test_Respa():
-    boost = atomsmm.propagators.ConstrainedBoostPropagator()
-    move = atomsmm.propagators.ConstrainedTranslationPropagator()
+    boost = atomsmm.propagators.BoostPropagator(constrained=True)
+    move = atomsmm.propagators.TranslationPropagator(constrained=True)
     NVE = atomsmm.RespaPropagator([4, 1], boost=boost, move=move)
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
-    execute(integrator, -13138.812975862904)
+    execute(integrator, -13127.4164665226)
 
 
 def test_BussiThermostat():
