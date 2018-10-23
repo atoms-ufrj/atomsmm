@@ -43,7 +43,7 @@ if mts:
     for force in [exceptions, innerForce, outerForce]:
         force.importFrom(nbforce)
         force.addTo(system)
-    integrator = atomsmm.RespaPropagator([5, 2, 1], shell=thermostat).integrator(dt)
+    integrator = atomsmm.RespaPropagator([5, 2, 1], mantle=thermostat).integrator(dt)
 else:
     nbforce = system.getForce(nbforceIndex)
     nbforce.setUseSwitchingFunction(True)

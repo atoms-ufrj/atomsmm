@@ -54,6 +54,9 @@ napoleon_use_ivar = True
 napoleon_use_rtype = False
 napoleon_use_param = False
 
-linkcheck_ignore = [r'^https://doi.org']
+linkcheck_ignore = [
+    r'^https://doi.org',
+    r'http://atoms.peq.coppe.ufrj.br',
+]
 
 autodoc_member_order = 'bysource'

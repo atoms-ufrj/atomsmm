@@ -440,34 +440,35 @@ class RespaPropagator(Propagator):
     Liouville-like operator corresponding to the equations of motion is split as
 
     .. math::
-        iL = iL_\\mathrm{core} + iL_\\mathrm{shell} + iL_\\mathrm{move}
-           + \\sum_{k=0}^{N-1} iL_{\\mathrm{boost}, k}
+        iL = iL_\\mathrm{crust} + iL_\\mathrm{mantle} + iL_\\mathrm{core} +
+             iL_\\mathrm{move} + \\sum_{k=0}^{N-1} iL_{\\mathrm{boost}, k}
 
     In this scheme, :math:`iL_\\mathrm{move}` is the only component that entails changes in the
-    atomic coordinates, while :math:`iL_{\\mathrm{boost}, k}` is the only component which depends
-    on the forces of group :math:`k`. Therefore, operators :math:`iL_\\mathrm{core}` and
-    :math:`iL_\\mathrm{shell}` are reserved changes in atomic velocities due to the action of
-    thermostats, as well as to changes in the thermostat variables themselves.
+    atomic coordinates, while :math:`iL_{\\mathrm{boost}, k}` is the only component that depends
+    on the forces of group :math:`k`. Therefore, operators :math:`iL_\\mathrm{core}`,
+    :math:`iL_\\mathrm{mantle}`, and :math:`iL_\\mathrm{crust}` are reserved to changes in atomic
+    velocities due to the action of thermostats, as well as to changes in the thermostat variables
+    themselves.
+
+    The rRESPA split is carried out as follows:
 
     .. math::
-        e^{\\Delta t iL} = e^{\\frac{\\Delta t}{2} iL_\\mathrm{shell}}
+        e^{\\Delta t iL} = e^{\\frac{\\Delta t}{2} iL_\\mathrm{crust}}
                            e^{\\Delta t iL_{N-1}}
-                           e^{\\frac{\\Delta t}{2} iL_\\mathrm{shell}}
+                           e^{\\frac{\\Delta t}{2} iL_\\mathrm{crust}}
 
     where
 
     .. math::
-        e^{\\Delta t iL_k} = \\begin{cases}
-                             \\prod_{j=1}^{n_k}
-                             e^{\\frac{\\Delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
-                             e^{\\frac{\\Delta t}{n_k} iL_{k-1}}
-                             e^{\\frac{\\Delta t}{2 n_k} iL_{\\mathrm{boost}, k}} & k > 0 \\\\
-                             \\prod_{j=1}^{n_0}
-                             e^{\\frac{\\Delta t}{2 n_0} iL_{\\mathrm{boost}, 0}}
-                             e^{\\frac{\\Delta t}{2 n_0} iL_\\mathrm{move}}
-                             e^{\\frac{\\Delta t}{n_0} iL_\\mathrm{core}}
-                             e^{\\frac{\\Delta t}{2 n_0} iL_\\mathrm{move}}
-                             e^{\\frac{\\Delta t}{2 n_0} iL_{\\mathrm{boost}, 0}} & k = 0
+        e^{\\delta t iL_k} = \\begin{cases}
+                             \\left(e^{\\frac{\\delta t}{2 N n_k} iL_\\mathrm{mantle}}
+                             e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
+                             e^{\\frac{\\delta t}{n_k} iL_{k-1}}
+                             e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
+                             e^{\\frac{\\delta t}{2 N n_k} iL_\\mathrm{mantle}}\\right)^{n_k} & k \\geq 0 \\\\
+                             e^{\\frac{\\delta t}{2} iL_\\mathrm{move}}
+                             e^{\\delta t iL_\\mathrm{core}}
+                             e^{\\frac{\\delta t}{2} iL_\\mathrm{move}} & k = -1
                              \\end{cases}
 
     Parameters
@@ -483,20 +484,25 @@ class RespaPropagator(Propagator):
             acting on it. If it is `None`, then an unconstrained, linear boosting is applied.
         core : :class:`Propagator`, optional, default=None
             An internal propagator used to control the configurational probability distribution
-            sampled by the RESPA scheme. If it is `None`, then no internal propagator is applied.
-        shell : :class:`Propagator`, optional, default=None
+            sampled by the rRESPA scheme. If it is `None`, then no internal propagator is applied.
+        mantle : :class:`Propagator`, optional, default=None
+            A middle propagator used to control the configurational probability distribution
+            sampled by the rRESPA scheme. If it is `None`, then no middle propagator is applied.
+        crust : :class:`Propagator`, optional, default=None
             An external propagator used to control the configurational probability distribution
-            sampled by the RESPA scheme. If it is `None`, then no external propagator is applied.
+            sampled by the rRESPA scheme. If it is `None`, then no external propagator is applied.
 
     """
-    def __init__(self, loops, move=None, boost=None, core=None, shell=None):
+    def __init__(self, loops, move=None, boost=None, core=None, mantle=None, crust=None):
         super(RespaPropagator, self).__init__()
         self.loops = loops
+        self.N = len(loops)
         self.move = TranslationPropagator(constrained=False) if move is None else move
         self.boost = BoostPropagator(constrained=False) if boost is None else boost
         self.core = core
-        self.shell = shell
-        for propagator in [self.move, self.boost, self.core, self.shell]:
+        self.mantle = mantle
+        self.crust = crust
+        for propagator in [self.move, self.boost, core, mantle, crust]:
             if propagator is not None:
                 self.globalVariables.update(propagator.globalVariables)
                 self.perDofVariables.update(propagator.perDofVariables)
@@ -506,30 +512,35 @@ class RespaPropagator(Propagator):
         self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        self.shell and self.shell.addSteps(integrator, fraction)
+        if self.crust is not None:
+            self.crust.addSteps(integrator, fraction)
         self._addSubsteps(integrator, len(self.loops)-1, fraction)
-        self.shell and self.shell.addSteps(integrator, fraction)
+        if self.crust is not None:
+            self.crust.addSteps(integrator, fraction)
 
     def _addSubsteps(self, integrator, group, fraction):
-        n = self.loops[group]
-        if n > 1:
-            counter = "n{}".format(group)
-            integrator.addComputeGlobal(counter, "0")
-            integrator.beginWhileBlock("{} < {}".format(counter, n))
-        self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
-        if group == 0:
-            if self.core is None:
-                self.move.addSteps(integrator, fraction/n)
-            else:
-                self.move.addSteps(integrator, 0.5*fraction/n)
-                self.core.addSteps(integrator, fraction/n)
-                self.move.addSteps(integrator, 0.5*fraction/n)
-        else:
+        if group >= 0:
+            n = self.loops[group]
+            if n > 1:
+                counter = "n{}".format(group)
+                integrator.addComputeGlobal(counter, "0")
+                integrator.beginWhileBlock("{} < {}".format(counter, n))
+            if self.mantle is not None:
+                self.mantle.addSteps(integrator, 0.5*fraction/(n*self.N))
+            self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
             self._addSubsteps(integrator, group-1, fraction/n)
-        self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
-        if n > 1:
-            integrator.addComputeGlobal(counter, "{} + 1".format(counter))
-            integrator.endBlock()
+            self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
+            if self.mantle is not None:
+                self.mantle.addSteps(integrator, 0.5*fraction/(n*self.N))
+            if n > 1:
+                integrator.addComputeGlobal(counter, "{} + 1".format(counter))
+                integrator.endBlock()
+        elif self.core is None:
+            self.move.addSteps(integrator, fraction)
+        else:
+            self.move.addSteps(integrator, 0.5*fraction)
+            self.core.addSteps(integrator, fraction)
+            self.move.addSteps(integrator, 0.5*fraction)
 
 
 class VelocityVerletPropagator(Propagator):
