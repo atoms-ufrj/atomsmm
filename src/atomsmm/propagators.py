@@ -15,6 +15,7 @@ import math
 from simtk import unit
 
 import atomsmm
+from atomsmm.utils import InputError
 
 
 class Propagator:
@@ -42,7 +43,7 @@ class Propagator:
         pass
 
     def __str__(self):
-        return self.integrator().pretty_format()
+        return self.integrator(1*unit.femtoseconds).pretty_format()
 
     def addVariables(self, integrator):
         for (name, value) in self.globalVariables.items():
@@ -55,7 +56,7 @@ class Propagator:
 
     def integrator(self, stepSize):
         """
-        This method generates an OpenMM CustomIntegrator_ object which implements the effect of the
+        This method generates an :class:`Integrator` object which implements the effect of the
         propagator.
 
         Parameters
@@ -65,7 +66,7 @@ class Propagator:
 
         Returns
         -------
-            openmm.CustomIntegrator
+            :class:`Integrator`
 
         """
         integrator = atomsmm.integrators.Integrator(stepSize)
@@ -103,7 +104,7 @@ class ChainedPropagator(Propagator):
 
     """
     def __init__(self, A, B):
-        super(ChainedPropagator, self).__init__()
+        super().__init__()
         self.A = A
         self.B = B
         for propagator in [self.A, self.B]:
@@ -141,7 +142,7 @@ class TrotterSuzukiPropagator(Propagator):
 
     """
     def __init__(self, A, B):
-        super(TrotterSuzukiPropagator, self).__init__()
+        super().__init__()
         self.A = A
         self.B = B
         for propagator in [self.A, self.B]:
@@ -174,8 +175,8 @@ class SuzukiYoshidaPropagator(Propagator):
     """
     def __init__(self, A, nsy=3):
         if nsy not in [3, 7, 15]:
-            raise atomsmm.utils.InputError("SuzukiYoshidaPropagator accepts nsy = 3, 7, or 15 only")
-        super(SuzukiYoshidaPropagator, self).__init__()
+            raise InputError("SuzukiYoshidaPropagator accepts nsy = 3, 7, or 15 only")
+        super().__init__()
         self.A = A
         self.nsy = nsy
         self.globalVariables.update(self.A.globalVariables)
@@ -195,17 +196,17 @@ class SuzukiYoshidaPropagator(Propagator):
 
 class TranslationPropagator(Propagator):
     """
-    This class implements a simple (unconstrained) translation propagator
+    This class implements a coordinate translation propagator
     :math:`e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}`.
 
     Parameters
     ----------
         constrained : bool, optional, default=True
-            If true, distance constraints are taken into account.
+            If `True`, distance constraints are taken into account.
 
     """
     def __init__(self, constrained=True):
-        super(TranslationPropagator, self).__init__()
+        super().__init__()
         self.constrained = constrained
         if constrained:
             self.perDofVariables["x0"] = 0
@@ -219,147 +220,110 @@ class TranslationPropagator(Propagator):
             integrator.addComputePerDof("v", "(x - x0)/({}*dt)".format(fraction))
 
 
-class BoostPropagator(Propagator):
+class VelocityBoostPropagator(Propagator):
     """
-    This class implements a simple (unconstrained) boost propagator
+    This class implements a velocity boost propagator
     :math:`e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}`.
 
     Parameters
     ----------
         constrained : bool, optional, default=True
-            If true, distance constraints are taken into account.
+            If `True`, distance constraints are taken into account.
 
     """
     def __init__(self, constrained=True):
-        super(BoostPropagator, self).__init__()
+        super().__init__()
         self.constrained = constrained
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
-        self.constrained and integrator.addConstrainVelocities()
+        if self.constrained:
+            integrator.addConstrainVelocities()
 
 
-class SIN_R_BasePropagator(Propagator):
+class MassiveIsokineticPropagator(Propagator):
     """
-    This is a base class for propagators which implement the SIN(R) method. The method consists
-    in solving the following equations for each degree of freedom in the system:
+    This class implements an unconstrained, massive isokinetic propagator. It provides, for every
+    degree of freedom in the system, a solution for one of :term:`ODE` systems below.
 
-    .. math::
-        & \\frac{dq}{dt} = v \\\\
-        & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda v \\\\
-        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
-        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW \\\\
-        & \\lambda = \\frac{F v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
-
-    A consequence of these equations is that
-
-    .. math::
-        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT
-
-    Parameters
-    ----------
-        temperature : unit.Quantity
-            The temperature to which the configurational sampling should correspond.
-        timeScale : unit.Quantity, optional, default=None
-            A time scale :math:`\\tau` from which to compute the inertial parameters as
-            :math:`Q_1 = Q_2 = kT\\tau^2`. This is optional because some individual propagators
-            do not depend on these inertial parameters.
-        frictionConstant : unit.Quantity, optional, default=None
-            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
-            :math:`v_2`. This is optional because only the Ornstein-Uhlenbeck propagator depends
-            on this friction constant.
-
-    """
-    def __init__(self, temperature, timeScale=None, frictionConstant=None):
-        super(SIN_R_BasePropagator, self).__init__()
-        self.globalVariables["kT"] = self.kB*temperature
-        self.perDofVariables["v1"] = 0
-        self.perDofVariables["v2"] = 0
-        self.persistent = ["kT", "v1", "v2"]
-        if timeScale is not None:
-            self.globalVariables["Q1"] = self.kB*temperature*timeScale**2
-            self.globalVariables["Q2"] = self.kB*temperature*timeScale**2
-            self.persistent += ["Q1", "Q2"]
-        if frictionConstant is not None:
-            self.globalVariables["friction"] = frictionConstant
-            self.persistent += ["friction"]
-
-
-class SIN_R_Isokinetic_F_Propagator(SIN_R_BasePropagator):
-    """
-    This class implements an unconstrained, massive isokinetic propagator, which  provides a
-    solution for the following :term:`ODE` system for every degree of freedom:
+    1. Force-dependent system:
 
     .. math::
         & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda_{F} v \\\\
         & \\frac{dv_1}{dt} = - \\lambda_F v_1 \\\\
         & \\lambda_F = \\frac{F v}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    where :math:`F` is constant and :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
+    where :math:`F` is a constant force. The exact solution for these equations is:
 
-    Parameters
-    ----------
-        temperature : unit.Quantity
-            The temperature to which the configurational sampling should correspond.
+    .. math::
+        & v = H \\hat{v} \\\\
+        & v_1 = H v_{1,0} \\\\
+        & \\text{where:} \\\\
+        & \\hat{v} = v_0 \\cosh\\left(\\frac{F t}{\\sqrt{m kT}}\\right) +
+                     \\sqrt{\\frac{kT}{m}} \\sinh\\left(\\frac{F t}{\\sqrt{m kT}}\\right) \\\\
+        & H = \\sqrt{\\frac{kT}{m \\hat{v}^2 + \\frac{1}{2} Q_1 v_{1,0}^2}} \\\\
 
-    """
-    def __init__(self, temperature):
-        super(SIN_R_Isokinetic_F_Propagator, self).__init__(temperature)
-        self.perDofVariables["scalingFactor"] = 0
-        self.perDofVariables["sigma"] = 0
-        self.perDofVariables["phiByf"] = 0
-
-    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("sigma", "sqrt(kT/m)")  # Compute this only once at the beginning
-        integrator.addComputePerDof("phiByf", "1/sqrt(m*kT)")  # Compute this only once at the beginning
-
-        expression = "v*cosh(phidt) + sigma*sinh(phidt)"
-        expression += "; phidt = {}*dt*phiByf*f{}".format(fraction, forceGroup)
-        integrator.addComputePerDof("v", expression)
-        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
-        integrator.addComputePerDof("v", "v*scalingFactor")
-        integrator.addComputePerDof("v1", "v1*scalingFactor")
-
-
-class SIN_R_Isokinetic_N_Propagator(SIN_R_BasePropagator):
-    """
-    This class implements an unconstrained, massive isokinetic propagator, which  provides a
-    solution for the following :term:`ODE` system for every degree of freedom:
+    2. Force-indepependent system:
 
     .. math::
         & \\frac{dv}{dt} = - \\lambda_{N} v \\\\
         & \\frac{dv_1}{dt} = - (\\lambda_N + v_2) v_1 \\\\
         & \\lambda_N = \\frac{-\\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    where :math:`v_2` is constant and :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
+    where :math:`v_2` is a constant thermostat 'velocity'. In this case, the exact solution is:
+
+    .. math::
+        & v = H v_0 \\\\
+        & v_1 = H \\hat{v}_1 \\\\
+        & \\text{where:} \\\\
+        & \\hat{v}_1 = v_{1,0} \\exp(-v_2 t) \\\\
+        & H = \\sqrt{\\frac{kT}{m v_0^2 + \\frac{1}{2} Q_1 \\hat{v}_1^2}} \\\\
+
+    Both :term:`ODE` systems above satisfy the massive isokinetic constraint
+    :math:`m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT`.
 
     Parameters
     ----------
         temperature : unit.Quantity
             The temperature to which the configurational sampling should correspond.
-        timeScale : unit.Quantity, optional, default=None
-            A time scale :math:`\\tau` from which to compute the inertial parameters as
-            :math:`Q_1 = Q_2 = kT\\tau^2`.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        forceDependent : bool
+            If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
 
     """
-    def __init__(self, temperature, timeScale):
-        super(SIN_R_Isokinetic_N_Propagator, self).__init__(temperature, timeScale)
-        self.perDofVariables["scalingFactor"] = 0
+    def __init__(self, temperature, timeScale, forceDependent):
+        super().__init__()
+        self.globalVariables["kT"] = kT = self.kB*temperature
+        self.globalVariables["Q1"] = Q1 = kT*timeScale**2
+        self.globalVariables["Q2"] = Q1
+        self.perDofVariables["v1"] = (2*kT/Q1).sqrt()
+        self.perDofVariables["v2"] = 0
+        self.persistent = ["kT", "v1", "v2", "Q1", "Q2"]
+        self.forceDependent = forceDependent
+        self.perDofVariables["H"] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
-        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
-        integrator.addComputePerDof("v", "v*scalingFactor")
-        integrator.addComputePerDof("v1", "v1*scalingFactor")
+        if self.forceDependent:
+            expression = "v*cosh(x) + sqrt(kT/m)*sinh(x)"
+            expression += "; x = {}*dt*f{}/sqrt(m*kT)".format(fraction, forceGroup)
+            integrator.addComputePerDof("v", expression)
+        else:
+            integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
+        integrator.addComputePerDof("H", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
+        integrator.addComputePerDof("v", "H*v")
+        integrator.addComputePerDof("v1", "H*v1")
 
 
-class SIN_R_OrnsteinUhlenbeckPropagator(SIN_R_BasePropagator):
+class MassiveOrnsteinUhlenbeckPropagator(Propagator):
     """
     This class implements an unconstrained, massive Ornstein-Uhlenbeck (OU) propagator, which
-    provides a solution for the following :term:`SDE` for every degree of freedom:
+    provides a solution for the following stochastic differential equation for every degree of
+    freedom in the system:
 
     .. math::
-        dv_2 = G dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW.
+        dv = \\frac{G}{m} dt - \\gamma v dt + \\sqrt{\\frac{2 \\gamma kT}{m}} dW.
 
     There are two options. In the first one, a standard OU process with random and dissipation
     forces only is considered by making :math:`G = 0`. In the second option, a forced OU propagator
@@ -379,44 +343,53 @@ class SIN_R_OrnsteinUhlenbeckPropagator(SIN_R_BasePropagator):
             If True, the propagator carries out an exact solution for the forced OU propagator.
 
     """
-    def __init__(self, temperature, timeScale, frictionConstant, forced=False):
-        super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeScale, frictionConstant)
-        self.forced = forced
+    def __init__(self, temperature, frictionConstant, velocity="v", mass="m", force=None):
+        super().__init__()
+        self.globalVariables["kT"] = self.kB*temperature
+        self.globalVariables["friction"] = frictionConstant
+        self.persistent = ["kT", "friction"]
+        self.velocity = velocity
+        self.mass = mass
+        self.force = force
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        expression = "x*v2 + sqrt(kT*(1 - x^2)/Q2)*gaussian"
-        if self.forced:
-            expression += " + G*(1 - x)/friction"
-            expression += "; G = (Q1*v1*v1 - kT)/Q2"
+        expression = "x*{} + sqrt(kT*(1 - x^2)/{})*gaussian".format(self.velocity, self.mass)
+        if self.force is not None:
+            expression += " + G*(1 - x)/({}*friction)".format(self.mass)
+            expression += "; G = {}".format(self.force)
         expression += "; x = exp(-{}*dt*friction)".format(fraction)
-        integrator.addComputePerDof("v2", expression)
+        integrator.addComputePerDof(self.velocity, expression)
 
 
-class SIN_R_ThermostatBoostPropagator(SIN_R_BasePropagator):
+class GenericBoostPropagator(Propagator):
     """
-    This class implements a single, linear boost in the SIN(R) :math:`v_2` thermostat variable, thus
-    providing a solution for the following :term:`ODE` for every degree of freedom:
+    This class implements a linear boost by providing a solution for the following :term:`ODE` for
+    every degree of freedom in the system:
 
     .. math::
-        \\frac{dv_2}{dt} = \\frac{Q_1 v_1^2 - kT}{Q_2}.
-
-    This propagator is supposed to be part of a splitting solution in conjunction with the standard
-    (i.e. unforced) Ornstein-Uhlenbeck propagator.
+        \\frac{dV}{dt} = \\frac{F}{M}.
 
     Parameters
     ----------
-        temperature : unit.Quantity
-            The temperature to which the configurational sampling should correspond.
-        timeScale : unit.Quantity, optional, default=None
-            A time scale :math:`\\tau` from which to compute the inertial parameters as
-            :math:`Q_1 = Q_2 = kT\\tau^2`.
+        velocity : str, optional, default="v"
+            The name of a per-dof variable considered as the velocity of each degree of freedom.
+        mass : str, optional, default="m"
+            The name of a per-dof or global variable considered as the mass of each degree of freedom.
+        force : str, optional, default="f"
+            The name of a per-dof variable considered as the force acting on each degree of freedom.
 
     """
-    def __init__(self, temperature, timeScale):
-        super(SIN_R_ThermostatBoostPropagator, self).__init__(temperature, timeScale)
+    def __init__(self, velocity="v", mass="m", force="f"):
+        super().__init__()
+        self.velocity = velocity
+        self.mass = mass
+        self.force = force
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("v2", "v2 + {}*dt*(Q1*v1*v1 - kT)/Q2".format(fraction))
+        expression = "{} + {}*dt*F/M".format(self.velocity, fraction)
+        expression += "; F = {}".format(self.force)
+        expression += "; M = {}".format(self.mass)
+        integrator.addComputePerDof(self.velocity, expression)
 
 
 class RespaPropagator(Propagator):
@@ -481,11 +454,11 @@ class RespaPropagator(Propagator):
 
     """
     def __init__(self, loops, move=None, boost=None, core=None, mantle=None, crust=None):
-        super(RespaPropagator, self).__init__()
+        super().__init__()
         self.loops = loops
         self.N = len(loops)
         self.move = TranslationPropagator(constrained=False) if move is None else move
-        self.boost = BoostPropagator(constrained=False) if boost is None else boost
+        self.boost = VelocityBoostPropagator(constrained=False) if boost is None else boost
         self.core = core
         self.mantle = mantle
         self.crust = crust
@@ -545,7 +518,7 @@ class VelocityVerletPropagator(Propagator):
 
     """
     def __init__(self):
-        super(VelocityVerletPropagator, self).__init__()
+        super().__init__()
         self.declareVariables()
 
     def declareVariables(self):
@@ -593,7 +566,7 @@ class VelocityRescalingPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale):
-        super(VelocityRescalingPropagator, self).__init__()
+        super().__init__()
         self.tau = timeScale.value_in_unit(unit.picoseconds)
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
@@ -661,7 +634,7 @@ class NoseHooverPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale, nloops=1):
-        super(NoseHooverPropagator, self).__init__()
+        super().__init__()
         self.nloops = nloops
         self.globalVariables["LkT"] = degreesOfFreedom*self.kB*temperature
         self.globalVariables["Q"] = degreesOfFreedom*self.kB*temperature*timeScale**2
@@ -735,7 +708,7 @@ class NoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale, frictionConstant=None):
-        super(NoseHooverLangevinPropagator, self).__init__()
+        super().__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeScale = timeScale

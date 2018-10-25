@@ -28,8 +28,8 @@ def execute(degree, target):
 
 
 def test_linear():
-    execute(1, 1766.0240800207146)
+    execute(1, -25074.251664020387)
 
 
 def test_quadratic():
-    execute(2, 1765.940220790936)
+    execute(2, -25074.342992954276)

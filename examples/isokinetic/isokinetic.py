@@ -67,7 +67,7 @@ thermostat = ppg.VelocityRescalingPropagator(temp, dof, tau)
 # thermostat = ppg.NoseHooverPropagator(temp, dof, tau, nloops=1)
 # thermostat = ppg.SuzukiYoshidaPropagator(thermostat)
 # NVE = ppg.TrotterSuzukiPropagator(ppg.TranslationPropagator(constrained=False),
-                            #    ppg.BoostPropagator(constrained=False))
+                            #    ppg.VelocityBoostPropagator(constrained=False))
 # integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
 integrator = ppg.RespaPropagator(loops, crust=thermostat).integrator(dt)
 

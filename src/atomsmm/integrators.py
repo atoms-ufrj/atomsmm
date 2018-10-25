@@ -143,56 +143,54 @@ class GlobalThermostatIntegrator(Integrator):
 
 class SIN_R_Integrator(Integrator):
     """
-    This class extends OpenMM's CustomIntegrator_ class in order to facilitate the construction
-    of NVT integrators which include a global thermostat, that is, one that acts equally and
-    simultaneously on all degrees of freedom of the system. In this case, a complete NVT step is
-    split as:
+    This is a base class for propagators which implement the SIN(R) method. The method consists
+    in solving the following equations for each degree of freedom in the system:
 
     .. math::
-        e^{\\delta t \\, iL_\\mathrm{NVT}} = e^{\\frac{1}{2} \\delta t \\, iL_\\mathrm{T}}
-                                             e^{\\delta t \\, iL_\\mathrm{NVE}}
-                                             e^{\\frac{1}{2} \\delta t \\, iL_\\mathrm{T}}
+        & \\frac{dq}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda v \\\\
+        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
+        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW \\\\
+        & \\lambda = \\frac{F v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
 
-    The propagator :math:`e^{\\delta t \\, iL_\\mathrm{NVE}}` is a Hamiltonian
+    A consequence of these equations is that
 
-
-    corresponds to a Hamiltonian  :math:`iL_\\mathrm{T}`
-
-    .. _CustomIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomIntegrator.html
+    .. math::
+        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT
 
     Parameters
     ----------
-        stepSize : unit.Quantity
-            The step size with which to integrate the system (in time unit).
-        nveIntegrator : :class:`HamiltonianPropagator`
-            The Hamiltonian propagator.
-        thermostat : :class:`ThermostatPropagator`, optional, default=DummyPropagator()
-            The thermostat propagator.
-        randomSeed : int, optional, default=None
-            A seed for random numbers.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity, optional, default=None
+            A time scale :math:`\\tau` from which to compute the inertial parameters as
+            :math:`Q_1 = Q_2 = kT\\tau^2`. This is optional because some individual propagators
+            do not depend on these inertial parameters.
+        frictionConstant : unit.Quantity, optional, default=None
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            :math:`v_2`. This is optional because only the Ornstein-Uhlenbeck propagator depends
+            on this friction constant.
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant=None):
         super(SIN_R_Integrator, self).__init__(stepSize)
         gamma = 1/timeScale if frictionConstant is None else frictionConstant
-        isoF = propagators.SIN_R_Isokinetic_F_Propagator(temperature)
-        isoN = propagators.SIN_R_Isokinetic_N_Propagator(temperature, timeScale)
-        OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeScale, gamma, forced=True)
-        v2boost = propagators.SIN_R_ThermostatBoostPropagator(temperature, timeScale)
-        propagator = propagators.RespaPropagator(loops,
-                                                core=propagators.TrotterSuzukiPropagator(OU, isoN),
-                                                # crust=propagators.SuzukiYoshidaPropagator(propagators.TrotterSuzukiPropagator(isoN, v2boost)),
-                                                #  crust=propagators.TrotterSuzukiPropagator(isoN, v2boost),
-                                                 boost=isoF)
-
-
+        isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
+        isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
+        # OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeScale, gamma, forced=True)
+        # OUF = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, gamma, velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
+        OU = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, gamma, velocity="v2", mass="Q2", force=None)
+        v2boost = propagators.GenericBoostPropagator(velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
+        # propagator = propagators.RespaPropagator(loops,
+        #                                         core=propagators.TrotterSuzukiPropagator(OU, isoN),
+        #                                         #  crust=propagators.TrotterSuzukiPropagator(isoN, v2boost),
+        #                                          boost=isoF)
         translation = propagators.TranslationPropagator(constrained=False)
         propagator = OU
         propagator = propagators.TrotterSuzukiPropagator(propagator, translation)
         propagator = propagators.TrotterSuzukiPropagator(propagator, isoF)
         propagator = propagators.TrotterSuzukiPropagator(propagator, isoN)
-
-
+        propagator = propagators.TrotterSuzukiPropagator(propagator, v2boost)
         propagator.addVariables(self)
         propagator.addSteps(self)
 
