@@ -24,14 +24,13 @@ from atomsmm.utils import LorentzBerthelot
 
 class Force:
     """
-    The basis class of every AtomsMM Force object, which is a list of OpenMM Force_ objects treated
-    as a single force.
+    This is the base class of every AtomsMM Force object, which is a list of OpenMM Force_ objects
+    treated as a single force.
 
     Parameters
     ----------
-        forces : list(openmm.Force), optional, default=[]
+        forces : list(openmm.Force)
             A list of OpenMM Force objects.
-
     """
     def __init__(self, forces):
         self.forces = forces
@@ -157,8 +156,7 @@ class _NonbondedForce(openmm.NonbondedForce):
             The method used for handling long range nonbonded interactions.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None,
-                 nonbondedMethod=openmm.NonbondedForce.PME):
+    def __init__(self, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
         super(_NonbondedForce, self).__init__()
         self.setNonbondedMethod(nonbondedMethod)
         self.setCutoffDistance(cutoff_distance)
@@ -171,7 +169,7 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object and
+        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object and
         turn all non-exclusion exceptions into exclusion ones.
 
         Parameters
@@ -425,10 +423,9 @@ class FarNonbondedForce(Force):
             CutoffNonPeriodic, CutoffPeriodic, Ewald, PME, or LJPME.
 
     """
-    def __init__(self, preceding, cutoff_distance, switch_distance=None,
-                 nonbondedMethod=openmm.NonbondedForce.PME):
+    def __init__(self, preceding, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
         if not isinstance(preceding, NearNonbondedForce):
-            raise InputError("argument 'preceding' must be an internal RESPA force")
+            raise InputError("argument 'preceding' must be of class NearNonbondedForce")
         rsi = "rs" + str(preceding.index)
         rci = "rc" + str(preceding.index)
         globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,

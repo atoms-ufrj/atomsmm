@@ -74,9 +74,7 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         if variable == "v":
             self.obsoleteKinetic = True
 
-    def initializeVelocities(self, context, temperature, seed=None):
-        if seed is not None:
-            random.seed(seed)
+    def initializeVelocities(self, context, temperature):
         energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
         kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
         system = context.getSystem()
@@ -97,6 +95,10 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         for i in range(len(velocities)):
             velocities[i] *= factor
         context.setVelocities(velocities)
+
+    def setRandomNumberSeed(self, seed):
+        super(Integrator, self).setRandomNumberSeed(seed)
+        random.seed(seed)
 
 
 class GlobalThermostatIntegrator(Integrator):
@@ -130,10 +132,8 @@ class GlobalThermostatIntegrator(Integrator):
             A seed for random numbers.
 
     """
-    def __init__(self, stepSize, nveIntegrator, thermostat=DummyPropagator(), randomSeed=None):
+    def __init__(self, stepSize, nveIntegrator, thermostat=DummyPropagator()):
         super(GlobalThermostatIntegrator, self).__init__(stepSize)
-        if randomSeed is not None:
-            self.setRandomNumberSeed(randomSeed)
         for propagator in [nveIntegrator, thermostat]:
             propagator.addVariables(self)
         thermostat.addSteps(self, 1/2)
@@ -172,23 +172,32 @@ class SIN_R_Integrator(Integrator):
             A seed for random numbers.
 
     """
-    def __init__(self, stepSize, temperature, timeConstant, seed=None):
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant=None):
         super(SIN_R_Integrator, self).__init__(stepSize)
-        self.seed = seed
-        if seed is not None:
-            self.setRandomNumberSeed(seed)
-        translation = propagators.TranslationPropagator()
+        gamma = 1/timeScale if frictionConstant is None else frictionConstant
         isoF = propagators.SIN_R_Isokinetic_F_Propagator(temperature)
-        isoN = propagators.SIN_R_Isokinetic_N_Propagator(temperature, timeConstant)
-        OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeConstant, 1/timeConstant, forced=True)
-        propagator = propagators.TrotterSuzukiPropagator(OU, isoN)
+        isoN = propagators.SIN_R_Isokinetic_N_Propagator(temperature, timeScale)
+        OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeScale, gamma, forced=True)
+        v2boost = propagators.SIN_R_ThermostatBoostPropagator(temperature, timeScale)
+        propagator = propagators.RespaPropagator(loops,
+                                                core=propagators.TrotterSuzukiPropagator(OU, isoN),
+                                                # crust=propagators.SuzukiYoshidaPropagator(propagators.TrotterSuzukiPropagator(isoN, v2boost)),
+                                                #  crust=propagators.TrotterSuzukiPropagator(isoN, v2boost),
+                                                 boost=isoF)
+
+
+        translation = propagators.TranslationPropagator(constrained=False)
+        propagator = OU
         propagator = propagators.TrotterSuzukiPropagator(propagator, translation)
         propagator = propagators.TrotterSuzukiPropagator(propagator, isoF)
+        propagator = propagators.TrotterSuzukiPropagator(propagator, isoN)
+
+
         propagator.addVariables(self)
         propagator.addSteps(self)
 
-    def initializeVelocities(self, context, temperature, seed=None):
-        super().initializeVelocities(context, temperature/4, seed)
+    def initializeVelocities(self, context, temperature):
+        super().initializeVelocities(context, temperature/4)
         energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
         kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
         state = context.getState(getVelocities=True)

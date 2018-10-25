@@ -305,35 +305,20 @@ class SIN_R_Isokinetic_F_Propagator(SIN_R_BasePropagator):
     """
     def __init__(self, temperature):
         super(SIN_R_Isokinetic_F_Propagator, self).__init__(temperature)
-        self.perDofVariables["lambda0dt"] = 0
-        self.perDofVariables["bdt"] = 0
-        self.perDofVariables["coshxm1_x2"] = 0
-        self.perDofVariables["sinhx_x"] = 0
+        self.perDofVariables["scalingFactor"] = 0
+        self.perDofVariables["sigma"] = 0
+        self.perDofVariables["phiByf"] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("lambda0dt", "{}*dt*f*v/kT".format(fraction))
-        integrator.addComputePerDof("bdt", "{}*dt*sqrt(f*f/(m*kT))".format(fraction))
+        integrator.addComputePerDof("sigma", "sqrt(kT/m)")  # Compute this only once at the beginning
+        integrator.addComputePerDof("phiByf", "1/sqrt(m*kT)")  # Compute this only once at the beginning
 
-        expression = "select(step(bdt - 1E-4), direct, safe)"
-        expression += "; direct = sinh(bdt)/bdt"
-        expression += "; safe = ((x/42 + 1)*x/20 + 1)*x/6 + 1"
-        expression += "; x = bdt^2"
-        integrator.addComputePerDof("sinhx_x", expression)
-
-        expression = "select(step(bdt - 1E-3), direct, safe)"
-        expression += "; direct = (cosh(bdt)-1)/x"
-        expression += "; safe = ((x/56 + 1)*x/30 + 1)*x/24 + 0.5"
-        expression += "; x = bdt^2"
-        integrator.addComputePerDof("coshxm1_x2", expression)
-
-        expression = "(v + s*f/m)/sdif"
-        expression += "; s = {}*dt*(lambda0dt*coshxm1_x2 + sinhx_x)".format(fraction)
-        expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
+        expression = "v*cosh(phidt) + sigma*sinh(phidt)"
+        expression += "; phidt = {}*dt*phiByf*f{}".format(fraction, forceGroup)
         integrator.addComputePerDof("v", expression)
-
-        expression = "v1/sdif"
-        expression += "; sdif = lambda0dt*sinhx_x + bdt*bdt*coshxm1_x2 + 1"
-        integrator.addComputePerDof("v1", expression)
+        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
+        integrator.addComputePerDof("v", "v*scalingFactor")
+        integrator.addComputePerDof("v1", "v1*scalingFactor")
 
 
 class SIN_R_Isokinetic_N_Propagator(SIN_R_BasePropagator):
@@ -363,7 +348,7 @@ class SIN_R_Isokinetic_N_Propagator(SIN_R_BasePropagator):
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
-        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v*v + 0.5*Q1*v1*v1))")
+        integrator.addComputePerDof("scalingFactor", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
         integrator.addComputePerDof("v", "v*scalingFactor")
         integrator.addComputePerDof("v1", "v1*scalingFactor")
 
@@ -399,9 +384,11 @@ class SIN_R_OrnsteinUhlenbeckPropagator(SIN_R_BasePropagator):
         self.forced = forced
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        expression = "x*v2 + G*(1 - x)/friction + sqrt(kT/Q2*(1 - x^2))*gaussian"
-        expression += "; G = (Q1*v1*v1 - kT)/Q2" if self.forced else "; G = 0"
-        expression += "; x = exp(-{}*friction*dt)".format(fraction)
+        expression = "x*v2 + sqrt(kT*(1 - x^2)/Q2)*gaussian"
+        if self.forced:
+            expression += " + G*(1 - x)/friction"
+            expression += "; G = (Q1*v1*v1 - kT)/Q2"
+        expression += "; x = exp(-{}*dt*friction)".format(fraction)
         integrator.addComputePerDof("v2", expression)
 
 
@@ -426,7 +413,7 @@ class SIN_R_ThermostatBoostPropagator(SIN_R_BasePropagator):
 
     """
     def __init__(self, temperature, timeScale):
-        super(SIN_R_OrnsteinUhlenbeckPropagator, self).__init__(temperature, timeScale)
+        super(SIN_R_ThermostatBoostPropagator, self).__init__(temperature, timeScale)
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         integrator.addComputePerDof("v2", "v2 + {}*dt*(Q1*v1*v1 - kT)/Q2".format(fraction))
@@ -508,21 +495,21 @@ class RespaPropagator(Propagator):
                 self.perDofVariables.update(propagator.perDofVariables)
         for (i, n) in enumerate(self.loops):
             if n > 1:
-                self.globalVariables["n{}".format(i)] = 0
+                self.globalVariables["n{}RESPA".format(i)] = 0
         self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.crust is not None:
-            self.crust.addSteps(integrator, fraction)
+            self.crust.addSteps(integrator, 0.5*fraction)
         self._addSubsteps(integrator, len(self.loops)-1, fraction)
         if self.crust is not None:
-            self.crust.addSteps(integrator, fraction)
+            self.crust.addSteps(integrator, 0.5*fraction)
 
     def _addSubsteps(self, integrator, group, fraction):
         if group >= 0:
             n = self.loops[group]
             if n > 1:
-                counter = "n{}".format(group)
+                counter = "n{}RESPA".format(group)
                 integrator.addComputeGlobal(counter, "0")
                 integrator.beginWhileBlock("{} < {}".format(counter, n))
             if self.mantle is not None:
@@ -680,15 +667,22 @@ class NoseHooverPropagator(Propagator):
         self.globalVariables["Q"] = degreesOfFreedom*self.kB*temperature*timeScale**2
         self.globalVariables["vscaling"] = 0
         self.globalVariables["p_eta"] = 0
+        self.globalVariables["n_NH"] = 0
         self.persistent = ["p_eta"]
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        subfrac = fraction/self.nloops
+        n = self.nloops
+        subfrac = fraction/n
         integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(mvv - LkT)".format(0.5*subfrac))
         integrator.addComputeGlobal("vscaling", "exp(-{}*dt*p_eta/Q)".format(subfrac))
-        for loop in range(self.nloops-1):
+        if n > 2:
+            counter = "n_NH"
+            integrator.addComputeGlobal(counter, "1")
+            integrator.beginWhileBlock("{} < {}".format(counter, n))
             integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(subfrac))
             integrator.addComputeGlobal("vscaling", "vscaling*exp(-{}*dt*p_eta/Q)".format(subfrac))
+            integrator.addComputeGlobal(counter, "{} + 1".format(counter))
+            integrator.endBlock()
         integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(0.5*subfrac))
         integrator.addComputePerDof("v", "vscaling*v")
 

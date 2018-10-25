@@ -77,7 +77,8 @@ def test_BussiThermostat():
     dof = atomsmm.countDegreesOfFreedom(system)
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.VelocityRescalingPropagator(300*unit.kelvin, dof, 0.1*unit.picoseconds)
-    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat, 1)
+    integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE, thermostat)
+    integrator.setRandomNumberSeed(1)
     execute(integrator, -13064.351037463852)
 
 
