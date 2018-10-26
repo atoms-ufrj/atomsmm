@@ -24,7 +24,7 @@ from atomsmm.utils import InputError
 
 class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
     def __init__(self, stepSize):
-        super(Integrator, self).__init__(stepSize)
+        super().__init__(stepSize)
         self.addGlobalVariable("mvv", 0.0)
         self.obsoleteKinetic = True
         self.forceFinder = re.compile("f[0-9]*")
@@ -36,7 +36,7 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
     def _required_variables(self, variable, expression):
         """
         Returns a list of strings containting the names of all global and per-dof variables
-        required in an OpenMM CustomIntegrator operation.
+        required by an OpenMM CustomIntegrator operation.
 
         """
         definitions = ("{}={}".format(variable, expression)).split(";")
@@ -49,6 +49,11 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         return list(str(element) for element in (symbols - names))
 
     def _checkUpdate(self, variable, expression):
+        """
+        Check whether it is necessary to update the mvv global variable (twice the kinetic energy)
+        or to let the forces update the context state.
+
+        """
         requirements = self._required_variables(variable, expression)
         if self.obsoleteKinetic and "mvv" in requirements:
             super(Integrator, self).addComputeSum("mvv", "m*v*v")
@@ -160,6 +165,10 @@ class SIN_R_Integrator(Integrator):
 
     Parameters
     ----------
+        stepSize : unit.Quantity
+            The time step................
+        loops : list(int)
+            The loops....................
         temperature : unit.Quantity
             The temperature to which the configurational sampling should correspond.
         timeScale : unit.Quantity, optional, default=None
@@ -172,54 +181,32 @@ class SIN_R_Integrator(Integrator):
             on this friction constant.
 
     """
-    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant=None):
-        super(SIN_R_Integrator, self).__init__(stepSize)
-        gamma = 1/timeScale if frictionConstant is None else frictionConstant
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant):
+        super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        # OU = propagators.SIN_R_OrnsteinUhlenbeckPropagator(temperature, timeScale, gamma, forced=True)
-        # OUF = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, gamma, velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
-        OU = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, gamma, velocity="v2", mass="Q2", force=None)
-        v2boost = propagators.GenericBoostPropagator(velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
-        # propagator = propagators.RespaPropagator(loops,
-        #                                         core=propagators.TrotterSuzukiPropagator(OU, isoN),
-        #                                         #  crust=propagators.TrotterSuzukiPropagator(isoN, v2boost),
-        #                                          boost=isoF)
-        translation = propagators.TranslationPropagator(constrained=False)
-        propagator = OU
-        propagator = propagators.TrotterSuzukiPropagator(propagator, translation)
-        propagator = propagators.TrotterSuzukiPropagator(propagator, isoF)
-        propagator = propagators.TrotterSuzukiPropagator(propagator, isoN)
-        propagator = propagators.TrotterSuzukiPropagator(propagator, v2boost)
+        OU = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                            velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
+        propagator = propagators.RespaPropagator(loops,
+                                                 core=propagators.TrotterSuzukiPropagator(OU, isoN),
+                                                 boost=isoF)
         propagator.addVariables(self)
         propagator.addSteps(self)
+        self.initialized = False
 
-    def initializeVelocities(self, context, temperature):
-        super().initializeVelocities(context, temperature/4)
-        energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
-        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
-        state = context.getState(getVelocities=True)
-        v = state.getVelocities()*unit.picosecond/unit.nanometer
-        Q1 = self.getGlobalVariableByName("Q1")
-        Q2 = self.getGlobalVariableByName("Q2")
-        v1 = self.getPerDofVariableByName("v1")
-        v2 = self.getPerDofVariableByName("v2")
-        sigma1 = math.sqrt(kT/Q1)
-        sigma2 = math.sqrt(kT/Q2)
-        for (i, m) in enumerate(self.masses):
-            v1[i] = sigma1*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
-            v2[i] = sigma2*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
-            factor = [math.sqrt(kT/(m*x**2 + 0.5*Q1*y**2)) for (x, y) in zip(v[i], v1[i])]
-            v[i] = openmm.Vec3(*[f*x for (f, x) in zip(factor, v[i])])
-            v1[i] = openmm.Vec3(*[f*x for (f, x) in zip(factor, v1[i])])
-        context.setVelocities(v)
-        self.setPerDofVariableByName("v1", v1)
-        self.setPerDofVariableByName("v2", v2)
-
-    def check(self, context):
-        Q1 = self.getGlobalVariableByName("Q1")
-        v1s = self.getPerDofVariableByName("v1")
-        state = context.getState(getVelocities=True)
-        vs = state.getVelocities()*unit.picosecond/unit.nanometer
-        for (m, v, v1) in zip(self.masses, vs, v1s):
-            print([m*x**2 + 0.5*Q1*y**2 for (x, y) in zip(v, v1)])
+    def step(self, steps):
+        if not self.initialized:
+            kT = self.getGlobalVariableByName("kT")
+            Q1 = self.getGlobalVariableByName("Q1")
+            Q2 = self.getGlobalVariableByName("Q2")
+            v1 = self.getPerDofVariableByName("v1")
+            v2 = self.getPerDofVariableByName("v2")
+            S1 = math.sqrt(2*kT/Q1)
+            S2 = math.sqrt(kT/Q2)
+            for i in range(len(v1)):
+                v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
+                v2[i] = openmm.Vec3(random.gauss(0, S2), random.gauss(0, S2), random.gauss(0, S2))
+            self.setPerDofVariableByName("v1", v1)
+            self.setPerDofVariableByName("v2", v2)
+            self.initialized = True
+        return super().step(steps)

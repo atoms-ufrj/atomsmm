@@ -39,9 +39,6 @@ class Propagator:
 
     kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
 
-    def declareVariables(self):
-        pass
-
     def __str__(self):
         return self.integrator(1*unit.femtoseconds).pretty_format()
 
@@ -246,7 +243,7 @@ class MassiveIsokineticPropagator(Propagator):
     This class implements an unconstrained, massive isokinetic propagator. It provides, for every
     degree of freedom in the system, a solution for one of :term:`ODE` systems below.
 
-    1. Force-dependent system:
+    1. Force-dependent equations:
 
     .. math::
         & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda_{F} v \\\\
@@ -263,7 +260,7 @@ class MassiveIsokineticPropagator(Propagator):
                      \\sqrt{\\frac{kT}{m}} \\sinh\\left(\\frac{F t}{\\sqrt{m kT}}\\right) \\\\
         & H = \\sqrt{\\frac{kT}{m \\hat{v}^2 + \\frac{1}{2} Q_1 v_{1,0}^2}} \\\\
 
-    2. Force-indepependent system:
+    2. Force-indepependent equations:
 
     .. math::
         & \\frac{dv}{dt} = - \\lambda_{N} v \\\\
@@ -298,7 +295,7 @@ class MassiveIsokineticPropagator(Propagator):
         self.globalVariables["kT"] = kT = self.kB*temperature
         self.globalVariables["Q1"] = Q1 = kT*timeScale**2
         self.globalVariables["Q2"] = Q1
-        self.perDofVariables["v1"] = (2*kT/Q1).sqrt()
+        self.perDofVariables["v1"] = 0
         self.perDofVariables["v2"] = 0
         self.persistent = ["kT", "v1", "v2", "Q1", "Q2"]
         self.forceDependent = forceDependent

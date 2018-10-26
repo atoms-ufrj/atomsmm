@@ -10,20 +10,20 @@ from atomsmm import propagators as ppg
 from openmmtools import integrators
 
 # platform = 'Reference'
-platform = 'CUDA'
-properties = dict(CUDA=dict(Precision = 'mixed'), Reference=dict())
-nsteps = 100
-ndisp = 1
+platform = 'OpenCL'
+properties = dict(CUDA=dict(Precision = 'mixed'), Reference=dict(), OpenCL=dict())
+nsteps = 10000
+ndisp = 10
 seed = 5623
 temp = 300*unit.kelvin
-dt = 0.5*unit.femtoseconds
-loops = [1, 1, 1]
+dt = 30*unit.femtoseconds
+loops = [6, 10, 1]
 rswitchIn = 4.0*unit.angstroms
-rcutIn = 6.0*unit.angstroms
-rswitch = 8.0*unit.angstroms
+rcutIn = 8.0*unit.angstroms
+rswitch = 9.0*unit.angstroms
 rcut = 10*unit.angstroms
 tau = 10*unit.femtoseconds
-friction = 1/tau
+gamma = 1/tau
 shift = True
 
 case = 'q-SPC-FW'
@@ -71,7 +71,7 @@ thermostat = ppg.VelocityRescalingPropagator(temp, dof, tau)
 # integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
 integrator = ppg.RespaPropagator(loops, crust=thermostat).integrator(dt)
 
-integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau)
+integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma)
 integrator.setRandomNumberSeed(seed)
 
 print(integrator)
@@ -80,8 +80,7 @@ print(integrator)
 simulation = app.Simulation(pdb.topology, system, integrator,
                             openmm.Platform.getPlatformByName(platform), properties[platform])
 simulation.context.setPositions(pdb.positions)
-integrator.initializeVelocities(simulation.context, 300*unit.kelvin)
-# simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
+simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
 
 # integrator.check(simulation.context)
 # state = simulation.context.getState(getVelocities=True)
@@ -109,7 +108,7 @@ for (out, sep) in zip(outputs, separators):
 print('Running Production...')
 simulation.step(nsteps)
 
-integrator.check(simulation.context)
+# integrator.check(simulation.context)
 # masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
 # state = simulation.context.getState(getVelocities=True)
 # v1s = simulation.integrator.getPerDofVariableByName('v1')
