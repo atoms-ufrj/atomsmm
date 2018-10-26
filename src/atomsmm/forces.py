@@ -31,6 +31,7 @@ class Force:
     ----------
         forces : list(openmm.Force)
             A list of OpenMM Force objects.
+
     """
     def __init__(self, forces):
         self.forces = forces
@@ -54,13 +55,12 @@ class Force:
         Parameters
         ----------
             group : int
-                The group index. Legal values are between 0 and 31 (inclusive).
+                The group index. Acceptable values lie between 0 and 31 (inclusive).
 
         Returns
         -------
             :class:`Force`
-                Although the operation is done inline, the modified Force is returned for chaining
-                purposes.
+                The modified Force is returned for chaining purposes.
 
         """
         for force in self.forces:
@@ -69,35 +69,19 @@ class Force:
 
     def getForceGroup(self):
         """
-        Get the force group to which this :class:`Force` object belongs.
+        Retrieve the force group to which this :class:`Force` object belongs.
 
         Returns
         -------
             int
-                The group index, whose value is between 0 and 31 (inclusive).
+                The group index. Acceptable values lie between 0 and 31 (inclusive).
 
         """
         return self.forces[0].getForceGroup()
 
-    def includeExceptions(self):
-        """
-        Incorporate non-exclusion exceptions when importing parameters via method
-        :func:`~Force.importFrom`.
-
-        Returns
-        -------
-            :class:`Force`
-                The object is returned for chaining purposes.
-
-        """
-        exceptions = _CustomBondForce()
-        exceptions.setForceGroup(self.getForceGroup())
-        self.forces.append(exceptions)
-        return self
-
     def addTo(self, system):
         """
-        Add the :class:`Force` object to an OpenMM System_ object.
+        Add the :class:`Force` object to an OpenMM System_.
 
         Parameters
         ----------
@@ -116,9 +100,8 @@ class Force:
 
     def importFrom(self, force):
         """
-        Import parameters from a provided OpenMM NonbondedForce_ object.
-
-        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+        Import pair interaction parameters (i.e. Lennard-Jones parameters and charge products) from
+        a provided OpenMM NonbondedForce_ object.
 
         Parameters
         ----------
@@ -133,6 +116,27 @@ class Force:
         """
         for f in self.forces:
             f.importFrom(force)
+        return self
+
+    def enableExceptions(self):
+        """
+        Enables the :class:`Force` object to incorporate non-exclusion exceptions from an external
+        Force_ when their parameters are imported via :func:`~Force.importFrom`. By default, only
+        exclusion exceptions are incorporated.
+
+        In an OpenMM Force_ object, exceptions consist of atom pairs whose interaction parameters
+        are determined individually rather than by general like-atom interactions and unlike-atom
+        mixing rules. Among them, exclusion exceptions are atom pairs which do not interact at all.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        exceptions = _CustomBondForce()
+        exceptions.setForceGroup(self.getForceGroup())
+        self.forces.append(exceptions)
         return self
 
 
@@ -157,7 +161,7 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     """
     def __init__(self, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
-        super(_NonbondedForce, self).__init__()
+        super().__init__()
         self.setNonbondedMethod(nonbondedMethod)
         self.setCutoffDistance(cutoff_distance)
         self.setUseDispersionCorrection(True)
@@ -169,8 +173,8 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object and
-        turn all non-exclusion exceptions into exclusion ones.
+        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object while
+        transforming all non-exclusion exceptions into exclusion ones.
 
         Parameters
         ----------
@@ -179,7 +183,7 @@ class _NonbondedForce(openmm.NonbondedForce):
 
         Returns
         -------
-            :class:`Force`
+            :class:`_NonbondedForce`
                 The object is returned for chaining purposes.
 
         """
@@ -213,7 +217,7 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     def __init__(self, energy, cutoff_distance, switch_distance=None,
                  parameters=["charge", "sigma", "epsilon"], **kwargs):
-        super(_CustomNonbondedForce, self).__init__(energy)
+        super().__init__(energy)
         for name in parameters:
             self.addPerParticleParameter(name)
         for (name, value) in kwargs.items():
@@ -229,12 +233,8 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exceptions from the a passed OpenMM NonbondedForce_ object.
-
-        .. warning::
-            All exceptions are turned into exclusions.
-
-        .. _NonbondedForce: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.NonbondedForce.html
+        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object while
+        transforming all non-exclusion exceptions into exclusion ones.
 
         Parameters
         ----------
@@ -243,7 +243,7 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
 
         Returns
         -------
-            :class:`Force`
+            :class:`_CustomNonbondedForce`
                 The object is returned for chaining purposes.
 
         """
@@ -262,7 +262,7 @@ class _CustomBondForce(openmm.CustomBondForce):
     """
     def __init__(self):
         energy = "%s+%s;" % (LennardJones("r"), Coulomb("r"))
-        super(_CustomBondForce, self).__init__(energy)
+        super().__init__(energy)
         self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
         self.addPerBondParameter("chargeprod")
         self.addPerBondParameter("sigma")
@@ -336,7 +336,7 @@ class DampedSmoothedForce(Force):
                                       switch_distance if degree == 1 else None,
                                       Kc=138.935456*unit.kilojoules/unit.nanometer,
                                       alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
-        super(DampedSmoothedForce, self).__init__([force])
+        super().__init__([force])
 
 
 class NonbondedExceptionsForce(Force):
@@ -345,7 +345,7 @@ class NonbondedExceptionsForce(Force):
 
     """
     def __init__(self):
-        super(NonbondedExceptionsForce, self).__init__([_CustomBondForce()])
+        super().__init__([_CustomBondForce()])
 
 
 class NearNonbondedForce(Force):
@@ -391,7 +391,7 @@ class NearNonbondedForce(Force):
             potential += "-(%s+%s)" % (LennardJones("rc0"), Coulomb("rc0"))
         energy = "%s; %s" % (potential, LorentzBerthelot())
         force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
-        super(NearNonbondedForce, self).__init__([force])
+        super().__init__([force])
         self.index = 0
         self.rswitch = switch_distance
         self.rcut = cutoff_distance
@@ -439,4 +439,4 @@ class FarNonbondedForce(Force):
         energy += LorentzBerthelot()
         discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
         total = _NonbondedForce(cutoff_distance, switch_distance, nonbondedMethod)
-        super(FarNonbondedForce, self).__init__([total, discount])
+        super().__init__([total, discount])
