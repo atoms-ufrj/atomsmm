@@ -48,6 +48,16 @@ class Propagator:
         for (name, value) in self.perDofVariables.items():
             integrator.addPerDofVariable(name, value)
 
+    def absorbVariables(self, propagator):
+        for (key, value) in propagator.globalVariables.items():
+            if key in self.globalVariables and value != self.globalVariables[key]:
+                raise InputError("Global variable inconsistency in merged propagators")
+        for (key, value) in propagator.perDofVariables.items():
+            if key in self.perDofVariables and value != self.perDofVariables[key]:
+                raise InputError("Per-dof variable inconsistency in merged propagators")
+        self.globalVariables.update(propagator.globalVariables)
+        self.perDofVariables.update(propagator.perDofVariables)
+
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         pass
 
@@ -105,8 +115,7 @@ class ChainedPropagator(Propagator):
         self.A = A
         self.B = B
         for propagator in [self.A, self.B]:
-            self.globalVariables.update(propagator.globalVariables)
-            self.perDofVariables.update(propagator.perDofVariables)
+            self.absorbVariables(propagator)
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         self.B.addSteps(integrator, fraction)
@@ -143,8 +152,7 @@ class TrotterSuzukiPropagator(Propagator):
         self.A = A
         self.B = B
         for propagator in [self.A, self.B]:
-            self.globalVariables.update(propagator.globalVariables)
-            self.perDofVariables.update(propagator.perDofVariables)
+            self.absorbVariables(propagator)
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         self.B.addSteps(integrator, 0.5*fraction)
@@ -176,8 +184,7 @@ class SuzukiYoshidaPropagator(Propagator):
         super().__init__()
         self.A = A
         self.nsy = nsy
-        self.globalVariables.update(self.A.globalVariables)
-        self.perDofVariables.update(self.A.perDofVariables)
+        self.absorbVariables(self.A)
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.nsy == 15:
@@ -461,8 +468,7 @@ class RespaPropagator(Propagator):
         self.crust = crust
         for propagator in [self.move, self.boost, core, mantle, crust]:
             if propagator is not None:
-                self.globalVariables.update(propagator.globalVariables)
-                self.perDofVariables.update(propagator.perDofVariables)
+                self.absorbVariables(propagator)
         for (i, n) in enumerate(self.loops):
             if n > 1:
                 self.globalVariables["n{}RESPA".format(i)] = 0
