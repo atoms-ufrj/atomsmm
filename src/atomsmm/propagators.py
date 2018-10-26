@@ -35,7 +35,6 @@ class Propagator:
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
-        self.persistent = list()
 
     kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
 
@@ -304,9 +303,8 @@ class MassiveIsokineticPropagator(Propagator):
         self.globalVariables["Q2"] = Q1
         self.perDofVariables["v1"] = 0
         self.perDofVariables["v2"] = 0
-        self.persistent = ["kT", "v1", "v2", "Q1", "Q2"]
-        self.forceDependent = forceDependent
         self.perDofVariables["H"] = 0
+        self.forceDependent = forceDependent
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.forceDependent:
@@ -351,7 +349,6 @@ class MassiveOrnsteinUhlenbeckPropagator(Propagator):
         super().__init__()
         self.globalVariables["kT"] = self.kB*temperature
         self.globalVariables["friction"] = frictionConstant
-        self.persistent = ["kT", "friction"]
         self.velocity = velocity
         self.mass = mass
         self.force = force
@@ -472,7 +469,6 @@ class RespaPropagator(Propagator):
         for (i, n) in enumerate(self.loops):
             if n > 1:
                 self.globalVariables["n{}RESPA".format(i)] = 0
-        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.crust is not None:
@@ -522,11 +518,7 @@ class VelocityVerletPropagator(Propagator):
     """
     def __init__(self):
         super().__init__()
-        self.declareVariables()
-
-    def declareVariables(self):
         self.perDofVariables["x0"] = 0
-        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         Dt = "; Dt=%s*dt" % fraction
@@ -574,14 +566,10 @@ class VelocityRescalingPropagator(Propagator):
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         self.kT = (kB*temperature).value_in_unit(unit.kilojoules_per_mole)
-        self.declareVariables()
-
-    def declareVariables(self):
         self.globalVariables["V"] = 0
         self.globalVariables["X"] = 0
         self.globalVariables["U"] = 0
         self.globalVariables["ready"] = 0
-        self.persistent = None
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         a = (self.dof - 2 + self.dof % 2)/2
@@ -644,7 +632,6 @@ class NoseHooverPropagator(Propagator):
         self.globalVariables["vscaling"] = 0
         self.globalVariables["p_eta"] = 0
         self.globalVariables["n_NH"] = 0
-        self.persistent = ["p_eta"]
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         n = self.nloops
@@ -719,12 +706,8 @@ class NoseHooverLangevinPropagator(Propagator):
             self.frictionConstant = 1/timeScale
         else:
             self.frictionConstant = frictionConstant
-        self.declareVariables()
-
-    def declareVariables(self):
         self.globalVariables["vscaling"] = 0
         self.globalVariables["p_NHL"] = 0
-        self.persistent = ["p_NHL"]
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA

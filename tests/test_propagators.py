@@ -34,30 +34,6 @@ def execute(integrator, target):
     assert potential/potential.unit == pytest.approx(target)
 
 
-def all_subclasses(cls):
-    subclasses = []
-    for subclass in cls.__subclasses__():
-        subclasses.append(subclass)
-        subclasses.extend(all_subclasses(subclass))
-    return subclasses
-
-
-def test_variable_names():
-    propagators = list()
-    for cls in all_subclasses(atomsmm.propagators.Propagator):
-        obj = cls.__new__(cls)
-        obj.globalVariables = obj.perDofVariables = dict()
-        obj.persistent = None
-        obj.declareVariables()
-        propagators.append(obj)
-    for (i, a) in enumerate(propagators[:-1]):
-        if a.persistent:
-            for b in propagators[i+1:]:
-                if b.persistent:
-                    print(a.__class__.__name__, b.__class__.__name__)
-                    assert set(a.persistent).isdisjoint(set(b.persistent))
-
-
 def test_VelocityVerlet():
     NVE = atomsmm.VelocityVerletPropagator()
     integrator = atomsmm.GlobalThermostatIntegrator(1*unit.femtoseconds, NVE)
