@@ -69,7 +69,7 @@ thermostat = ppg.VelocityRescalingPropagator(temp, dof, tau)
 # NVE = ppg.TrotterSuzukiPropagator(ppg.TranslationPropagator(constrained=False),
                             #    ppg.VelocityBoostPropagator(constrained=False))
 # integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
-integrator = ppg.RespaPropagator(loops, crust=thermostat).integrator(dt)
+integrator = ppg.RespaPropagator(loops, shell={2: thermostat}).integrator(dt)
 
 integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma)
 integrator.setRandomNumberSeed(seed)

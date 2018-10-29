@@ -179,17 +179,29 @@ class SIN_R_Integrator(Integrator):
             The friction constant :math:`\\gamma` present in the stochastic equation of motion for
             :math:`v_2`. This is optional because only the Ornstein-Uhlenbeck propagator depends
             on this friction constant.
+        scheme : str, optional, default="XI-RESPA"
+            The scheme to be used for splitting the equations of motion. Available optionas are
+            XI-RESPA, XM-RESPA, XO-RESPA, and ???????.
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant):
         super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        OU = propagators.MassiveOrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                            velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
+        OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                     velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
         propagator = propagators.RespaPropagator(loops,
                                                  core=propagators.TrotterSuzukiPropagator(OU, isoN),
                                                  boost=isoF)
+
+        # OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+        #                                                     velocity="v2", mass="Q2")
+        # v2boost = propagators.GenericBoostPropagator("v2", "Q2", "Q1*v1^2 - kT")
+        # external = propagators.TrotterSuzukiPropagator(isoN, v2boost)
+        # propagator = propagators.RespaPropagator(loops,
+        #                                          core=OU,
+        #                                          shell={0: external},
+        #                                          boost=isoF)
         propagator.addVariables(self)
         propagator.addSteps(self)
         self.initialized = False
