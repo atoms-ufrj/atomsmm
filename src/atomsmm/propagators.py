@@ -213,8 +213,8 @@ class SuzukiYoshidaPropagator(Propagator):
 
     """
     def __init__(self, A, nsy=3):
-        if nsy not in [3, 7, 15]:
-            raise InputError("SuzukiYoshidaPropagator accepts nsy = 3, 7, or 15 only")
+        if nsy not in [1, 3, 7, 15]:
+            raise InputError("SuzukiYoshidaPropagator accepts nsy = 1, 3, 7, or 15 only")
         super().__init__()
         self.A = A
         self.nsy = nsy
@@ -222,13 +222,14 @@ class SuzukiYoshidaPropagator(Propagator):
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.nsy == 15:
-            weights = [0.102799849391985, -1.96061023297549, 1.93813913762276, -0.158240635368243,
-                       -1.44485223686048, 0.253693336566229, 0.914844246229740]
+            weights = [0.9148442462, 0.2536933366, -1.4448522369, -0.1582406354, 1.9381391376, -1.960610233, 0.1027998494]
         elif self.nsy == 7:
             weights = [0.784513610477560, 0.235573213359357, -1.17767998417887]
+        elif self.nsy == 3:
+            weights = [1.3512071919596578]
         else:
-            weights = [1/(2 - 2**(1/3))]
-        for w in list(reversed(weights)) + [1 - 2*sum(weights)] + weights:
+            weights = []
+        for w in weights + [1 - 2*sum(weights)] + list(reversed(weights)):
             self.A.addSteps(integrator, fraction*w)
 
 
@@ -252,7 +253,7 @@ class TranslationPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.constrained:
             integrator.addComputePerDof("x0", "x")
-        integrator.addComputePerDof("x", "x + {}*dt*v".format(fraction))
+        integrator.addComputePerDof("x", "x + ({}*dt)*v".format(fraction))
         if self.constrained:
             integrator.addConstrainPositions()
             integrator.addComputePerDof("v", "(x - x0)/({}*dt)".format(fraction))
@@ -274,7 +275,7 @@ class VelocityBoostPropagator(Propagator):
         self.constrained = constrained
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        integrator.addComputePerDof("v", "v + {}*dt*f{}/m".format(fraction, forceGroup))
+        integrator.addComputePerDof("v", "v + ({}*dt)*f{}/m".format(fraction, forceGroup))
         if self.constrained:
             integrator.addConstrainVelocities()
 
@@ -344,10 +345,10 @@ class MassiveIsokineticPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         if self.forceDependent:
             expression = "v*cosh(x) + sqrt(kT/m)*sinh(x)"
-            expression += "; x = {}*dt*f{}/sqrt(m*kT)".format(fraction, forceGroup)
+            expression += "; x = ({}*dt)*f{}/sqrt(m*kT)".format(fraction, forceGroup)
             integrator.addComputePerDof("v", expression)
         else:
-            integrator.addComputePerDof("v1", "v1*exp(-{}*dt*v2)".format(fraction))
+            integrator.addComputePerDof("v1", "v1*exp(-({}*dt)*v2)".format(fraction))
         integrator.addComputePerDof("H", "sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))")
         integrator.addComputePerDof("v", "H*v")
         integrator.addComputePerDof("v1", "H*v1")
@@ -395,7 +396,7 @@ class OrnsteinUhlenbeckPropagator(Propagator):
         if self.force is not None:
             expression += " + G*(1 - x)/({}*friction)".format(self.mass)
             expression += "; G = {}".format(self.force)
-        expression += "; x = exp(-{}*dt*friction)".format(fraction)
+        expression += "; x = exp(-({}*dt)*friction)".format(fraction)
         integrator.addComputePerDof(self.velocity, expression)
 
 
@@ -425,7 +426,7 @@ class GenericBoostPropagator(Propagator):
         self.force = force
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
-        expression = "{} + {}*dt*F/M".format(self.velocity, fraction)
+        expression = "{} + ({}*dt)*F/M".format(self.velocity, fraction)
         expression += "; F = {}".format(self.force)
         expression += "; M = {}".format(self.mass)
         integrator.addComputePerDof(self.velocity, expression)
@@ -669,17 +670,17 @@ class NoseHooverPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         n = self.nloops
         subfrac = fraction/n
-        integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(mvv - LkT)".format(0.5*subfrac))
-        integrator.addComputeGlobal("vscaling", "exp(-{}*dt*p_eta/Q)".format(subfrac))
+        integrator.addComputeGlobal("p_eta", "p_eta + ({}*dt)*(mvv - LkT)".format(0.5*subfrac))
+        integrator.addComputeGlobal("vscaling", "exp(-({}*dt)*p_eta/Q)".format(subfrac))
         if n > 2:
             counter = "n_NH"
             integrator.addComputeGlobal(counter, "1")
             integrator.beginWhileBlock("{} < {}".format(counter, n))
-            integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(subfrac))
-            integrator.addComputeGlobal("vscaling", "vscaling*exp(-{}*dt*p_eta/Q)".format(subfrac))
+            integrator.addComputeGlobal("p_eta", "p_eta + ({}*dt)*(vscaling^2*mvv - LkT)".format(subfrac))
+            integrator.addComputeGlobal("vscaling", "vscaling*exp(-({}*dt)*p_eta/Q)".format(subfrac))
             integrator.addComputeGlobal(counter, "{} + 1".format(counter))
             integrator.endBlock()
-        integrator.addComputeGlobal("p_eta", "p_eta + {}*dt*(vscaling^2*mvv - LkT)".format(0.5*subfrac))
+        integrator.addComputeGlobal("p_eta", "p_eta + ({}*dt)*(vscaling^2*mvv - LkT)".format(0.5*subfrac))
         integrator.addComputePerDof("v", "vscaling*v")
 
 

@@ -7,12 +7,17 @@ from .forces import NonbondedExceptionsForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
 from .integrators import SIN_R_Integrator  # noqa: F401
 from .propagators import ChainedPropagator  # noqa: F401
+from .propagators import GenericBoostPropagator  # noqa: F401
+from .propagators import MassiveIsokineticPropagator  # noqa: F401
 from .propagators import NoseHooverLangevinPropagator  # noqa: F401
 from .propagators import NoseHooverPropagator  # noqa: F401
+from .propagators import OrnsteinUhlenbeckPropagator  # noqa: F401
 from .propagators import RespaPropagator  # noqa: F401
+from .propagators import SplitPropagator  # noqa: F401
 from .propagators import SuzukiYoshidaPropagator  # noqa: F401
 from .propagators import TranslationPropagator  # noqa: F401
 from .propagators import TrotterSuzukiPropagator  # noqa: F401
+from .propagators import VelocityBoostPropagator  # noqa: F401
 from .propagators import VelocityRescalingPropagator  # noqa: F401
 from .propagators import VelocityVerletPropagator  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
@@ -34,14 +39,19 @@ __integrators__ = [
 
 __propagators__ = [
     'ChainedPropagator',
-    'SuzukiYoshidaPropagator',
-    'TrotterSuzukiPropagator',
-    'VelocityVerletPropagator',
-    'RespaPropagator',
-    'VelocityRescalingPropagator',
-    'NoseHooverPropagator',
+    'GenericBoostPropagator',
+    'MassiveIsokineticPropagator',
     'NoseHooverLangevinPropagator',
+    'NoseHooverPropagator',
+    'OrnsteinUhlenbeckPropagator',
+    'RespaPropagator',
+    'SplitPropagator',
+    'SuzukiYoshidaPropagator',
     'TranslationPropagator',
+    'TrotterSuzukiPropagator',
+    'VelocityBoostPropagator',
+    'VelocityRescalingPropagator',
+    'VelocityVerletPropagator',
     ]  # noqa E123
 
 __utils__ = [
