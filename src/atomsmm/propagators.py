@@ -121,6 +121,41 @@ class ChainedPropagator(Propagator):
         self.A.addSteps(integrator, fraction)
 
 
+class SplitPropagator(Propagator):
+    """
+    This class splits a propagators :math:`A = e^{\\delta t \\, iL_A}` into a sequence of `n`
+    propagators :math:`a = e^{\\frac{\\delta t}{n} \\, iL_A}`, that is,
+
+    .. math::
+        e^{\\delta t \\, iL_A} = \\left( e^{\\frac{\\delta t}{n} \\, iL_A} \\right)^n.
+
+    Parameters
+    ----------
+        A : :class:`Propagator`
+            The propagator to be split.
+        n : int
+            The number of parts.
+
+    """
+    def __init__(self, A, n):
+        super().__init__()
+        self.A = A
+        self.absorbVariables(A)
+        self.n = n
+        self.globalVariables["nSplit"] = 0
+
+    def addSteps(self, integrator, fraction=1.0, forceGroup=""):
+        n = self.n
+        if n == 1:
+            self.A.addSteps(integrator, fraction/n)
+        else:
+            integrator.addComputeGlobal("nSplit", "0")
+            integrator.beginWhileBlock("nSplit < {}".format(n))
+            self.A.addSteps(integrator, fraction/n)
+            integrator.addComputeGlobal("nSplit", "nSplit + 1")
+            integrator.endBlock()
+
+
 class TrotterSuzukiPropagator(Propagator):
     """
     This class combines two propagators :math:`A = e^{\\delta t \\, iL_A}` and
@@ -328,25 +363,23 @@ class OrnsteinUhlenbeckPropagator(Propagator):
         dV = \\frac{F}{M} dt - \\gamma V dt + \\sqrt{\\frac{2 \\gamma kT}{M}} dW.
 
     In this equation, `V`, `M`, and `F` are generic forms of velocity, mass, and force. By default,
-    the propagator acts on the atomic velocities and masses, while the forces are are considered as
-    null.
+    the propagator acts on the atomic velocities (`v`) and masses (`m`), while the forces are
+    considered as null.
 
     Parameters
     ----------
         temperature : unit.Quantity
             The temperature to which the configurational sampling should correspond.
-        timeScale : unit.Quantity, optional, default=None
-            A time scale :math:`\\tau` from which to compute the inertial parameters as
-            :math:`Q_1 = Q_2 = kT\\tau^2`.
         frictionConstant : unit.Quantity, optional, default=None
-            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
-            :math:`v_2`.
+            The friction constant :math:`\\gamma` present in the stochastic equation.
         velocity : str, optional, default="v"
             The name of a per-dof variable considered as the velocity of each degree of freedom.
         mass : str, optional, default="m"
-            The name of a per-dof or global variable considered as the mass of each degree of freedom.
-        force : str, optional, default="f"
+            The name of a per-dof or global variable considered as the mass associated to each
+            degree of freedom.
+        force : str, optional, default=None
             The name of a per-dof variable considered as the force acting on each degree of freedom.
+            If it is `None`, then this force is considered as null.
 
     """
     def __init__(self, temperature, frictionConstant, velocity="v", mass="m", force=None):
@@ -365,6 +398,7 @@ class OrnsteinUhlenbeckPropagator(Propagator):
         expression += "; x = exp(-{}*dt*friction)".format(fraction)
         integrator.addComputePerDof(self.velocity, expression)
 
+
 class GenericBoostPropagator(Propagator):
     """
     This class implements a linear boost by providing a solution for the following :term:`ODE` for
@@ -378,7 +412,8 @@ class GenericBoostPropagator(Propagator):
         velocity : str, optional, default="v"
             The name of a per-dof variable considered as the velocity of each degree of freedom.
         mass : str, optional, default="m"
-            The name of a per-dof or global variable considered as the mass of each degree of freedom.
+            The name of a per-dof or global variable considered as the mass associated to each
+            degree of freedom.
         force : str, optional, default="f"
             The name of a per-dof variable considered as the force acting on each degree of freedom.
 

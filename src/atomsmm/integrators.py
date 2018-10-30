@@ -155,13 +155,17 @@ class SIN_R_Integrator(Integrator):
         & \\frac{dq}{dt} = v \\\\
         & \\frac{dv}{dt} = \\frac{F}{m} - \\lambda v \\\\
         & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
-        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW \\\\
-        & \\lambda = \\frac{F v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}
+        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
+
+    where:
+
+    .. math::
+        \\lambda = \\frac{F v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}.
 
     A consequence of these equations is that
 
     .. math::
-        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT
+        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT.
 
     Parameters
     ----------
@@ -181,26 +185,29 @@ class SIN_R_Integrator(Integrator):
             on this friction constant.
         scheme : str, optional, default="XI-RESPA"
             The scheme to be used for splitting the equations of motion. Available optionas are
-            XI-RESPA, XM-RESPA, XO-RESPA, and ???????.
+            XO-RESPA, XM-RESPA, XI-RESPA, and ..................
 
     """
-    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant):
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, scheme="XI"):
         super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                     velocity="v2", mass="Q2", force="Q1*v1^2 - kT")
-        propagator = propagators.RespaPropagator(loops,
-                                                 core=propagators.TrotterSuzukiPropagator(OU, isoN),
-                                                 boost=isoF)
+        force = "Q1*v1*v1 - kT"
+        OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2", force)
+        central = propagators.TrotterSuzukiPropagator(isoN, OU)
+        propagator = propagators.RespaPropagator(loops, core=central, boost=isoF)
 
-        # OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-        #                                                     velocity="v2", mass="Q2")
-        # v2boost = propagators.GenericBoostPropagator("v2", "Q2", "Q1*v1^2 - kT")
-        # external = propagators.TrotterSuzukiPropagator(isoN, v2boost)
         # propagator = propagators.RespaPropagator(loops,
         #                                          core=OU,
-        #                                          shell={0: external},
+        #                                          shell={1:isoN},
+        #                                          boost=isoF)
+        #
+        # OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2")
+        # v2boost = propagators.GenericBoostPropagator("v2", "Q2", force)
+        # thermostat = propagators.TrotterSuzukiPropagator(isoN, v2boost)
+        # propagator = propagators.RespaPropagator(loops,
+        #                                          core=OU,
+        #                                          shell={2: thermostat},
         #                                          boost=isoF)
         propagator.addVariables(self)
         propagator.addSteps(self)
