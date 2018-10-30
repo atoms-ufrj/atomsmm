@@ -501,7 +501,12 @@ class RespaPropagator(Propagator):
         self.move = TranslationPropagator(constrained=False) if move is None else move
         self.boost = VelocityBoostPropagator(constrained=False) if boost is None else boost
         self.core = core
-        self.shell = dict() if shell is None else shell
+        if shell is None:
+            self.shell = dict()
+        elif set(shell.keys()).issubset(range(self.N)):
+            self.shell = shell
+        else:
+            raise InputError("invalid key(s) in RespaPropagator's argument shell")
         for propagator in [self.move, self.boost, self.core] + list(self.shell.values()):
             if propagator is not None:
                 self.absorbVariables(propagator)

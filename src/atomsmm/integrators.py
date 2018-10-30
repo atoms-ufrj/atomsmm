@@ -13,7 +13,6 @@ import re
 
 import openmmtools.integrators as openmmtools
 from simtk import openmm
-from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -78,28 +77,6 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         super(Integrator, self).addComputePerDof(variable, expression)
         if variable == "v":
             self.obsoleteKinetic = True
-
-    def initializeVelocities(self, context, temperature):
-        energy_unit = unit.dalton*(unit.nanometer/unit.picosecond)**2
-        kT = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature/energy_unit
-        system = context.getSystem()
-        N = system.getNumParticles()
-        masses = self.masses = [system.getParticleMass(i)/unit.dalton for i in range(N)]
-        velocities = list()
-        for m in masses:
-            sigma = math.sqrt(kT/m)
-            v = sigma*openmm.Vec3(random.gauss(0, 1), random.gauss(0, 1), random.gauss(0, 1))
-            velocities.append(v)
-        mtotal = sum(masses)
-        ptotal = sum([m*v for (m, v) in zip(masses, velocities)], openmm.Vec3(0.0, 0.0, 0.0))
-        vcm = ptotal/mtotal
-        for i in range(len(velocities)):
-            velocities[i] -= vcm
-        twoK = sum(m*(v[0]**2 + v[1]**2 + v[2]**2) for (m, v) in zip(masses, velocities))
-        factor = math.sqrt(3*N*kT/twoK)
-        for i in range(len(velocities)):
-            velocities[i] *= factor
-        context.setVelocities(velocities)
 
     def setRandomNumberSeed(self, seed):
         super(Integrator, self).setRandomNumberSeed(seed)
@@ -185,27 +162,53 @@ class SIN_R_Integrator(Integrator):
             :math:`Q_1 = Q_2 = kT\\tau^2`.
         frictionConstant : unit.Quantity
             The friction constant :math:`\\gamma` present in the stochastic equation of motion for
-            per-DOF variable :math:`v_2`.
-        scheme : str, optional, default="middle"
-            The scheme to be used for splitting the equations of motion. Available optionas are
-            `middle` (default), `xi`, `xm`, and `xo`.
+            per-DOF thermostat variable :math:`v_2`.
+
+    Keyword Args
+    ------------
+        location : str or int, default = "center"
+            The position in the rRESPA scheme where the force-indepependent isokinetic evolution
+            plus thermostat variable boost operator is located. Valid options are "center",
+            "xi-respa", "xo-respa", or an integer from `0` to `N-1`.
+            If it is "center", then the operator will be placed inside the Ornstein-Uhlenbeck
+            process, thus between coordinate moves.
+            If it is "xi-respa", then the operator will be integrated in the extremities of each
+            loop concerning the timescale of fastest forces in the system (force group `0`).
+            If it is "xo-respa", then the operator will be integrated in the extremities of each
+            loop concerning the timescale of the slowest forces in the system (force group `N-1`).
+            If it is an integer `k`, then the operator will be integrated in the extremities of each
+            loop concerning the timescale of force group `k`.
+        nsy : int, default = 1
+            The number of Suzuki-Yoshida factorization terms. Valid options are 1, 3, 7, and 15.
+        nres : int, default = 1
+            The number of RESPA-like subdivisions.
+
+    .. warning::
+        The "xi-respa" scheme implemented here is slightly different from the one described in the
+        paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
 
     """
-    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, scheme="middle", nsy=1, nres=1):
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        location = kwargs.pop("location", "middle")
+        nsy = kwargs.pop("nsy", 1)
+        nres = kwargs.pop("nres", 1)
         super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        force = "Q1*v1*v1 - kT" if scheme == "middle" else None
-        OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2", force)
-        if scheme == "middle":
+        if location == "center":
+            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2", "Q1*v1*v1 - kT")
             central = propagators.TrotterSuzukiPropagator(isoN, OU)
             propagator = propagators.RespaPropagator(loops, core=central, boost=isoF)
         else:
+            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2")
             v2boost = propagators.GenericBoostPropagator("v2", "Q2", "Q1*v1*v1 - kT")
-            NH = propagators.TrotterSuzukiPropagator(isoN, v2boost)
-            shell = propagators.SuzukiYoshidaPropagator(propagators.SplitPropagator(NH, nres), nsy)
-            level = dict(xi=0, xm=1, xo=len(loops)-1)
-            propagator = propagators.RespaPropagator(loops, core=OU, shell={level[scheme]: shell}, boost=isoF)
+            TS = propagators.TrotterSuzukiPropagator(isoN, v2boost)
+            NH = propagators.SuzukiYoshidaPropagator(propagators.SplitPropagator(TS, nres), nsy)
+            try:
+                level = {"xi-respa": 0, "xo-respa": len(loops)-1}[location]
+            except KeyError:
+                level = location
+            propagator = propagators.RespaPropagator(loops, core=OU, shell={level: NH}, boost=isoF)
         propagator.addVariables(self)
         propagator.addSteps(self)
         self.requiresInitialization = True

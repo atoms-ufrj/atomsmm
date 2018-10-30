@@ -71,7 +71,7 @@ thermostat = ppg.VelocityRescalingPropagator(temp, dof, tau)
 # integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
 integrator = ppg.RespaPropagator(loops, shell={2: thermostat}).integrator(dt)
 
-integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma, scheme="xo", nsy=3, nres=4)
+integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma, location="center", nsy=3)
 integrator.setRandomNumberSeed(seed)
 
 print(integrator)
