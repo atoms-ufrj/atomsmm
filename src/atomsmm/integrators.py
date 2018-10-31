@@ -189,7 +189,7 @@ class SIN_R_Integrator(Integrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        location = kwargs.pop("location", "middle")
+        location = kwargs.pop("location", "center")
         nsy = kwargs.pop("nsy", 1)
         nres = kwargs.pop("nres", 1)
         super().__init__(stepSize)
