@@ -48,6 +48,9 @@ class Force:
             self.current += 1
             return self.forces[self.current - 1]
 
+    def __getitem__(self, i):
+        return self.forces[i]
+
     def setForceGroup(self, group):
         """
         Set the force group to which this :class:`Force` object belongs.
@@ -160,9 +163,12 @@ class _NonbondedForce(openmm.NonbondedForce):
             The method used for handling long range nonbonded interactions.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
+    def __init__(self, cutoff_distance, switch_distance=None,
+                 nonbondedMethod=openmm.NonbondedForce.PME,
+                 ewaldErrorTolerance=0.0001):
         super().__init__()
         self.setNonbondedMethod(nonbondedMethod)
+        self.setEwaldErrorTolerance(ewaldErrorTolerance)
         self.setCutoffDistance(cutoff_distance)
         self.setUseDispersionCorrection(True)
         if switch_distance is None:
@@ -421,9 +427,13 @@ class FarNonbondedForce(Force):
         nonbondedMethod : openmm.NonbondedForce.Method, optional, default=PME
             The method to use for nonbonded interactions. Allowed values are NoCutoff,
             CutoffNonPeriodic, CutoffPeriodic, Ewald, PME, or LJPME.
+        ewaldErrorTolerance : Number, optional, default=1E-5
+            The error tolerance for Ewald summation.
 
     """
-    def __init__(self, preceding, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
+    def __init__(self, preceding, cutoff_distance, switch_distance=None,
+                 nonbondedMethod=openmm.NonbondedForce.PME,
+                 ewaldErrorTolerance=0.00001):
         if not isinstance(preceding, NearNonbondedForce):
             raise InputError("argument 'preceding' must be of class NearNonbondedForce")
         rsi = "rs{}".format(preceding.index)
@@ -438,5 +448,6 @@ class FarNonbondedForce(Force):
         energy += "u = (r - {})/({} - {});".format(rsi, rci, rsi)
         energy += LorentzBerthelot()
         discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
-        total = _NonbondedForce(cutoff_distance, switch_distance, nonbondedMethod)
+        total = _NonbondedForce(cutoff_distance, switch_distance,
+                                nonbondedMethod, ewaldErrorTolerance)
         super().__init__([total, discount])
