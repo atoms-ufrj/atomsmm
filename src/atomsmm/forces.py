@@ -325,12 +325,12 @@ class DampedSmoothedForce(Force):
     def __init__(self, alpha, cutoff_distance, switch_distance, degree=1):
         if switch_distance/switch_distance.unit < 0.0 or switch_distance >= cutoff_distance:
             raise InputError("Switching distance must satisfy 0 <= r_switch < r_cutoff")
-        energy = "S*(%s + erfc(alpha*r)*%s);" % (LennardJones("r"), Coulomb("r"))
         if degree == 1:
-            energy += "S = 1;"
+            energy = "{} + erfc(alpha*r)*{};".format(LennardJones("r"), Coulomb("r"))
         else:
+            energy = "S*({} + erfc(alpha*r)*{});".format(LennardJones("r"), Coulomb("r"))
             energy += "S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
-            energy += "u = (r^%d - rswitch^%d)/(rcut^%d - rswitch^%d);" % ((degree,)*4)
+            energy += "u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={};".format(degree)
         energy += LorentzBerthelot()
         force = _CustomNonbondedForce(energy, cutoff_distance,
                                       switch_distance if degree == 1 else None,
@@ -386,10 +386,10 @@ class NearNonbondedForce(Force):
     def __init__(self, cutoff_distance, switch_distance, shifted=True):
         globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
                         "rc0": cutoff_distance}
-        potential = "%s+%s" % (LennardJones("r"), Coulomb("r"))
+        potential = "{}+{}".format(LennardJones("r"), Coulomb("r"))
         if shifted:
-            potential += "-(%s+%s)" % (LennardJones("rc0"), Coulomb("rc0"))
-        energy = "%s; %s" % (potential, LorentzBerthelot())
+            potential += "-({}+{})".format(LennardJones("rc0"), Coulomb("rc0"))
+        energy = "{}; {}".format(potential, LorentzBerthelot())
         force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
         super().__init__([force])
         self.index = 0
@@ -426,16 +426,16 @@ class FarNonbondedForce(Force):
     def __init__(self, preceding, cutoff_distance, switch_distance=None, nonbondedMethod=openmm.NonbondedForce.PME):
         if not isinstance(preceding, NearNonbondedForce):
             raise InputError("argument 'preceding' must be of class NearNonbondedForce")
-        rsi = "rs" + str(preceding.index)
-        rci = "rc" + str(preceding.index)
+        rsi = "rs{}".format(preceding.index)
+        rci = "rc{}".format(preceding.index)
         globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
                         rsi: preceding.rswitch, rci: preceding.rcut}
-        potential = "-(%s+%s)" % (LennardJones("r"), Coulomb("r"))
+        potential = "-({}+{})".format(LennardJones("r"), Coulomb("r"))
         if preceding.shifted:
-            potential += "+%s+%s" % (LennardJones(rci), Coulomb(rci))
-        energy = "step(%s-r)*S*(%s);" % (rci, potential)
-        energy += "S = 1 + step(r - %s)*u^3*(15*u - 6*u^2 - 10);" % rsi
-        energy += "u = (r - %s)/(%s - %s);" % (rsi, rci, rsi)
+            potential += "+{}+{}".format(LennardJones(rci), Coulomb(rci))
+        energy = "step({}-r)*S*({});".format(rci, potential)
+        energy += "S = 1 + step(r - {})*u^3*(15*u - 6*u^2 - 10);".format(rsi)
+        energy += "u = (r - {})/({} - {});".format(rsi, rci, rsi)
         energy += LorentzBerthelot()
         discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
         total = _NonbondedForce(cutoff_distance, switch_distance, nonbondedMethod)
