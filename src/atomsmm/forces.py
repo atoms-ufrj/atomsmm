@@ -451,3 +451,29 @@ class FarNonbondedForce(Force):
         total = _NonbondedForce(cutoff_distance, switch_distance,
                                 nonbondedMethod, ewaldErrorTolerance)
         super().__init__([total, discount])
+
+
+class SoftcoreLennardJonesForce(Force):
+    """
+    A softened version of the Lennard-Jones potential.
+
+    .. math::
+        & V(r)=4\\lambda\\epsilon\\left(\\frac{1}{s^2} - \\frac{1}{s}\\right) \\\\
+        & s = \\left(\\frac{r}{\\sigma}\\right)^6 + \\frac{1}{2}(1-\\lambda) \\\\
+        & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
+        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
+
+    Parameters
+    ----------
+        cutoff_distance : Number or unit.Quantity
+            The distance at which the nonbonded interaction vanishes.
+        switch_distance : Number or unit.Quantity
+            The distance at which the switching function begins to smooth the approach of the
+            nonbonded interaction towards zero.
+
+    """
+    def __init__(self, cutoff_distance, switch_distance):
+        globalParams = {"lambda": 1.0}
+        potential = "4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);" + LorentzBerthelot()
+        force = _CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
+        super().__init__([force])
