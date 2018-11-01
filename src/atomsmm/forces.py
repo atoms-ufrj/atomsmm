@@ -142,6 +142,10 @@ class Force:
         self.forces.append(exceptions)
         return self
 
+    def addInteractionGroup(self, set1, set2):
+        for force in self.forces:
+            force.addInteractionGroup(set1, set2)
+
 
 class _NonbondedForce(openmm.NonbondedForce):
     """

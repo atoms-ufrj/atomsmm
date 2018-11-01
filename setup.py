@@ -64,6 +64,7 @@ setup(
     ],
     install_requires=[
         'sympy>=1.1.1',
+        'pandas>=0.23',
         # eg: 'aspectlib==1.1.1', 'six>=1.7',
     ],
     extras_require={

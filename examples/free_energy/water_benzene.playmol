@@ -1,0 +1,18 @@
+define      solvent as water
+define      solute as benzene
+
+include     $solvent.mol
+include     $solute.mol
+
+# Replication and packing
+define      density as 1.0 # g/cm³
+define      N       as 512
+box         density {0.602214*$density} # Da/Å³
+
+packmol     retry 0.98 fix mol(CH1) 0 0 0 pack mol(O) $N action execute
+
+# Formatting and storage
+write       openmm ${solvent}_${solute}.xml
+write       pdb    ${solvent}_${solute}.pdb
+
+write    summary

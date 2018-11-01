@@ -34,6 +34,7 @@ def execute(shifted):
     force = refsys.getForce(refsys.getNumForces()-2)
     force.setUseSwitchingFunction(True)
     force.setSwitchingDistance(rswitch)
+    force.setEwaldErrorTolerance(1E-5)
     refpot = atomsmm.splitPotentialEnergy(refsys, pdb.topology, pdb.positions)
 
     E = potential["Total"]

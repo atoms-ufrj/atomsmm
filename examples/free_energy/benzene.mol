@@ -1,0 +1,47 @@
+#@article{Wick_2000,
+#	doi = {10.1021/jp001044x},
+#	year = 2000,
+#	month = {aug},
+#	publisher = {American Chemical Society ({ACS})},
+#	volume = {104},
+#	number = {33},
+#	pages = {8008--8016},
+#	author = {Collin D. Wick and Marcus G. Martin and J. Ilja Siepmann},
+#	title = {Transferable Potentials for Phase Equilibria. 4. United-Atom Description of Linear and Branched Alkenes and Alkylbenzenes},
+#	journal = {The Journal of Physical Chemistry B}
+#}
+
+# Typification
+define kB               as  1.987E-3    # kcal/mol.K
+define sigmaCH          as  3.695       # Taken from TraPPE
+define epsilonCH        as  {50.5*$kB}  # Taken from TraPPE
+define bondCH           as  1.4         # Taken from TraPPE
+define angleCH          as  120         # Taken from TraPPE
+define dihedralCH       as  180         # Taken from GAFF
+
+atom_type     CH          lj/cut   $epsilonCH $sigmaCH
+bond_type     CH CH	      harmonic {461.1/2} $bondCH  # Spring constant taken from GAFF
+angle_type    CH CH CH    harmonic {66.62/2} $angleCH # Spring constant taken from GAFF
+dihedral_type	CH CH CH CH	charmm   {14.500/4} 2 $dihedralCH 0 # All parameters taken from GAFF
+
+mass          CH          13.0
+
+diameter      CH $sigmaCH
+
+# Chemical topology definition
+for i from 1 to 6
+  atom        CH$i CH
+next
+bond CH1 CH2 CH6
+bond CH3 CH2 CH4
+bond CH5 CH4 CH6
+
+define pi as 3.14159265359
+
+build
+6
+for i from 1 to 6
+    define theta as {($i-1)*$pi/3}
+    CH$i {$bondCH*cos($theta)} {$bondCH*sin($theta)} 0.0
+next
+

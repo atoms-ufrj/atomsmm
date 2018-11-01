@@ -7,6 +7,7 @@ Python API
     forces
     integrators
     propagators
+    reporters
     utils
 
 

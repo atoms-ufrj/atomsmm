@@ -4,6 +4,7 @@ from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401
 from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
+from .forces import SoftcoreLennardJonesForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
 from .integrators import SIN_R_Integrator  # noqa: F401
 from .propagators import ChainedPropagator  # noqa: F401
@@ -20,6 +21,7 @@ from .propagators import TrotterSuzukiPropagator  # noqa: F401
 from .propagators import VelocityBoostPropagator  # noqa: F401
 from .propagators import VelocityRescalingPropagator  # noqa: F401
 from .propagators import VelocityVerletPropagator  # noqa: F401
+from .reporters import MultistateEnergyReporter  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
 from .utils import hijackForce  # noqa: F401
@@ -30,6 +32,7 @@ __forces__ = [
     'NonbondedExceptionsForce',
     'NearNonbondedForce',
     'FarNonbondedForce',
+    'SoftcoreLennardJonesForce',
     ]  # noqa E123
 
 __integrators__ = [
@@ -54,6 +57,10 @@ __propagators__ = [
     'VelocityVerletPropagator',
     ]  # noqa E123
 
+__reporters__ = [
+    'MultistateEnergyReporter',
+    ]  # noqa E123
+
 __utils__ = [
     'countDegreesOfFreedom',
     'findNonbondedForce',
@@ -61,4 +68,4 @@ __utils__ = [
     'splitPotentialEnergy',
     ]  # noqa E123
 
-__all__ = __forces__ + __integrators__ + __propagators__ + __utils__
+__all__ = __forces__ + __integrators__ + __propagators__ + __reporters__ + __utils__
