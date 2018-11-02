@@ -10,7 +10,9 @@ import numpy as np
 
 platform = 'OpenCL'
 properties = dict(CUDA=dict(Precision='mixed'), Reference=dict(), OpenCL=dict())
-nsteps = 3000
+
+nprod = 300
+nequil = 0
 ndisp = 10
 seed = 5623
 
@@ -67,6 +69,8 @@ simulation = app.Simulation(pdb.topology, system, integrator,
 simulation.context.setPositions(pdb.positions)
 simulation.context.setVelocitiesToTemperature(temp, seed)
 
+states = {"lambda": np.linspace(1.0, 0.0, 11)}
+
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
 for (out, sep) in zip(outputs, separators):
@@ -78,12 +82,15 @@ for (out, sep) in zip(outputs, separators):
         temperature=True,
         remainingTime=True,
         speed=True,
-        totalSteps=nsteps,
+        totalSteps=len(states)*(nequil+nprod),
         separator=sep))
+# simulation.reporters.append(openmm.app.PDBReporter('output.pdb', nprod))
 
-states = {"lambda": np.linspace(1.0, 0.0, 11)}
-simulation.reporters.append(atomsmm.MultistateEnergyReporter('states.csv', ndisp, states))
-
-# simulation.reporters.append(openmm.app.PDBReporter('output.pdb', nsteps))
-
-simulation.step(nsteps)
+for (i, value) in enumerate(states["lambda"]):
+    simulation.context.setParameter("lambda", value)
+    print("\nRunning equilibration for lambda={}:".format(value))
+    simulation.step(nequil)
+    simulation.reporters.append(atomsmm.MultistateEnergyReporter('state{}.csv'.format(i), ndisp, states))
+    print("\nRunning production for lambda={}:".format(value))
+    simulation.step(nprod)
+    simulation.reporters.pop()

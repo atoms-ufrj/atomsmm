@@ -102,7 +102,7 @@ class MultistateEnergyReporter(Reporter):
         different separator to use.
 
     """
-    def __init__(self, file, reportInterval, states, separator=",", describeStates=True):
+    def __init__(self, file, reportInterval, states, separator=",", describeStates=False):
         super().__init__(file, reportInterval, separator)
         self._states = states if isinstance(states, pd.DataFrame) else pd.DataFrame.from_dict(states)
         self._variables = self._states.columns.values
@@ -114,6 +114,50 @@ class MultistateEnergyReporter(Reporter):
             self._out.flush()
         except AttributeError:
             pass
+
+    def _initialize(self, simulation):
+        stateVariables = set(self._variables)
+        self._dependentForces = list()
+        self._forceGroups = list()
+        lastForceGroup = 0
+        for (index, force) in enumerate(simulation.system.getForces()):
+            group = force.getForceGroup()
+            lastForceGroup = max(lastForceGroup, group)
+            try:
+                n = force.getNumGlobalParameters()
+                dependencies = set(force.getGlobalParameterName(i) for i in range(n))
+                if dependencies & stateVariables:
+                    self._dependentForces.append(force)
+                    self._forceGroups.append(group)
+            except AttributeError:
+                pass
+        self._availableForceGroup = lastForceGroup + 1
+        if self._describe:
+            for (index, value) in self._states.iterrows():
+                print("# State {}:".format(index),
+                      ", ".join("{}={}".format(v, value[v]) for v in self._variables),
+                      file=self._out)
+        self._requiresInitialization = False
+
+    def _headers(self):
+        return ["E{}".format(index) for (index, value) in self._states.iterrows()]
+
+    def _multistateEnergies(self, context):
+        energies = list()
+        originalValues = [context.getParameter(variable) for variable in self._variables]
+        for force in self._dependentForces:
+            force.setForceGroup(self._availableForceGroup)
+        for (index, value) in self._states.iterrows():
+            for variable in self._variables:
+                context.setParameter(variable, value[variable])
+            state = context.getState(getEnergy=True, groups=set([self._availableForceGroup]))
+            energy = state.getPotentialEnergy()
+            energies.append(energy.value_in_unit(unit.kilojoules_per_mole))
+        for (force, group) in zip(self._dependentForces, self._forceGroups):
+            force.setForceGroup(group)
+        for (variable, value) in zip(self._variables, originalValues):
+            context.setParameter(variable, value)
+        return energies
 
     def report(self, simulation, state):
         """
@@ -128,47 +172,7 @@ class MultistateEnergyReporter(Reporter):
 
         """
         if self._requiresInitialization:
-            stateVariables = set(self._variables)
-            self._dependentForces = list()
-            self._forceGroups = list()
-            lastForceGroup = 0
-            for (index, force) in enumerate(simulation.system.getForces()):
-                group = force.getForceGroup()
-                lastForceGroup = max(lastForceGroup, group)
-                try:
-                    n = force.getNumGlobalParameters()
-                    dependencies = set(force.getGlobalParameterName(i) for i in range(n))
-                    if dependencies & stateVariables:
-                        self._dependentForces.append(force)
-                        self._forceGroups.append(group)
-                except AttributeError:
-                    pass
-            self._availableForceGroup = lastForceGroup + 1
+            self._initialize(simulation)
+            self._flush(self._headers())
 
-            headers = list()
-            for (index, value) in self._states.iterrows():
-                headers.append("E{}".format(index))
-                if self._describe:
-                    print("# State {}:".format(index),
-                          ", ".join("{}={}".format(v, value[v]) for v in self._variables),
-                          file=self._out)
-            self._flush(headers)
-
-            self._requiresInitialization = False
-
-        context = simulation.context
-        energies = list()
-        originalValues = [context.getParameter(variable) for variable in self._variables]
-        for force in self._dependentForces:
-            force.setForceGroup(self._availableForceGroup)
-        for (index, value) in self._states.iterrows():
-            for variable in self._variables:
-                context.setParameter(variable, value[variable])
-            state = context.getState(getEnergy=True, groups=set([self._availableForceGroup]))
-            energy = state.getPotentialEnergy()
-            energies.append(energy.value_in_unit(unit.kilojoules_per_mole))
-        self._flush(energies)
-        for (force, group) in zip(self._dependentForces, self._forceGroups):
-            force.setForceGroup(group)
-        for (variable, value) in zip(self._variables, originalValues):
-            context.setParameter(variable, value)
+        self._flush(self._multistateEnergies(simulation.context))
