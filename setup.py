@@ -63,6 +63,7 @@ setup(
         # eg: 'keyword1', 'keyword2', 'keyword3',
     ],
     install_requires=[
+        'numpy>=1.15',
         'sympy>=1.1.1',
         'pandas>=0.23',
         # eg: 'aspectlib==1.1.1', 'six>=1.7',

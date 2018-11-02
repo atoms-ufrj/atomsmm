@@ -21,6 +21,7 @@ from .propagators import TrotterSuzukiPropagator  # noqa: F401
 from .propagators import VelocityBoostPropagator  # noqa: F401
 from .propagators import VelocityRescalingPropagator  # noqa: F401
 from .propagators import VelocityVerletPropagator  # noqa: F401
+from .reporters import ExpandedEnsembleReporter  # noqa: F401
 from .reporters import MultistateEnergyReporter  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
@@ -58,6 +59,7 @@ __propagators__ = [
     ]  # noqa E123
 
 __reporters__ = [
+    'ExpandedEnsembleReporter',
     'MultistateEnergyReporter',
     ]  # noqa E123
 

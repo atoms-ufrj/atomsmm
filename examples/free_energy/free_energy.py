@@ -86,11 +86,15 @@ for (out, sep) in zip(outputs, separators):
         separator=sep))
 # simulation.reporters.append(openmm.app.PDBReporter('output.pdb', nprod))
 
-for (i, value) in enumerate(states["lambda"]):
-    simulation.context.setParameter("lambda", value)
-    print("\nRunning equilibration for lambda={}:".format(value))
-    simulation.step(nequil)
-    simulation.reporters.append(atomsmm.MultistateEnergyReporter('state{}.csv'.format(i), ndisp, states))
-    print("\nRunning production for lambda={}:".format(value))
-    simulation.step(nprod)
-    simulation.reporters.pop()
+# for (i, value) in enumerate(states["lambda"]):
+#     simulation.context.setParameter("lambda", value)
+#     print("\nRunning equilibration for lambda={}:".format(value))
+#     simulation.step(nequil)
+#     simulation.reporters.append(atomsmm.MultistateEnergyReporter('state{}.csv'.format(i), ndisp, states))
+#     print("\nRunning production for lambda={}:".format(value))
+#     simulation.step(nprod)
+#     simulation.reporters.pop()
+
+weights = np.zeros(len(states), np.float)
+simulation.reporters.append(atomsmm.ExpandedEnsembleReporter('states.csv', ndisp, 2, states, weights))
+simulation.step(nprod)

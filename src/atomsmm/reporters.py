@@ -9,6 +9,7 @@
 
 """
 
+import numpy as np
 import pandas as pd
 from simtk import unit
 
@@ -30,8 +31,8 @@ class Reporter(object):
     Base class for reporters.
 
     """
-    def __init__(self, file, reportInterval, separator=","):
-        self._reportInterval = reportInterval
+    def __init__(self, file, interval, separator=","):
+        self._interval = interval
         self._separator = separator
         self._fileWasOpened = isinstance(file, str)
         if self._fileWasOpened:
@@ -59,6 +60,16 @@ class Reporter(object):
         if self._fileWasOpened:
             self._out.close()
 
+    def _flush(self, values):
+        print(self._separator.join("{}".format(v) for v in values), file=self._out)
+        try:
+            self._out.flush()
+        except AttributeError:
+            pass
+
+    def _initialize(self, simulation):
+        self._requiresInitialization = False
+
     def describeNextReport(self, simulation):
         """
         Gets information about the next report this object will generate.
@@ -77,8 +88,25 @@ class Reporter(object):
             energies respectively.
 
         """
-        steps = self._reportInterval - simulation.currentStep % self._reportInterval
+        if self._requiresInitialization:
+            self._initialize(simulation)
+
+        steps = self._interval - simulation.currentStep % self._interval
         return (steps, self._needsPositions, self._needsVelocities, self._needsForces, self._needEnergy)
+
+    def report(self, simulation, state):
+        """
+        Generate a report.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The Simulation to generate a report for
+        state : State
+            The current state of the simulation
+
+        """
+        pass
 
 
 class MultistateEnergyReporter(Reporter):
@@ -92,28 +120,27 @@ class MultistateEnergyReporter(Reporter):
         The file to write to, specified as a file name or file object. One can try to use extensions
         `.gz` or `.bz2` in order to generate a compressed file, depending on the availability of the
         required Python packages.
-    reportInterval : int
-        The interval (in time steps) at which to write frames.
+    interval : int
+        The interval (in time steps) at which to write reports.
     states : dict(string: list(number)) or _pandas.DataFrame
         The names (keys) and set of values of global variables which define the thermodynamic
         states. All provided value lists must have the same size.
     separator : str, optional, default=","
         By default the data is written in comma-separated-value (CSV) format, but you can specify a
         different separator to use.
+    describeStates : bool, optional, default=False
+        If `True`, the first lines of the output file will contain lines describing the names and
+        values of the state-defining variables at each state.
 
     """
-    def __init__(self, file, reportInterval, states, separator=",", describeStates=False):
-        super().__init__(file, reportInterval, separator)
+    def __init__(self, file, interval, states, separator=",", describeStates=False):
+        super().__init__(file, interval, separator)
         self._states = states if isinstance(states, pd.DataFrame) else pd.DataFrame.from_dict(states)
         self._variables = self._states.columns.values
         self._describe = describeStates
 
-    def _flush(self, values):
-        print(self._separator.join("{}".format(v) for v in values), file=self._out)
-        try:
-            self._out.flush()
-        except AttributeError:
-            pass
+    def _headers(self):
+        return ["step"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
 
     def _initialize(self, simulation):
         stateVariables = set(self._variables)
@@ -137,22 +164,20 @@ class MultistateEnergyReporter(Reporter):
                 print("# State {}:".format(index),
                       ", ".join("{}={}".format(v, value[v]) for v in self._variables),
                       file=self._out)
+        self._flush(self._headers())
+        self.report(simulation, None)
         self._requiresInitialization = False
 
-    def _headers(self):
-        return ["E{}".format(index) for (index, value) in self._states.iterrows()]
-
     def _multistateEnergies(self, context):
-        energies = list()
+        energies = np.zeros(len(self._states.index))
         originalValues = [context.getParameter(variable) for variable in self._variables]
         for force in self._dependentForces:
             force.setForceGroup(self._availableForceGroup)
-        for (index, value) in self._states.iterrows():
+        for (i, (index, value)) in enumerate(self._states.iterrows()):
             for variable in self._variables:
                 context.setParameter(variable, value[variable])
             state = context.getState(getEnergy=True, groups=set([self._availableForceGroup]))
-            energy = state.getPotentialEnergy()
-            energies.append(energy.value_in_unit(unit.kilojoules_per_mole))
+            energies[i] = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
         for (force, group) in zip(self._dependentForces, self._forceGroups):
             force.setForceGroup(group)
         for (variable, value) in zip(self._variables, originalValues):
@@ -160,19 +185,51 @@ class MultistateEnergyReporter(Reporter):
         return energies
 
     def report(self, simulation, state):
-        """
-        Generate a report.
+        self._flush([simulation.currentStep] + self._multistateEnergies(simulation.context).tolist())
 
-        Parameters
-        ----------
-        simulation : Simulation
-            The Simulation to generate a report for
-        state : State
-            The current state of the simulation
 
-        """
-        if self._requiresInitialization:
-            self._initialize(simulation)
-            self._flush(self._headers())
+class ExpandedEnsembleReporter(MultistateEnergyReporter):
+    """
+    Performs an expanded ensemble simulation by walking through multiple thermodynamic states and
+    writes the system energy at these states to a file. To use it, create a ExpandedEnsembleReporter
+    and it to the Simulation's list of reporters.
 
-        self._flush(self._multistateEnergies(simulation.context))
+    Parameters
+    ----------
+    file : string or file
+        The file to write to, specified as a file name or file object. One can try to use extensions
+        `.gz` or `.bz2` in order to generate a compressed file, depending on the availability of the
+        required Python packages.
+    exchangeInterval : int
+        The interval (in units of time steps) at which to try changes in thermodynamic states.
+    reportInterval : int
+        The interval (in units of exchange intervals) at which to write reports.
+    states : dict(string: list(number)) or _pandas.DataFrame
+        The names (keys) and set of values of global variables which define the thermodynamic
+        states. All provided value lists must have the same size.
+    weights : list(number)
+        The importance weights for biasing the probability of picking each state in an exchange.
+    separator : str, optional, default=","
+        By default the data is written in comma-separated-value (CSV) format, but you can specify a
+        different separator to use.
+    describeStates : bool, optional, default=False
+        If `True`, the first lines of the output file will contain lines describing the names and
+        values of the state-defining variables at each state.
+
+    """
+    def __init__(self, file, exchangeInterval, reportInterval, states, weights,
+                 separator=",", describeStates=False):
+        super().__init__(file, exchangeInterval, states, separator, describeStates)
+        self._reportInterval = reportInterval
+        self._weights = np.array(weights)
+        self._exchangeCount = 0
+
+    def _headers(self):
+        return ["step"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
+
+    def report(self, simulation, state):
+        energies = self._multistateEnergies(simulation.context)
+        # probability =
+        if self._exchangeCount % self._reportInterval == 0:
+            self._flush([simulation.currentStep] + energies.tolist())
+        self._exchangeCount += 1
