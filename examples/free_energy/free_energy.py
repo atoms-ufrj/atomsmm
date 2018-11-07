@@ -11,7 +11,7 @@ import numpy as np
 platform = 'OpenCL'
 properties = dict(CUDA=dict(Precision='mixed'), Reference=dict(), OpenCL=dict())
 
-nprod = 300
+nprod = 30000
 nequil = 0
 ndisp = 10
 seed = 5623
@@ -69,7 +69,12 @@ simulation = app.Simulation(pdb.topology, system, integrator,
 simulation.context.setPositions(pdb.positions)
 simulation.context.setVelocitiesToTemperature(temp, seed)
 
-states = {"lambda": np.linspace(1.0, 0.0, 11)}
+lambdas = [0.00, 0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00]
+free_energies = np.array([0.0000, 0.1151, 0.4008, 1.4484, 2.4603, 2.8056, 2.7540, 2.5040, 2.3294, 2.1389, 1.9325, 1.7103, 1.4762, 1.2302, 0.9762, 0.7143])
+
+states = {"lambda": lambdas}
+kT = (unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temp).value_in_unit(unit.kilocalories_per_mole)
+weights = free_energies/kT
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
@@ -96,5 +101,5 @@ for (out, sep) in zip(outputs, separators):
 #     simulation.reporters.pop()
 
 weights = np.zeros(len(states), np.float)
-simulation.reporters.append(atomsmm.ExpandedEnsembleReporter('states.csv', ndisp, 2, states, weights))
+simulation.reporters.append(atomsmm.ExpandedEnsembleReporter('states.csv', ndisp, 2, states, weights, temp))
 simulation.step(nprod)

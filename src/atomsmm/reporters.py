@@ -136,6 +136,7 @@ class MultistateEnergyReporter(Reporter):
     def __init__(self, file, interval, states, separator=",", describeStates=False):
         super().__init__(file, interval, separator)
         self._states = states if isinstance(states, pd.DataFrame) else pd.DataFrame.from_dict(states)
+        self._nstates = len(self._states.index)
         self._variables = self._states.columns.values
         self._describe = describeStates
 
@@ -169,15 +170,15 @@ class MultistateEnergyReporter(Reporter):
         self._requiresInitialization = False
 
     def _multistateEnergies(self, context):
-        energies = np.zeros(len(self._states.index))
+        energies = list()
         originalValues = [context.getParameter(variable) for variable in self._variables]
         for force in self._dependentForces:
             force.setForceGroup(self._availableForceGroup)
-        for (i, (index, value)) in enumerate(self._states.iterrows()):
+        for (index, value) in self._states.iterrows():
             for variable in self._variables:
                 context.setParameter(variable, value[variable])
             state = context.getState(getEnergy=True, groups=set([self._availableForceGroup]))
-            energies[i] = state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+            energies.append(state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole))
         for (force, group) in zip(self._dependentForces, self._forceGroups):
             force.setForceGroup(group)
         for (variable, value) in zip(self._variables, originalValues):
@@ -185,7 +186,7 @@ class MultistateEnergyReporter(Reporter):
         return energies
 
     def report(self, simulation, state):
-        self._flush([simulation.currentStep] + self._multistateEnergies(simulation.context).tolist())
+        self._flush([simulation.currentStep] + self._multistateEnergies(simulation.context))
 
 
 class ExpandedEnsembleReporter(MultistateEnergyReporter):
@@ -209,6 +210,8 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
         states. All provided value lists must have the same size.
     weights : list(number)
         The importance weights for biasing the probability of picking each state in an exchange.
+    temperature : unit.Quantity
+        The system temperature.
     separator : str, optional, default=","
         By default the data is written in comma-separated-value (CSV) format, but you can specify a
         different separator to use.
@@ -218,18 +221,27 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
 
     """
     def __init__(self, file, exchangeInterval, reportInterval, states, weights,
-                 separator=",", describeStates=False):
+                 temperature, separator=",", describeStates=False):
         super().__init__(file, exchangeInterval, states, separator, describeStates)
         self._reportInterval = reportInterval
         self._weights = np.array(weights)
+        kT = (unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA*temperature).value_in_unit(unit.kilojoules_per_mole)
+        self._beta = 1/kT
+        self._currentState = -1
         self._exchangeCount = 0
 
     def _headers(self):
-        return ["step"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
+        return ["step", "state"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
 
     def report(self, simulation, state):
-        energies = self._multistateEnergies(simulation.context)
-        # probability =
+        energies = np.array(self._multistateEnergies(simulation.context))
+        probabilities = np.exp(-self._beta*energies + self._weights)
+        probabilities /= sum(probabilities)
+        newState = np.random.choice(range(self._nstates), p=probabilities)
+        if newState != self._currentState:
+            for (variable, value) in self._states.iloc[newState].to_dict().items():
+                simulation.context.setParameter(variable, value)
+            self._currentState = newState
         if self._exchangeCount % self._reportInterval == 0:
-            self._flush([simulation.currentStep] + energies.tolist())
+            self._flush([simulation.currentStep, self._currentState] + energies.tolist())
         self._exchangeCount += 1

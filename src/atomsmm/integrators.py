@@ -152,9 +152,10 @@ class SIN_R_Integrator(Integrator):
         stepSize : unit.Quantity
             The largest time step for numerically integrating the system of equations.
         loops : list(int)
-            A list of `N` integers, where `loops[k]` determines how many steps involving force group
-            `k` are internally executed for every step involving force group `k+1`. Thus, group `0`
-            is composed of the fastest forces, while group `N-1` is composed of the slowest ones.
+            A list of `N` integers. Assuming that force group `0` is composed of the fastest forces,
+            while group `N-1` is composed of the slowest ones, `loops[k]` determines how many steps
+            involving forces of group `k` are internally executed for every step involving those of
+            group `k+1`.
         temperature : unit.Quantity
             The temperature to which the configurational sampling should correspond.
         timeScale : unit.Quantity
@@ -167,11 +168,11 @@ class SIN_R_Integrator(Integrator):
     Keyword Args
     ------------
         location : str or int, default = "center"
-            The position in the rRESPA scheme where the force-indepependent isokinetic evolution
-            plus thermostat variable boost operator is located. Valid options are "center",
-            "xi-respa", "xo-respa", or an integer from `0` to `N-1`.
-            If it is "center", then the operator will be placed inside the Ornstein-Uhlenbeck
-            process, thus between coordinate moves.
+            The position in the rRESPA scheme where the propagator :math:`e^{\\delta t \\, iL_N}`
+            :cite:`Leimkuhler_2013` is located. Valid options are "center", "xi-respa", "xo-respa",
+            or an integer from `0` to `N-1`.
+            If it is "center", then the operator will be located inside the Ornstein-Uhlenbeck
+            process (thus, between coordinate moves during the fastest-force loops).
             If it is "xi-respa", then the operator will be integrated in the extremities of each
             loop concerning the timescale of fastest forces in the system (force group `0`).
             If it is "xo-respa", then the operator will be integrated in the extremities of each
