@@ -400,18 +400,19 @@ class NearNonbondedForce(Force):
         self.shifted = shifted
         self.forceSwitched = forceSwitched
         if forceSwitched:
-            expression = "4*epsilon*x*(M12*x-M6) + Kc*chargeprod*M1/r;"
-            expression += "x=(sigma/r)^6;"
-            expression += "M12=1+step(r-rs0)*((6*alpha^2-21*alpha+28)*((u+alpha)^12/alpha^9-alpha^3-12*alpha^2*u-66*alpha*u^2-220*u^3)/462+45*(7-2*alpha)*u^4/14-72*u^5/7);"
-            expression += "M6=1+step(r-rs0)*((6*alpha^2-3*alpha+1)*((u+alpha)^6/alpha^3-alpha^3-6*alpha^2*u-15*alpha*u^2-20*u^3)+45*(1-2*alpha)*u^4-36*u^5);"
-            expression += "M1=1+step(r-rs0)*(5*(alpha+1)^2*(6*alpha^2*(u+alpha)*log((u+alpha)/alpha)-6*u*alpha^2-3*u^2*alpha+u^3)+u^4*(3*u-5*alpha-10)/2);"
+            expression = "4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r;"
+            expression += "f12=1+step(r-rs0)*((6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7);"
+            expression += "f6=1+step(r-rs0)*((6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5);"
+            expression += "f1=1+step(r-rs0)*(5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2);"
+            expression += "R=u/b+1;"  # R=r/rs0
         else:
-            potential = "{}+{}".format(LennardJones("r"), Coulomb("r"))
+            potential = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r"
             if shifted:
-                potential+= "-({}+{})".format(LennardJones("rc0"), Coulomb("rc0"))
-            expression = "S*({}); S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);".format(potential)
-        expression += "u=r/Delta-alpha;"
-        expression += "alpha=rs0/Delta;"
+                potential += "-(4*epsilon*((sigma/rc0)^12-(sigma/rc0)^6) + Kc*chargeprod/rc0)"
+            expression = "S*({});".format(potential)
+            expression += "S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);"
+        expression += "u=(r-rs0)/Delta;"
+        expression += "b=rs0/Delta;"
         expression += "Delta=rc0-rs0;"
         expression += LorentzBerthelot()
         force = _CustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
