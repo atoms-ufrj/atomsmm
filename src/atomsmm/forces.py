@@ -393,19 +393,33 @@ class NearNonbondedForce(Force):
             prior to the potential smoothing.
 
     """
-    def __init__(self, cutoff_distance, switch_distance, shifted=True):
-        globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
-                        "rc0": cutoff_distance}
-        potential = "{}+{}".format(LennardJones("r"), Coulomb("r"))
-        if shifted:
-            potential += "-({}+{})".format(LennardJones("rc0"), Coulomb("rc0"))
-        energy = "{}; {}".format(potential, LorentzBerthelot())
-        force = _CustomNonbondedForce(energy, cutoff_distance, switch_distance, **globalParams)
+    def __init__(self, cutoff_distance, switch_distance, shifted=True, forceSwitched=False):
+        self.globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
+                             "rc0": cutoff_distance,
+                             "rs0": switch_distance}
+        self.shifted = shifted
+        self.forceSwitched = forceSwitched
+        if forceSwitched:
+            expression = "4*epsilon*x*(M12*x-M6) + Kc*chargeprod*M1/r;"
+            expression += "x=(sigma/r)^6;"
+            expression += "M12=1+step(r-rs0)*((6*alpha^2-21*alpha+28)*((u+alpha)^12/alpha^9-alpha^3-12*alpha^2*u-66*alpha*u^2-220*u^3)/462+45*(7-2*alpha)*u^4/14-72*u^5/7);"
+            expression += "M6=1+step(r-rs0)*((6*alpha^2-3*alpha+1)*((u+alpha)^6/alpha^3-alpha^3-6*alpha^2*u-15*alpha*u^2-20*u^3)+45*(1-2*alpha)*u^4-36*u^5);"
+            expression += "M1=1+step(r-rs0)*(5*(alpha+1)^2*(6*alpha^2*(u+alpha)*log((u+alpha)/alpha)-6*u*alpha^2-3*u^2*alpha+u^3)+u^4*(3*u-5*alpha-10)/2);"
+        else:
+            potential = "{}+{}".format(LennardJones("r"), Coulomb("r"))
+            if shifted:
+                potential+= "-({}+{})".format(LennardJones("rc0"), Coulomb("rc0"))
+            expression = "S*({}); S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);".format(potential)
+        expression += "u=r/Delta-alpha;"
+        expression += "alpha=rs0/Delta;"
+        expression += "Delta=rc0-rs0;"
+        expression += LorentzBerthelot()
+        force = _CustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
         super().__init__([force])
         self.index = 0
         self.rswitch = switch_distance
         self.rcut = cutoff_distance
-        self.shifted = shifted
+        self.expression = expression
 
 
 class FarNonbondedForce(Force):
@@ -440,18 +454,10 @@ class FarNonbondedForce(Force):
                  ewaldErrorTolerance=0.00001):
         if not isinstance(preceding, NearNonbondedForce):
             raise InputError("argument 'preceding' must be of class NearNonbondedForce")
-        rsi = "rs{}".format(preceding.index)
-        rci = "rc{}".format(preceding.index)
-        globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
-                        rsi: preceding.rswitch, rci: preceding.rcut}
-        potential = "-({}+{})".format(LennardJones("r"), Coulomb("r"))
-        if preceding.shifted:
-            potential += "+{}+{}".format(LennardJones(rci), Coulomb(rci))
-        energy = "step({}-r)*S*({});".format(rci, potential)
-        energy += "S = 1 + step(r - {})*u^3*(15*u - 6*u^2 - 10);".format(rsi)
-        energy += "u = (r - {})/({} - {});".format(rsi, rci, rsi)
-        energy += LorentzBerthelot()
-        discount = _CustomNonbondedForce(energy, cutoff_distance, None, **globalParams)
+        potential = preceding.expression.split(";")
+        potential[0] = "-step(rc0-r)*({})".format(potential[0])
+        energy = ";".join(potential)
+        discount = _CustomNonbondedForce(energy, cutoff_distance, None, **preceding.globalParams)
         total = _NonbondedForce(cutoff_distance, switch_distance,
                                 nonbondedMethod, ewaldErrorTolerance)
         super().__init__([total, discount])

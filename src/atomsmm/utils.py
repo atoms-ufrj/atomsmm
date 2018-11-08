@@ -29,7 +29,7 @@ def Coulomb(r):
 def LorentzBerthelot():
     mixingRule = "chargeprod = charge1*charge2;"
     mixingRule += "sigma = 0.5*(sigma1+sigma2);"
-    mixingRule += "epsilon = sqrt(epsilon1*epsilon2);"
+    mixingRule += "epsilon = sqrt(epsilon1*epsilon2)"
     return mixingRule
 
 

@@ -198,7 +198,8 @@ class SIN_R_Integrator(Integrator):
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
         if location == "center":
             OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2", "Q1*v1*v1 - kT")
-            central = propagators.TrotterSuzukiPropagator(isoN, OU)
+            # central = propagators.TrotterSuzukiPropagator(isoN, OU)
+            central = propagators.TrotterSuzukiPropagator(OU, isoN)
             propagator = propagators.RespaPropagator(loops, core=central, boost=isoF)
         else:
             OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2")

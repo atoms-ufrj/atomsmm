@@ -12,19 +12,20 @@ from openmmtools import integrators
 # platform = 'Reference'
 platform = 'OpenCL'
 properties = dict(CUDA=dict(Precision = 'mixed'), Reference=dict(), OpenCL=dict())
-nsteps = 10000
+nsteps = 100
 ndisp = 10
 seed = 5623
 temp = 300*unit.kelvin
-dt = 30*unit.femtoseconds
-loops = [6, 10, 1]
-rswitchIn = 4.0*unit.angstroms
-rcutIn = 7.0*unit.angstroms
-rswitch = 9.0*unit.angstroms
-rcut = 10*unit.angstroms
+dt = 90*unit.femtoseconds
+loops = [6, 30, 1]
+rswitchIn = 5.0*unit.angstroms
+rcutIn = 8.0*unit.angstroms
+rswitch = 11.4*unit.angstroms
+rcut = 12.4*unit.angstroms
 tau = 10*unit.femtoseconds
-gamma = 1/tau
-shift = True
+gamma = 0.1/unit.femtoseconds
+shift = False
+forceSwitch = True
 
 case = 'q-SPC-FW'
 # case = 'emim_BCN4_Jiung2014'
@@ -49,7 +50,7 @@ for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, p
 
 nbforce = atomsmm.hijackForce(system, nbforceIndex)
 exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
-innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, shift).setForceGroup(1)
+innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, shift, forceSwitch).setForceGroup(1)
 outerForce = atomsmm.FarNonbondedForce(innerForce, rcut, rswitch).setForceGroup(2)
 for force in [exceptions, innerForce, outerForce]:
     force.importFrom(nbforce)
@@ -59,34 +60,15 @@ print("\nSplit model:")
 for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, pdb.positions).items():
     print(term + ':', energy)
 
-dof = atomsmm.utils.countDegreesOfFreedom(system)
-thermostat = ppg.VelocityRescalingPropagator(temp, dof, tau)
-
-# integrator = openmm.LangevinIntegrator(temp, 1.0/unit.picoseconds, dt)
-# dof = atomsmm.utils.countDegreesOfFreedom(system) - 3
-# thermostat = ppg.NoseHooverPropagator(temp, dof, tau, nloops=1)
-# thermostat = ppg.SuzukiYoshidaPropagator(thermostat)
-# NVE = ppg.TrotterSuzukiPropagator(ppg.TranslationPropagator(constrained=False),
-                            #    ppg.VelocityBoostPropagator(constrained=False))
-# integrator = atomsmm.GlobalThermostatIntegrator(dt, NVE, thermostat)
-integrator = ppg.RespaPropagator(loops, shell={2: thermostat}).integrator(dt)
-
-integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma, location="center", nsy=3)
+integrator = atomsmm.SIN_R_Integrator(dt, loops, temp, tau, gamma, location="center")
 integrator.setRandomNumberSeed(seed)
 
 print(integrator)
-# print(integrator.getGlobalVariableByName("kT"))
 
 simulation = app.Simulation(pdb.topology, system, integrator,
                             openmm.Platform.getPlatformByName(platform), properties[platform])
 simulation.context.setPositions(pdb.positions)
 simulation.context.setVelocitiesToTemperature(300*unit.kelvin, seed)
-
-# integrator.check(simulation.context)
-# state = simulation.context.getState(getVelocities=True)
-# masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
-# for (m, v) in zip(masses, state.getVelocities()):
-#     print((m*(v[0]**2+v[1]**2+v[2]**2)/(unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA)).in_units_of(unit.kelvin))
 
 outputs = [stdout, 'output.csv']
 separators = ['\t', ',']
@@ -108,11 +90,7 @@ for (out, sep) in zip(outputs, separators):
 print('Running Production...')
 simulation.step(nsteps)
 
-# integrator.check(simulation.context)
-# masses = [system.getParticleMass(i) for i in range(system.getNumParticles())]
-# state = simulation.context.getState(getVelocities=True)
-# v1s = simulation.integrator.getPerDofVariableByName('v1')
-# Q1 = simulation.integrator.getGlobalVariableByName('Q1')
-# for (m, v, v1) in zip(masses, state.getVelocities(), v1s):
-#     for i in range(3):
-#         print((m/unit.dalton)*(v[i]*unit.picoseconds/unit.nanometer)**2, 0.5*Q1*v1[i]*v1[i])
+print("\nSplit model:")
+state = simulation.context.getState(getPositions=True)
+for (term, energy) in atomsmm.utils.splitPotentialEnergy(simulation.context.getSystem(), pdb.topology, state.getPositions()).items():
+    print(term + ':', energy)

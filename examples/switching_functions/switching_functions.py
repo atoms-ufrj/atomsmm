@@ -10,9 +10,9 @@ import atomsmm
 nsteps = 5000
 ndisp = 10
 temp = 30*unit.kelvin
-dt = 1.0*unit.femtoseconds
+dt = 1*unit.femtoseconds
 rcut = 10*unit.angstroms
-rswitch = 9.5*unit.angstroms
+rswitch = 8*unit.angstroms
 alpha = 0.29/unit.angstroms
 degree = 2
 
@@ -22,9 +22,14 @@ case = 'emim_BCN4_Jiung2014'
 pdb = app.PDBFile('../../tests/data/%s.pdb' % case)
 forcefield = app.ForceField('../../tests/data/%s.xml' % case)
 system = forcefield.createSystem(pdb.topology, rigid_water=True)
-nbforce = atomsmm.utils.hijackNonbondedForce(system)
-atomsmm.DampedSmoothedForce(alpha, rcut, rswitch, degree).importFrom(nbforce).addTo(system)
-integrator = openmm.LangevinIntegrator(temp, 1.0/unit.picosecond, dt)
+nbforceIndex = atomsmm.findNonbondedForce(system)
+nbforce = atomsmm.hijackForce(system, nbforceIndex)
+
+# atomsmm.DampedSmoothedForce(alpha, rcut, rswitch, degree).importFrom(nbforce).addTo(system)
+atomsmm.ForceSwitchNearNonbondedForce(rcut, rswitch).importFrom(nbforce).addTo(system)
+
+# integrator = openmm.LangevinIntegrator(temp, 1.0/unit.picosecond, dt)
+integrator = openmm.VerletIntegrator(dt)
 platform = openmm.Platform.getPlatformByName('CUDA')
 simulation = app.Simulation(pdb.topology, system, integrator, platform)
 simulation.context.setPositions(pdb.positions)

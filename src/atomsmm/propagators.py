@@ -147,7 +147,7 @@ class SplitPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, forceGroup=""):
         n = self.n
         if n == 1:
-            self.A.addSteps(integrator, fraction/n)
+            self.A.addSteps(integrator, fraction)
         else:
             integrator.addComputeGlobal("nSplit", "0")
             integrator.beginWhileBlock("nSplit < {}".format(n))
