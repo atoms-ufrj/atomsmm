@@ -360,26 +360,59 @@ class NonbondedExceptionsForce(Force):
 
 class NearNonbondedForce(Force):
     """
-    A smoothed version of the (optionally) shifted Lennard-Jones+Coulomb potential.
+    This is a smoothed version of the Lennard-Jones + Coulomb potential
 
     .. math::
-        & V(r)=\\left[U(r)-\\delta_\\mathrm{shift}U(r_\\mathrm{cut})\\right]S(r) \\\\
-        & U(r)=4\\epsilon\\left[
+        V_\\mathrm{LJC}(r)=4\\epsilon\\left[
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
-            \\right]+\\frac{1}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r} \\\\
-        & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
-        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2} \\\\
-        & S(r)=\\theta(r_\\mathrm{cut}-r)[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
-        & u=\\frac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}
+            \\right]+\\frac{1}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}.
 
-    In the equations above, :math:`\\theta(x)` is the Heaviside step function. The constant
-    :math:`\\delta_\\mathrm{shift}` is the numerical value (that is, 1 or 0) of the optional
-    boolean argument `shifted`.
+    The is accomplished via application of a 5th-order spline function :math:`S(r)`, which varies
+    smoothly from 1 down to 0 along the range :math:`r_\\mathrm{switch} \\leq r \\leq r_\\mathrm{cut}`.
+    Such function is
+
+    .. math::
+        S(u)=\\theta(1-u)[1+\\theta(u)u^3(15u-6u^2-10)],
+
+    where :math:`\\theta(x)` is the Heaviside step function and
+
+    .. math::
+        u=\\frac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}.
+
+    Such type of smoothing is essential for multiple time-scale integration using the RESPA-2
+    scheme described in Refs. :cite:`Zhou_2001`, :cite:`Morrone_2010`, and :cite:`Leimkuhler_2013`.
+
+    Three distinc versions are available:
+
+    1. Applying the switch directly to the potential:
+
+    .. math::
+        V(r)=S(u)V_\\mathrm{LJC}(r).
+
+    2. Applying the switch to a shifted version of the potential:
+
+    .. math::
+        V(r)=S(u)\\left[V_\\mathrm{LJC}(r)-V_\\mathrm{LJC}(r_\\mathrm{cut})\\right]
+
+    3. Applying the switch to the force that results from the potential:
+
+    .. math::
+        V(r)=\\left\\{
+            4\\epsilon\\left[f_{12}(u)\\left(\\frac{\\sigma}{r}\\right)^{12}-f_6(u)\\left(\\frac{\\sigma}{r}\\right)^6\\right]
+            + \\frac{f_1(u)}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}
+        \\right\\}
+
+    where :math:`f_n(u)` is the solution of
+
+    .. math::
+        & f_n-\\frac{u+b}{n}\\frac{df_n}{du}=S(u) \\\\
+        & f_n(0)=1 \\\\
+        & b=\\frac{r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}
+
+    As a consequence of this modification, :math:`V^\\prime(r)=S(u)V^\\prime_\\mathrm{LJC}`.
 
     .. note::
-        Except for the shifting, this model is the "near" part of the RESPA2 scheme of
-        Refs. :cite:`Zhou_2001` and :cite:`Morrone_2010`, with the switching function applied to
-        the potential rather than to the force.
+        In all cases, the Lorentz-Berthelot mixing rule is applied for unlike-atom interactions.
 
     Parameters
     ----------
@@ -391,35 +424,38 @@ class NearNonbondedForce(Force):
         shifted : Bool, optional, default=True
             If True, a potential shift is done for both the Lennard-Jones and the Coulomb term
             prior to the potential smoothing.
+        adjustment : str, optional, default=None
+            A keyword for modifying the potential energy function. If it is `None`, then the
+            switching function is applied directly to the original potential. Other options are
+            `"shift"` and `"force-switch"`. If it is `"shift"`, then the switching function is
+            applied to a potential that is already null at the cutoff due to a previous shift.
+            If it is `"force-switch"`, then the potential is modified so that the switching
+            function is applied to the forces rather than the potential energy.
 
     """
-    def __init__(self, cutoff_distance, switch_distance, shifted=True, forceSwitched=False):
+    def __init__(self, cutoff_distance, switch_distance, adjustment=None):
         self.globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
                              "rc0": cutoff_distance,
                              "rs0": switch_distance}
-        self.shifted = shifted
-        self.forceSwitched = forceSwitched
-        if forceSwitched:
+        if adjustment is None:
+            expression = "S*(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r);"
+            expression += "S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);"
+        elif adjustment == "shift":
+            expression = "S*(4*epsilon*((sigma/r)^12-(sigma/r)^6-((sigma/rc0)^12-(sigma/rc0)^6)) + Kc*chargeprod*(1/r-1/rc0));"
+            expression += "S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);"
+        elif adjustment == "force-switch":
             expression = "4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r;"
             expression += "f12=1+step(r-rs0)*((6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7);"
             expression += "f6=1+step(r-rs0)*((6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5);"
             expression += "f1=1+step(r-rs0)*(5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2);"
             expression += "R=u/b+1;"  # R=r/rs0
+            expression += "b=rs0/(rc0-rs0);"
         else:
-            potential = "4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r"
-            if shifted:
-                potential += "-(4*epsilon*((sigma/rc0)^12-(sigma/rc0)^6) + Kc*chargeprod/rc0)"
-            expression = "S*({});".format(potential)
-            expression += "S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);"
-        expression += "u=(r-rs0)/Delta;"
-        expression += "b=rs0/Delta;"
-        expression += "Delta=rc0-rs0;"
+            raise InputError("unknown adjustment option")
+        expression += "u=(r-rs0)/(rc0-rs0);"
         expression += LorentzBerthelot()
         force = _CustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
         super().__init__([force])
-        self.index = 0
-        self.rswitch = switch_distance
-        self.rcut = cutoff_distance
         self.expression = expression
 
 
@@ -457,8 +493,8 @@ class FarNonbondedForce(Force):
             raise InputError("argument 'preceding' must be of class NearNonbondedForce")
         potential = preceding.expression.split(";")
         potential[0] = "-step(rc0-r)*({})".format(potential[0])
-        energy = ";".join(potential)
-        discount = _CustomNonbondedForce(energy, cutoff_distance, None, **preceding.globalParams)
+        expression = ";".join(potential)
+        discount = _CustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
         total = _NonbondedForce(cutoff_distance, switch_distance,
                                 nonbondedMethod, ewaldErrorTolerance)
         super().__init__([total, discount])

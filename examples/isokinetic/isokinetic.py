@@ -16,16 +16,18 @@ nsteps = 100
 ndisp = 10
 seed = 5623
 temp = 300*unit.kelvin
-dt = 90*unit.femtoseconds
-loops = [6, 30, 1]
+dt = 30*unit.femtoseconds
+loops = [6, 10, 1]
 rswitchIn = 5.0*unit.angstroms
 rcutIn = 8.0*unit.angstroms
 rswitch = 11.4*unit.angstroms
 rcut = 12.4*unit.angstroms
 tau = 10*unit.femtoseconds
 gamma = 0.1/unit.femtoseconds
-shift = False
-forceSwitch = True
+
+# adjustment = None
+# adjustment = "shift"
+adjustment = "force-switch"
 
 case = 'q-SPC-FW'
 # case = 'emim_BCN4_Jiung2014'
@@ -50,7 +52,7 @@ for (term, energy) in atomsmm.utils.splitPotentialEnergy(system, pdb.topology, p
 
 nbforce = atomsmm.hijackForce(system, nbforceIndex)
 exceptions = atomsmm.NonbondedExceptionsForce().setForceGroup(0)
-innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, shift, forceSwitch).setForceGroup(1)
+innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment).setForceGroup(1)
 outerForce = atomsmm.FarNonbondedForce(innerForce, rcut, rswitch).setForceGroup(2)
 for force in [exceptions, innerForce, outerForce]:
     force.importFrom(nbforce)
