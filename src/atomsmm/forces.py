@@ -22,6 +22,18 @@ from atomsmm.utils import LennardJones
 from atomsmm.utils import LorentzBerthelot
 
 
+class _Proxy(object):
+    def __init__(self, force, method):
+        self.force = force
+        self.method = method
+
+    def __call__(self, *args, **kwargs):
+        for instance in self.force:
+            if hasattr(instance, self.method):
+                getattr(instance, self.method)(*args, **kwargs)
+        return self.force
+
+
 class Force:
     """
     This is the base class of every AtomsMM Force object, which is a list of OpenMM Force_ objects
@@ -51,24 +63,13 @@ class Force:
     def __getitem__(self, i):
         return self.forces[i]
 
-    def setForceGroup(self, group):
+    def __getattr__(self, method):
         """
-        Set the force group to which this :class:`Force` object belongs.
-
-        Parameters
-        ----------
-            group : int
-                The group index. Acceptable values lie between 0 and 31 (inclusive).
-
-        Returns
-        -------
-            :class:`Force`
-                The modified Force is returned for chaining purposes.
-
+        Returns a proxy object which, in turn, will apply the `method`, with the same arguments of
+        the original call, to all OpenMM forces which are stored in `self` and have `method` as an
+        attribute. In the end, the proxy will return that AtomsMM force for the purpose of chaining.
         """
-        for force in self.forces:
-            force.setForceGroup(group)
-        return self
+        return _Proxy(self, method)
 
     def getForceGroup(self):
         """
@@ -101,26 +102,6 @@ class Force:
             system.addForce(force)
         return self
 
-    def importFrom(self, force):
-        """
-        Import pair interaction parameters (i.e. Lennard-Jones parameters and charge products) from
-        a provided OpenMM NonbondedForce_ object.
-
-        Parameters
-        ----------
-            force : openmm.NonbondedForce
-                The force from which the parameters will be imported.
-
-        Returns
-        -------
-            :class:`Force`
-                The object is returned for chaining purposes.
-
-        """
-        for f in self.forces:
-            f.importFrom(force)
-        return self
-
     def enableExceptions(self):
         """
         Enables the :class:`Force` object to incorporate non-exclusion exceptions from an external
@@ -141,10 +122,6 @@ class Force:
         exceptions.setForceGroup(self.getForceGroup())
         self.forces.append(exceptions)
         return self
-
-    def addInteractionGroup(self, set1, set2):
-        for force in self.forces:
-            force.addInteractionGroup(set1, set2)
 
 
 class _NonbondedForce(openmm.NonbondedForce):
@@ -367,20 +344,26 @@ class NearNonbondedForce(Force):
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
             \\right]+\\frac{1}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}.
 
-    The is accomplished via application of a 5th-order spline function :math:`S(r)`, which varies
-    smoothly from 1 down to 0 along the range :math:`r_\\mathrm{switch} \\leq r \\leq r_\\mathrm{cut}`.
+    The smoothing is accomplished by application of a 5th-order spline function :math:`S(r)`, which
+    varies softly from 1 down to 0 along the range :math:`r_\\mathrm{switch} \\leq r \\leq r_\\mathrm{cut}`.
     Such function is
 
     .. math::
-        S(u)=\\theta(1-u)[1+\\theta(u)u^3(15u-6u^2-10)],
+        S(u)=1+u^3(15u-6u^2-10),
 
-    where :math:`\\theta(x)` is the Heaviside step function and
+    where
 
     .. math::
-        u=\\frac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}.
+        u(r)=\\begin{cases}
+                 0 & r < r_\\mathrm{switch} \\\\
+                 \\dfrac{r-r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}} &
+                     r_\\mathrm{switch} \\leq r \\leq r_\\mathrm{cut} \\\\
+                 1 & r > r_\\mathrm{cut}
+             \\end{cases}.
 
-    Such type of smoothing is essential for multiple time-scale integration using the RESPA-2
-    scheme described in Refs. :cite:`Zhou_2001`, :cite:`Morrone_2010`, and :cite:`Leimkuhler_2013`.
+    Such type of smoothing is essential for application in multiple time-scale integration using
+    the RESPA-2 scheme described in Refs. :cite:`Zhou_2001`, :cite:`Morrone_2010`, and
+    :cite:`Leimkuhler_2013`.
 
     Three distinc versions are available:
 
@@ -402,7 +385,7 @@ class NearNonbondedForce(Force):
             + \\frac{f_1(u)}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}
         \\right\\}
 
-    where :math:`f_n(u)` is the solution of
+    where :math:`f_n(u)` is the solution of the 1st order differential equation
 
     .. math::
         & f_n-\\frac{u+b}{n}\\frac{df_n}{du}=S(u) \\\\
