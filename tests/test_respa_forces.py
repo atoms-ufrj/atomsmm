@@ -47,9 +47,9 @@ def executeFarForceTest(OuterForceType, adjustment):
     pdb = app.PDBFile(case + '.pdb')
     forcefield = app.ForceField(case + '.xml')
 
-    system = forcefield.createSystem(pdb.topology)
+    system = forcefield.createSystem(pdb.topology, nonbondedMethod=openmm.app.PME)
     nbforce = atomsmm.hijackForce(system, atomsmm.findNonbondedForce(system))
-    innerforce = atomsmm.NearNonbondedForce(rcut_inner, rswitch_inner, adjustment).setForceGroup(1)
+    innerforce = atomsmm.NearNonbondedForce(rcut_inner, rswitch_inner, adjustment)
     innerforce.importFrom(nbforce).addTo(system)
     outerforce = OuterForceType(innerforce, rcut, rswitch).setForceGroup(2)
     outerforce.importFrom(nbforce).addTo(system)
@@ -62,7 +62,6 @@ def executeFarForceTest(OuterForceType, adjustment):
     force = refsys.getForce(refsys.getNumForces()-2)
     force.setUseSwitchingFunction(True)
     force.setSwitchingDistance(rswitch)
-    force.setEwaldErrorTolerance(1E-5)
     refpot = atomsmm.splitPotentialEnergy(refsys, pdb.topology, pdb.positions)["Total"]
 
     assert potential/potential.unit == pytest.approx(refpot/refpot.unit)

@@ -34,10 +34,10 @@ class _Proxy(object):
         return self.force
 
 
-class Force:
+class AtomsMMForce:
     """
-    This is the base class of every AtomsMM Force object, which is a list of OpenMM Force_ objects
-    treated as a single force.
+    This is the base class of every AtomsMM Force object. In AtomsMM, a force object is a
+    combination of OpenMM Force_ objects treated as a single force.
 
     Parameters
     ----------
@@ -46,7 +46,7 @@ class Force:
 
     """
     def __init__(self, forces):
-        self.forces = forces
+        self.forces = forces if isinstance(forces, list) else [forces]
         self.setForceGroup(0)
 
     def __iter__(self):
@@ -118,20 +118,20 @@ class Force:
                 The object is returned for chaining purposes.
 
         """
-        exceptions = _CustomBondForce()
+        exceptions = _AtomsMMCustomBondForce()
         exceptions.setForceGroup(self.getForceGroup())
         self.forces.append(exceptions)
         return self
 
 
-class _NonbondedForce(openmm.NonbondedForce):
+class _AtomsMMNonbondedForce(openmm.NonbondedForce):
     """
-    An extension of OpenMM's NonbondedForce_ class. By default, long-range dispersion correction is
-    employed and the method used for long-range electrostatic interactions is `PME`.
+    An extension of OpenMM's NonbondedForce_ class, but without non-exclusion exceptions. These must
+    be handled separately using a :class:`_AtomsMMCustomBondForce` object.
 
     .. warning::
-        All exceptions are turned into exclusions. Non-exclusion exceptions must be handled
-        separately using a :class:`_CustomBondForce` object.
+        When the :func:`~_AtomsMMNonbondedForce.importFrom` is used, all exceptions of the OpenMM
+        NonbondedForce_ passed as argument will be turned into exclusions.
 
     Parameters
     ----------
@@ -140,18 +140,11 @@ class _NonbondedForce(openmm.NonbondedForce):
         switch_distance : Number or unit.Quantity, optional, default=None
             The distance at which the switching function begins to reduce the interaction. If this
             is None, then no switching will be done.
-        nonbondedMethod : method, optional, default=openmm.NonbondedForce.PME
-            The method used for handling long range nonbonded interactions.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None,
-                 nonbondedMethod=openmm.NonbondedForce.PME,
-                 ewaldErrorTolerance=0.0001):
+    def __init__(self, cutoff_distance, switch_distance=None):
         super().__init__()
-        self.setNonbondedMethod(nonbondedMethod)
-        self.setEwaldErrorTolerance(ewaldErrorTolerance)
         self.setCutoffDistance(cutoff_distance)
-        self.setUseDispersionCorrection(True)
         if switch_distance is None:
             self.setUseSwitchingFunction(False)
         else:
@@ -160,8 +153,10 @@ class _NonbondedForce(openmm.NonbondedForce):
 
     def importFrom(self, force):
         """
-        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object while
-        transforming all non-exclusion exceptions into exclusion ones.
+        Import all particles and all exceptions from a passed OpenMM NonbondedForce_ object, but
+        transforming the non-exclusion exceptions into exclusion ones. Also imports the employed
+        nonbondedMethod, PME parameters and Ewald error tolerance, as well as whether to use
+        dispersion correction or not.
 
         Parameters
         ----------
@@ -170,7 +165,7 @@ class _NonbondedForce(openmm.NonbondedForce):
 
         Returns
         -------
-            :class:`_NonbondedForce`
+            :class:`_AtomsMMNonbondedForce`
                 The object is returned for chaining purposes.
 
         """
@@ -179,10 +174,16 @@ class _NonbondedForce(openmm.NonbondedForce):
         for index in range(force.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
             self.addException(i, j, 0.0*chargeprod, sigma, 0.0*epsilon)
+
+        self.setNonbondedMethod(force.getNonbondedMethod())
+        self.setEwaldErrorTolerance(force.getEwaldErrorTolerance())
+        self.setPMEParameters(*force.getPMEParameters())
+        self.setUseDispersionCorrection(force.getUseDispersionCorrection())
+
         return self
 
 
-class _CustomNonbondedForce(openmm.CustomNonbondedForce):
+class _AtomsMMCustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
 
@@ -202,16 +203,16 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
             Keyword arguments defining names and values of global nonbonded force parameters.
 
     """
-    def __init__(self, energy, cutoff_distance, switch_distance=None,
-                 parameters=["charge", "sigma", "epsilon"], **kwargs):
+    def __init__(self, energy, cutoff_distance, switch_distance=None, usesCharges=True, **globalParams):
         super().__init__(energy)
-        for name in parameters:
-            self.addPerParticleParameter(name)
-        for (name, value) in kwargs.items():
+        self.usesCharges = usesCharges
+        if self.usesCharges:
+            self.addPerParticleParameter("charge")
+        self.addPerParticleParameter("sigma")
+        self.addPerParticleParameter("epsilon")
+        for (name, value) in globalParams.items():
             self.addGlobalParameter(name, value)
-        self.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
         self.setCutoffDistance(cutoff_distance)
-        self.setUseLongRangeCorrection(False)
         if switch_distance is None:
             self.setUseSwitchingFunction(False)
         else:
@@ -230,26 +231,40 @@ class _CustomNonbondedForce(openmm.CustomNonbondedForce):
 
         Returns
         -------
-            :class:`_CustomNonbondedForce`
+            :class:`_AtomsMMCustomNonbondedForce`
                 The object is returned for chaining purposes.
 
         """
         for index in range(force.getNumParticles()):
-            self.addParticle(force.getParticleParameters(index))
+            charge, sigma, epsilon = force.getParticleParameters(index)
+            if self.usesCharges:
+                self.addParticle([charge, sigma, epsilon])
+            else:
+                self.addParticle([sigma, epsilon])
         for index in range(force.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
             self.addExclusion(i, j)
+
+        builtin = openmm.NonbondedForce
+        custom = openmm.CustomNonbondedForce
+        mapping = {builtin.CutoffNonPeriodic: custom.CutoffNonPeriodic,
+                   builtin.CutoffPeriodic: custom.CutoffPeriodic,
+                   builtin.Ewald: custom.CutoffPeriodic,
+                   builtin.NoCutoff: custom.NoCutoff,
+                   builtin.PME: custom.CutoffPeriodic}
+        self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
+        if not self.usesCharges:
+            self.setUseLongRangeCorrection(force.getUseDispersionCorrection())
         return self
 
 
-class _CustomBondForce(openmm.CustomBondForce):
+class _AtomsMMCustomBondForce(openmm.CustomBondForce):
     """
     An extension of OpenMM's CustomBondForce_ class used to handle NonbondedForce exceptions.
 
     """
     def __init__(self):
-        energy = "%s+%s;" % (LennardJones("r"), Coulomb("r"))
-        super().__init__(energy)
+        super().__init__("4*epsilon*x*(x-1) + Kc*chargeprod/r; x=(sigma/r)^6")
         self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
         self.addPerBondParameter("chargeprod")
         self.addPerBondParameter("sigma")
@@ -277,7 +292,7 @@ class _CustomBondForce(openmm.CustomBondForce):
         return self
 
 
-class DampedSmoothedForce(Force):
+class DampedSmoothedForce(AtomsMMForce):
     """
     A damped-smoothed version of the Lennard-Jones/Coulomb potential.
 
@@ -319,23 +334,23 @@ class DampedSmoothedForce(Force):
             energy += "S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);"
             energy += "u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={};".format(degree)
         energy += LorentzBerthelot()
-        force = _CustomNonbondedForce(energy, cutoff_distance,
-                                      switch_distance if degree == 1 else None,
-                                      Kc=138.935456*unit.kilojoules/unit.nanometer,
-                                      alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
-        super().__init__([force])
+        force = _AtomsMMCustomNonbondedForce(energy, cutoff_distance,
+                                             switch_distance if degree == 1 else None,
+                                             Kc=138.935456*unit.kilojoules/unit.nanometer,
+                                             alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
+        super().__init__(force)
 
 
-class NonbondedExceptionsForce(Force):
+class NonbondedExceptionsForce(AtomsMMForce):
     """
     A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
 
     """
     def __init__(self):
-        super().__init__([_CustomBondForce()])
+        super().__init__(_AtomsMMCustomBondForce())
 
 
-class NearNonbondedForce(Force):
+class NearNonbondedForce(AtomsMMForce):
     """
     This is a smoothed version of the Lennard-Jones + Coulomb potential
 
@@ -437,12 +452,12 @@ class NearNonbondedForce(Force):
             raise InputError("unknown adjustment option")
         expression += "u=(r-rs0)/(rc0-rs0);"
         expression += LorentzBerthelot()
-        force = _CustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
-        super().__init__([force])
+        force = _AtomsMMCustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
+        super().__init__(force)
         self.expression = expression
 
 
-class FarNonbondedForce(Force):
+class FarNonbondedForce(AtomsMMForce):
     """
     The complement of NearNonbondedForce and NonbondedExceptionsForce classes in order to form a
     complete OpenMM NonbondedForce.
@@ -469,21 +484,18 @@ class FarNonbondedForce(Force):
             The error tolerance for Ewald summation.
 
     """
-    def __init__(self, preceding, cutoff_distance, switch_distance=None,
-                 nonbondedMethod=openmm.NonbondedForce.PME,
-                 ewaldErrorTolerance=0.00001):
+    def __init__(self, preceding, cutoff_distance, switch_distance=None):
         if not isinstance(preceding, NearNonbondedForce):
             raise InputError("argument 'preceding' must be of class NearNonbondedForce")
         potential = preceding.expression.split(";")
         potential[0] = "-step(rc0-r)*({})".format(potential[0])
         expression = ";".join(potential)
-        discount = _CustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
-        total = _NonbondedForce(cutoff_distance, switch_distance,
-                                nonbondedMethod, ewaldErrorTolerance)
+        discount = _AtomsMMCustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
+        total = _AtomsMMNonbondedForce(cutoff_distance, switch_distance)
         super().__init__([total, discount])
 
 
-class SoftcoreLennardJonesForce(Force):
+class SoftcoreLennardJonesForce(AtomsMMForce):
     """
     A softened version of the Lennard-Jones potential.
 
@@ -505,5 +517,5 @@ class SoftcoreLennardJonesForce(Force):
     def __init__(self, cutoff_distance, switch_distance):
         globalParams = {"lambda": 1.0}
         potential = "4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);" + LorentzBerthelot()
-        force = _CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
-        super().__init__([force])
+        force = _AtomsMMCustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
+        super().__init__(force)
