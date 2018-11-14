@@ -122,7 +122,7 @@ class MultistateEnergyReporter(Reporter):
         required Python packages.
     interval : int
         The interval (in time steps) at which to write reports.
-    states : dict(string: list(number)) or _pandas.DataFrame
+    states : dict(string: list(number)) or pandas.DataFrame_
         The names (keys) and set of values of global variables which define the thermodynamic
         states. All provided value lists must have the same size.
     separator : str, optional, default=","
@@ -205,7 +205,7 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
         The interval (in units of time steps) at which to try changes in thermodynamic states.
     reportInterval : int
         The interval (in units of exchange intervals) at which to write reports.
-    states : dict(string: list(number)) or _pandas.DataFrame
+    states : dict(string: list(number)) or pandas.DataFrame_
         The names (keys) and set of values of global variables which define the thermodynamic
         states. All provided value lists must have the same size.
     weights : list(number)

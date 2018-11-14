@@ -35,7 +35,7 @@ def test_shifted_near():
 
 
 def test_force_swiched_near():
-    executeNearForceTest("force-switch", -25265.454307792825)
+    executeNearForceTest("force-switch", -26516.68871844118)
 
 
 def executeFarForceTest(OuterForceType, adjustment):

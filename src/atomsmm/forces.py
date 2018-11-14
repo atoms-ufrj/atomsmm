@@ -13,6 +13,8 @@
 
 """
 
+import math
+
 from simtk import openmm
 from simtk import unit
 
@@ -265,7 +267,7 @@ class _AtomsMMCustomBondForce(openmm.CustomBondForce):
     """
     def __init__(self):
         super().__init__("4*epsilon*x*(x-1) + Kc*chargeprod/r; x=(sigma/r)^6")
-        self.addGlobalParameter("Kc", 138.935456*unit.kilojoules/unit.nanometer)
+        self.addGlobalParameter("Kc", 138.935456*unit.kilojoules_per_mole/unit.nanometer)
         self.addPerBondParameter("chargeprod")
         self.addPerBondParameter("sigma")
         self.addPerBondParameter("epsilon")
@@ -336,7 +338,7 @@ class DampedSmoothedForce(AtomsMMForce):
         energy += LorentzBerthelot()
         force = _AtomsMMCustomNonbondedForce(energy, cutoff_distance,
                                              switch_distance if degree == 1 else None,
-                                             Kc=138.935456*unit.kilojoules/unit.nanometer,
+                                             Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
                                              alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
         super().__init__(force)
 
@@ -359,7 +361,7 @@ class NearNonbondedForce(AtomsMMForce):
                 \\left(\\frac{\\sigma}{r}\\right)^{12}-\\left(\\frac{\\sigma}{r}\\right)^6
             \\right]+\\frac{1}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}.
 
-    The smoothing is accomplished by application of a 5th-order spline function :math:`S(r)`, which
+    The smoothing is accomplished by application of a 5th-order spline function :math:`S(u(r))`, which
     varies softly from 1 down to 0 along the range :math:`r_\\mathrm{switch} \\leq r \\leq r_\\mathrm{cut}`.
     Such function is
 
@@ -385,19 +387,20 @@ class NearNonbondedForce(AtomsMMForce):
     1. Applying the switch directly to the potential:
 
     .. math::
-        V(r)=S(u)V_\\mathrm{LJC}(r).
+        V(r)=S(u(r))V_\\mathrm{LJC}(r).
 
     2. Applying the switch to a shifted version of the potential:
 
     .. math::
-        V(r)=S(u)\\left[V_\\mathrm{LJC}(r)-V_\\mathrm{LJC}(r_\\mathrm{cut})\\right]
+        V(r)=S(u(r))\\left[V_\\mathrm{LJC}(r)-V_\\mathrm{LJC}(r_\\mathrm{cut})\\right]
 
     3. Applying the switch to the force that results from the potential:
 
     .. math::
-        V(r)=\\left\\{
-            4\\epsilon\\left[f_{12}(u)\\left(\\frac{\\sigma}{r}\\right)^{12}-f_6(u)\\left(\\frac{\\sigma}{r}\\right)^6\\right]
-            + \\frac{f_1(u)}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}
+        & V(r)=V^\\ast_\\mathrm{LJC}(r)-V^\\ast_\\mathrm{LJC}(r_\\mathrm{cut}) \\\\
+        & V^\\ast_\\mathrm{LJC}(r)=\\left\\{
+            4\\epsilon\\left[f_{12}(u(r))\\left(\\frac{\\sigma}{r}\\right)^{12}-f_6(u(r))\\left(\\frac{\\sigma}{r}\\right)^6\\right]
+            + \\frac{f_1(u(r))}{4\\pi\\epsilon_0}\\frac{q_1 q_2}{r}
         \\right\\}
 
     where :math:`f_n(u)` is the solution of the 1st order differential equation
@@ -407,7 +410,7 @@ class NearNonbondedForce(AtomsMMForce):
         & f_n(0)=1 \\\\
         & b=\\frac{r_\\mathrm{switch}}{r_\\mathrm{cut}-r_\\mathrm{switch}}
 
-    As a consequence of this modification, :math:`V^\\prime(r)=S(u)V^\\prime_\\mathrm{LJC}`.
+    As a consequence of this modification, :math:`V^\\prime(r)=S(u(r))V^\\prime_\\mathrm{LJC}(r)`.
 
     .. note::
         In all cases, the Lorentz-Berthelot mixing rule is applied for unlike-atom interactions.
@@ -432,7 +435,7 @@ class NearNonbondedForce(AtomsMMForce):
 
     """
     def __init__(self, cutoff_distance, switch_distance, adjustment=None):
-        self.globalParams = {"Kc": 138.935456*unit.kilojoules/unit.nanometer,
+        self.globalParams = {"Kc": 138.935456*unit.kilojoules_per_mole/unit.nanometer,
                              "rc0": cutoff_distance,
                              "rs0": switch_distance}
         if adjustment is None:
@@ -442,12 +445,18 @@ class NearNonbondedForce(AtomsMMForce):
             expression = "S*(4*epsilon*((sigma/r)^12-(sigma/r)^6-((sigma/rc0)^12-(sigma/rc0)^6)) + Kc*chargeprod*(1/r-1/rc0));"
             expression += "S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);"
         elif adjustment == "force-switch":
-            expression = "4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r;"
+            potential = "4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r"
+            shift = "4*epsilon*(f12c*(sigma/rc0)^12-f6c*(sigma/rc0)^6) + Kc*chargeprod*f1c/rc0"
+            expression = "{}-({});".format(potential, shift)
             expression += "f12=1+step(r-rs0)*((6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7);"
             expression += "f6=1+step(r-rs0)*((6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5);"
             expression += "f1=1+step(r-rs0)*(5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2);"
             expression += "R=u/b+1;"  # R=r/rs0
-            expression += "b=rs0/(rc0-rs0);"
+            b = switch_distance/(cutoff_distance-switch_distance)
+            expression += "b={};".format(b)
+            expression += "f12c={};".format((1+b)**3*(b**6+3*b**5+(30/7)*b**4+(25/7)*b**3+(25/14)*b**2+(1/2)*b+2/33)/b**9)
+            expression += "f6c={};".format((1+b)**3/b**3)
+            expression += "f1c={};".format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12))
         else:
             raise InputError("unknown adjustment option")
         expression += "u=(r-rs0)/(rc0-rs0);"
@@ -514,7 +523,7 @@ class SoftcoreLennardJonesForce(AtomsMMForce):
             nonbonded interaction towards zero.
 
     """
-    def __init__(self, cutoff_distance, switch_distance):
+    def __init__(self, cutoff_distance, switch_distance=None):
         globalParams = {"lambda": 1.0}
         potential = "4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);" + LorentzBerthelot()
         force = _AtomsMMCustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
