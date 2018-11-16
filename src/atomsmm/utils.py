@@ -124,23 +124,43 @@ def splitPotentialEnergy(system, topology, positions):
 
     """
     syscopy = deepcopy(system)
-    forces = [syscopy.getForce(i) for i in range(syscopy.getNumForces())]
-    for (index, force) in enumerate(forces):
+    forces = [force for force in syscopy.getForces()]
+    index = 0
+    for force in forces:
         force.setForceGroup(index)
+        index += 1
+        if isinstance(force, openmm.NonbondedForce):
+            force.setReciprocalSpaceForceGroup(index)
+            index += 1
     platform = openmm.Platform.getPlatformByName('Reference')
     integrator = openmm.VerletIntegrator(0.0)
     simulation = openmm.app.Simulation(topology, syscopy, integrator, platform)
     simulation.context.setPositions(positions)
     terms = dict()
     energy = dict()
-    for (index, force) in enumerate(forces):
+    mask = []
+    index = 0
+    for force in forces:
         state = simulation.context.getState(getEnergy=True, groups=set([index]))
         forceType = force.__class__.__name__
-        if forceType not in terms:
+        if forceType == "NonbondedForce":
+            forceType = "Real-Space"
+        new = forceType not in terms
+        if new:
             terms[forceType] = 0
             energy[forceType] = state.getPotentialEnergy()
         else:
             terms[forceType] += 1
             energy["%s(%d)" % (forceType, terms[forceType])] = state.getPotentialEnergy()
+        mask.append(True)
+        index += 1
+        if isinstance(force, openmm.NonbondedForce):
+            state = simulation.context.getState(getEnergy=True, groups=set([index]))
+            if new:
+                energy["Reciprocal-Space"] = state.getPotentialEnergy()
+            else:
+                energy["%s(%d)" % ("Reciprocal-Space", terms[forceType])] = state.getPotentialEnergy()
+            index += 1
+            mask.append(False)
     energy["Total"] = sum(energy.values(), 0.0*unit.kilojoules_per_mole)
     return energy
