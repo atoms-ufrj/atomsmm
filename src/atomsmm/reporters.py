@@ -49,7 +49,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             if self._needsInitialization:
                 if simulation.context.getSystem().getNumConstraints() > 0:
                     raise RuntimeError("pressure cannot be reported for a system with constraints")
-                self._addExtraForces(simulation)
+                self._handleForces(simulation)
                 self._needsInitialization = False
             simulation.context.setParameter('virial', 1)
             virial = simulation.context.getState(getEnergy=True).getPotentialEnergy()
@@ -64,14 +64,16 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
                 values.append(pressure.value_in_unit(unit.atmospheres))
         return values
 
-    def _addExtraForces(self, simulation):
+    def _handleForces(self, simulation):
         system = simulation.context.getSystem()
 
         def first(members, type):
-            selected = list(filter(lambda x: isinstance(x, type), members))
-            return None if not selected else selected[0]
+            for (index, member) in enumerate(members):
+                if isinstance(member, type):
+                    return index, member
+            return 0, None
 
-        nbforce = first(system.getForces(), openmm.NonbondedForce)
+        iforce, nbforce = first(system.getForces(), openmm.NonbondedForce)
         if nbforce and nbforce.getNumParticles() > 0:
             expression = 'select(virial, 4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6), 0)'
             expression += '; sigma=0.5*(sigma1+sigma2)'
@@ -105,9 +107,9 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
 
             system.addForce(force)
 
-        bondforce = first(system.getForces(), openmm.HarmonicBondForce)
+        iforce, bondforce = first(system.getForces(), openmm.HarmonicBondForce)
         if bondforce and bondforce.getNumBonds() > 0:
-            expression = 'select(virial, -0.5*K*(r-r0)*(3*r-r0), 0)'
+            expression = 'select(virial, -K*r*(r-r0), 0.5*K*(r-r0)^2)'
             force = openmm.CustomBondForce(expression)
             force.addGlobalParameter('virial', 0)
             force.addPerBondParameter('r0')
@@ -115,11 +117,12 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             for index in range(bondforce.getNumBonds()):
                 i, j, r0, K = bondforce.getBondParameters(index)
                 force.addBond(i, j, [r0, K])
+            system.removeForce(iforce)
             system.addForce(force)
 
-        angleforce = first(system.getForces(), openmm.HarmonicAngleForce)
+        iforce, angleforce = first(system.getForces(), openmm.HarmonicAngleForce)
         if angleforce and angleforce.getNumAngles() > 0:
-            expression = 'select(virial, -0.5*K*(theta-theta0)^2, 0)'
+            expression = 'select(virial, 0, 0.5*K*(theta-theta0)^2)'
             force = openmm.CustomAngleForce(expression)
             force.addGlobalParameter('virial', 0)
             force.addPerAngleParameter('theta0')
@@ -127,11 +130,12 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             for index in range(angleforce.getNumAngles()):
                 i, j, k, theta0, K = angleforce.getAngleParameters(index)
                 force.addAngle(i, j, k, [theta0, K])
+            system.removeForce(iforce)
             system.addForce(force)
 
-        torsionforce = first(system.getForces(), openmm.PeriodicTorsionForce)
+        iforce, torsionforce = first(system.getForces(), openmm.PeriodicTorsionForce)
         if torsionforce and torsionforce.getNumTorsions() > 0:
-            expression = 'select(virial, K*(1+cos(n*theta−theta0)), 0)'
+            expression = 'select(virial, 0, K*(1+cos(n*theta−theta0)))'
             force = openmm.CustomTorsionForce(expression)
             force.addGlobalParameter('virial', 0)
             force.addPerTorsionParameter('n')
@@ -140,8 +144,8 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             for index in range(torsionforce.getNumAngles()):
                 i, j, k, l, n, theta0, K = torsionforce.getTorsionParameters(index)
                 force.addTorsion(i, j, k, l, [n, theta0, K])
+            system.removeForce(iforce)
             system.addForce(force)
-        # TODO: test torsion force
 
         simulation.context.reinitialize(preserveState=True)
 
