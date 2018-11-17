@@ -29,33 +29,39 @@ except ModuleNotFoundError:
 
 class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     def __init__(self, *args, **kwargs):
+        self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
-        if self._pressure:
+        if self._virial or self._pressure:
             self._needsInitialization = True
         super().__init__(*args, **kwargs)
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
+        if self._virial:
+            headers.append('Virial (kJ/mol)')
         if self._pressure:
             headers.append('Pressure (atm)')
         return headers
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._pressure:
+        if self._virial or self._pressure:
             if self._needsInitialization:
                 if simulation.context.getSystem().getNumConstraints() > 0:
-                    raise RuntimeError("pressure cannot be reported for system with constraints")
+                    raise RuntimeError("pressure cannot be reported for a system with constraints")
                 self._addExtraForces(simulation)
                 self._needsInitialization = False
-            dNkT = 2*state.getKineticEnergy()
-            box = state.getPeriodicBoxVectors()
-            volume = box[0][0]*box[1][1]*box[2][2]
             simulation.context.setParameter('virial', 1)
             virial = simulation.context.getState(getEnergy=True).getPotentialEnergy()
             simulation.context.setParameter('virial', 0)
-            pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-            values.append(pressure.value_in_unit(unit.atmospheres))
+            if self._virial:
+                values.append(virial.value_in_unit(unit.kilojoules_per_mole))
+            if self._pressure:
+                dNkT = 2*state.getKineticEnergy()
+                box = state.getPeriodicBoxVectors()
+                volume = box[0][0]*box[1][1]*box[2][2]
+                pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                values.append(pressure.value_in_unit(unit.atmospheres))
         return values
 
     def _addExtraForces(self, simulation):
@@ -91,7 +97,12 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
                 force.addParticle([sigma, epsilon])
             for index in range(nbforce.getNumExceptions()):
                 i, j, chargeprod, sigma, epsilon = nbforce.getExceptionParameters(index)
-                force.addExclusion(i, j)
+                if epsilon/epsilon.unit == 0.0:
+                    force.addExclusion(i, j)
+                else:
+                    raise RuntimeError("pressure cannot be reported for a system with non-exclusion exceptions")
+                # TODO: Add CustomBondForce for dealing with non-exclusion exceptions
+
             system.addForce(force)
 
         bondforce = first(system.getForces(), openmm.HarmonicBondForce)
@@ -117,6 +128,20 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
                 i, j, k, theta0, K = angleforce.getAngleParameters(index)
                 force.addAngle(i, j, k, [theta0, K])
             system.addForce(force)
+
+        torsionforce = first(system.getForces(), openmm.PeriodicTorsionForce)
+        if torsionforce and torsionforce.getNumTorsions() > 0:
+            expression = 'select(virial, K*(1+cos(n*theta−theta0)), 0)'
+            force = openmm.CustomTorsionForce(expression)
+            force.addGlobalParameter('virial', 0)
+            force.addPerTorsionParameter('n')
+            force.addPerTorsionParameter('theta0')
+            force.addPerTorsionParameter('K')
+            for index in range(torsionforce.getNumAngles()):
+                i, j, k, l, n, theta0, K = torsionforce.getTorsionParameters(index)
+                force.addTorsion(i, j, k, l, [n, theta0, K])
+            system.addForce(force)
+        # TODO: test torsion force
 
         simulation.context.reinitialize(preserveState=True)
 
