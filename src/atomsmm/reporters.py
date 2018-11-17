@@ -48,7 +48,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         if self._virial or self._pressure:
             if self._needsInitialization:
                 if simulation.context.getSystem().getNumConstraints() > 0:
-                    raise RuntimeError("pressure cannot be reported for a system with constraints")
+                    raise RuntimeError("cannot report virial/pressure for system with constraints")
                 self._handleForces(simulation)
                 self._needsInitialization = False
             simulation.context.setParameter('virial', 1)
@@ -71,7 +71,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             for (index, member) in enumerate(members):
                 if isinstance(member, type):
                     return index, member
-            return 0, None
+            return None, None
 
         iforce, nbforce = first(system.getForces(), openmm.NonbondedForce)
         if nbforce and nbforce.getNumParticles() > 0:
@@ -97,15 +97,18 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             for index in range(nbforce.getNumParticles()):
                 charge, sigma, epsilon = nbforce.getParticleParameters(index)
                 force.addParticle([sigma, epsilon])
+            exceptions = openmm.CustomBondForce(expression)
+            exceptions.addGlobalParameter('virial', 0)
+            exceptions.addPerBondParameter('sigma')
+            exceptions.addPerBondParameter('epsilon')
             for index in range(nbforce.getNumExceptions()):
                 i, j, chargeprod, sigma, epsilon = nbforce.getExceptionParameters(index)
-                if epsilon/epsilon.unit == 0.0:
-                    force.addExclusion(i, j)
-                else:
-                    raise RuntimeError("pressure cannot be reported for a system with non-exclusion exceptions")
-                # TODO: Add CustomBondForce for dealing with non-exclusion exceptions
-
+                force.addExclusion(i, j)
+                if epsilon/epsilon.unit != 0.0:
+                    exceptions.addBond(i, j, [sigma, epsilon])
             system.addForce(force)
+            if exceptions.getNumBonds() > 0:
+                system.addForce(exceptions)
 
         iforce, bondforce = first(system.getForces(), openmm.HarmonicBondForce)
         if bondforce and bondforce.getNumBonds() > 0:
