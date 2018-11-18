@@ -24,9 +24,9 @@ from atomsmm.utils import InputError
 class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
     def __init__(self, stepSize):
         super().__init__(stepSize)
-        self.addGlobalVariable("mvv", 0.0)
+        self.addGlobalVariable('mvv', 0.0)
         self.obsoleteKinetic = True
-        self.forceFinder = re.compile("f[0-9]*")
+        self.forceFinder = re.compile('f[0-9]*')
         self.obsoleteContextState = True
 
     def __str__(self):
@@ -38,13 +38,13 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
         required by an OpenMM CustomIntegrator operation.
 
         """
-        definitions = ("{}={}".format(variable, expression)).split(";")
+        definitions = ('{}={}'.format(variable, expression)).split(';')
         names = set()
         symbols = set()
         for definition in definitions:
-            name, expr = definition.split("=")
+            name, expr = definition.split('=')
             names.add(Symbol(name.strip()))
-            symbols |= parse_expr(expr.replace("^", "**")).free_symbols
+            symbols |= parse_expr(expr.replace('^', '**')).free_symbols
         return list(str(element) for element in (symbols - names))
 
     def _checkUpdate(self, variable, expression):
@@ -54,8 +54,8 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
 
         """
         requirements = self._required_variables(variable, expression)
-        if self.obsoleteKinetic and "mvv" in requirements:
-            super(Integrator, self).addComputeSum("mvv", "m*v*v")
+        if self.obsoleteKinetic and 'mvv' in requirements:
+            super(Integrator, self).addComputeSum('mvv', 'm*v*v')
             self.obsoleteKinetic = False
         if self.obsoleteContextState and any(self.forceFinder.match(s) for s in requirements):
             super(Integrator, self).addUpdateContextState()
@@ -67,15 +67,15 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
             self.obsoleteContextState = False
 
     def addComputeGlobal(self, variable, expression):
-        if variable == "mvv":
-            raise InputError("Cannot assign value to global variable mvv")
+        if variable == 'mvv':
+            raise InputError('Cannot assign value to global variable mvv')
         self._checkUpdate(variable, expression)
         super(Integrator, self).addComputeGlobal(variable, expression)
 
     def addComputePerDof(self, variable, expression):
         self._checkUpdate(variable, expression)
         super(Integrator, self).addComputePerDof(variable, expression)
-        if variable == "v":
+        if variable == 'v':
             self.obsoleteKinetic = True
 
     def setRandomNumberSeed(self, seed):
@@ -167,15 +167,15 @@ class SIN_R_Integrator(Integrator):
 
     Keyword Args
     ------------
-        location : str or int, default = "center"
+        location : str or int, default = 'center'
             The position in the rRESPA scheme where the propagator :math:`e^{\\delta t \\, iL_N}`
-            :cite:`Leimkuhler_2013` is located. Valid options are "center", "xi-respa", "xo-respa",
+            :cite:`Leimkuhler_2013` is located. Valid options are 'center', 'xi-respa', 'xo-respa',
             or an integer from `0` to `N-1`.
-            If it is "center", then the operator will be located inside the Ornstein-Uhlenbeck
+            If it is 'center', then the operator will be located inside the Ornstein-Uhlenbeck
             process (thus, between coordinate moves during the fastest-force loops).
-            If it is "xi-respa", then the operator will be integrated in the extremities of each
+            If it is 'xi-respa', then the operator will be integrated in the extremities of each
             loop concerning the timescale of fastest forces in the system (force group `0`).
-            If it is "xo-respa", then the operator will be integrated in the extremities of each
+            If it is 'xo-respa', then the operator will be integrated in the extremities of each
             loop concerning the timescale of the slowest forces in the system (force group `N-1`).
             If it is an integer `k`, then the operator will be integrated in the extremities of each
             loop concerning the timescale of force group `k`.
@@ -185,29 +185,29 @@ class SIN_R_Integrator(Integrator):
             The number of RESPA-like subdivisions.
 
     .. warning::
-        The "xi-respa" scheme implemented here is slightly different from the one described in the
+        The 'xi-respa' scheme implemented here is slightly different from the one described in the
         paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        location = kwargs.pop("location", "center")
-        nsy = kwargs.pop("nsy", 1)
-        nres = kwargs.pop("nres", 1)
+        location = kwargs.pop('location', 'center')
+        nsy = kwargs.pop('nsy', 1)
+        nres = kwargs.pop('nres', 1)
         super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        if location == "center":
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2", "Q1*v1*v1 - kT")
+        if location == 'center':
+            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2', 'Q1*v1*v1 - kT')
             # central = propagators.TrotterSuzukiPropagator(isoN, OU)
             central = propagators.TrotterSuzukiPropagator(OU, isoN)
             propagator = propagators.RespaPropagator(loops, core=central, boost=isoF)
         else:
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, "v2", "Q2")
-            v2boost = propagators.GenericBoostPropagator("v2", "Q2", "Q1*v1*v1 - kT")
+            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2')
+            v2boost = propagators.GenericBoostPropagator('v2', 'Q2', 'Q1*v1*v1 - kT')
             TS = propagators.TrotterSuzukiPropagator(isoN, v2boost)
             NH = propagators.SuzukiYoshidaPropagator(propagators.SplitPropagator(TS, nres), nsy)
             try:
-                level = {"xi-respa": 0, "xo-respa": len(loops)-1}[location]
+                level = {'xi-respa': 0, 'xo-respa': len(loops)-1}[location]
             except KeyError:
                 level = location
             propagator = propagators.RespaPropagator(loops, core=OU, shell={level: NH}, boost=isoF)
@@ -217,17 +217,17 @@ class SIN_R_Integrator(Integrator):
 
     def step(self, steps):
         if self.requiresInitialization:
-            kT = self.getGlobalVariableByName("kT")
-            Q1 = self.getGlobalVariableByName("Q1")
-            Q2 = self.getGlobalVariableByName("Q2")
-            v1 = self.getPerDofVariableByName("v1")
-            v2 = self.getPerDofVariableByName("v2")
+            kT = self.getGlobalVariableByName('kT')
+            Q1 = self.getGlobalVariableByName('Q1')
+            Q2 = self.getGlobalVariableByName('Q2')
+            v1 = self.getPerDofVariableByName('v1')
+            v2 = self.getPerDofVariableByName('v2')
             S1 = math.sqrt(2*kT/Q1)
             S2 = math.sqrt(kT/Q2)
             for i in range(len(v1)):
                 v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
                 v2[i] = openmm.Vec3(random.gauss(0, S2), random.gauss(0, S2), random.gauss(0, S2))
-            self.setPerDofVariableByName("v1", v1)
-            self.setPerDofVariableByName("v2", v2)
+            self.setPerDofVariableByName('v1', v1)
+            self.setPerDofVariableByName('v2', v2)
             self.requiresInitialization = False
         return super().step(steps)

@@ -15,21 +15,21 @@ from simtk import unit
 
 class InputError(Exception):
     def __init__(self, msg):
-        super(InputError, self).__init__("\033[1;31m" + msg + "\033[0m")
+        super(InputError, self).__init__('\033[1;31m' + msg + '\033[0m')
 
 
 def LennardJones(r):
-    return "4*epsilon*((sigma/%s)^12 - (sigma/%s)^6)" % (r, r)
+    return '4*epsilon*((sigma/%s)^12 - (sigma/%s)^6)' % (r, r)
 
 
 def Coulomb(r):
-    return "Kc*chargeprod/%s" % r
+    return 'Kc*chargeprod/%s' % r
 
 
 def LorentzBerthelot():
-    mixingRule = "chargeprod = charge1*charge2;"
-    mixingRule += "sigma = 0.5*(sigma1+sigma2);"
-    mixingRule += "epsilon = sqrt(epsilon1*epsilon2)"
+    mixingRule = 'chargeprod = charge1*charge2;'
+    mixingRule += 'sigma = 0.5*(sigma1+sigma2);'
+    mixingRule += 'epsilon = sqrt(epsilon1*epsilon2)'
     return mixingRule
 
 
@@ -143,24 +143,24 @@ def splitPotentialEnergy(system, topology, positions):
     for force in forces:
         state = simulation.context.getState(getEnergy=True, groups=set([index]))
         forceType = force.__class__.__name__
-        if forceType == "NonbondedForce":
-            forceType = "Real-Space"
+        if forceType == 'NonbondedForce':
+            forceType = 'Real-Space'
         new = forceType not in terms
         if new:
             terms[forceType] = 0
             energy[forceType] = state.getPotentialEnergy()
         else:
             terms[forceType] += 1
-            energy["%s(%d)" % (forceType, terms[forceType])] = state.getPotentialEnergy()
+            energy['%s(%d)' % (forceType, terms[forceType])] = state.getPotentialEnergy()
         mask.append(True)
         index += 1
         if isinstance(force, openmm.NonbondedForce):
             state = simulation.context.getState(getEnergy=True, groups=set([index]))
             if new:
-                energy["Reciprocal-Space"] = state.getPotentialEnergy()
+                energy['Reciprocal-Space'] = state.getPotentialEnergy()
             else:
-                energy["%s(%d)" % ("Reciprocal-Space", terms[forceType])] = state.getPotentialEnergy()
+                energy['%s(%d)' % ('Reciprocal-Space', terms[forceType])] = state.getPotentialEnergy()
             index += 1
             mask.append(False)
-    energy["Total"] = sum(energy.values(), 0.0*unit.kilojoules_per_mole)
+    energy['Total'] = sum(energy.values(), 0.0*unit.kilojoules_per_mole)
     return energy

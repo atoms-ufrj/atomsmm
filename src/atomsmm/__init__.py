@@ -1,4 +1,4 @@
-__version__ = "0.1.0"
+__version__ = '0.1.0'
 
 from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401

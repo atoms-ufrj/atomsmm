@@ -48,7 +48,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         if self._virial or self._pressure:
             if self._needsInitialization:
                 if simulation.context.getSystem().getNumConstraints() > 0:
-                    raise RuntimeError("cannot report virial/pressure for system with constraints")
+                    raise RuntimeError('cannot report virial/pressure for system with constraints')
                 self._handleForces(simulation)
                 self._needsInitialization = False
             simulation.context.setParameter('virial', 1)
@@ -158,23 +158,23 @@ class AtomsMMReporter(object):
     Base class for reporters.
 
     """
-    def __init__(self, file, interval, separator=","):
+    def __init__(self, file, interval, separator=','):
         self._interval = interval
         self._separator = separator
         self._fileWasOpened = isinstance(file, str)
         if self._fileWasOpened:
             # Detect the desired compression scheme from the filename extension
             # and open all files unbuffered
-            if file.endswith(".gz"):
+            if file.endswith('.gz'):
                 if not have_gzip:
-                    raise RuntimeError("Cannot write .gz file because Python could not import gzip library")
-                self._out = gzip.GzipFile(fileobj=open(file, "wb", 0))
-            elif file.endswith(".bz2"):
+                    raise RuntimeError('Cannot write .gz file because Python could not import gzip library')
+                self._out = gzip.GzipFile(fileobj=open(file, 'wb', 0))
+            elif file.endswith('.bz2'):
                 if not have_bz2:
-                    raise RuntimeError("Cannot write .bz2 file because Python could not import bz2 library")
-                self._out = bz2.BZ2File(file, "w", 0)
+                    raise RuntimeError('Cannot write .bz2 file because Python could not import bz2 library')
+                self._out = bz2.BZ2File(file, 'w', 0)
             else:
-                self._out = open(file, "w")
+                self._out = open(file, 'w')
         else:
             self._out = file
         self._requiresInitialization = True
@@ -188,7 +188,7 @@ class AtomsMMReporter(object):
             self._out.close()
 
     def _flush(self, values):
-        print(self._separator.join("{}".format(v) for v in values), file=self._out)
+        print(self._separator.join('{}'.format(v) for v in values), file=self._out)
         try:
             self._out.flush()
         except AttributeError:
@@ -252,7 +252,7 @@ class MultistateEnergyReporter(AtomsMMReporter):
     states : dict(string: list(number)) or pandas.DataFrame_
         The names (keys) and set of values of global variables which define the thermodynamic
         states. All provided value lists must have the same size.
-    separator : str, optional, default=","
+    separator : str, optional, default=','
         By default the data is written in comma-separated-value (CSV) format, but you can specify a
         different separator to use.
     describeStates : bool, optional, default=False
@@ -260,7 +260,7 @@ class MultistateEnergyReporter(AtomsMMReporter):
         values of the state-defining variables at each state.
 
     """
-    def __init__(self, file, interval, states, separator=",", describeStates=False):
+    def __init__(self, file, interval, states, separator=',', describeStates=False):
         super().__init__(file, interval, separator)
         self._states = states if isinstance(states, pd.DataFrame) else pd.DataFrame.from_dict(states)
         self._nstates = len(self._states.index)
@@ -268,7 +268,7 @@ class MultistateEnergyReporter(AtomsMMReporter):
         self._describe = describeStates
 
     def _headers(self):
-        return ["step"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
+        return ['step']+['E{}'.format(index) for (index, value) in self._states.iterrows()]
 
     def _initialize(self, simulation):
         stateVariables = set(self._variables)
@@ -289,8 +289,8 @@ class MultistateEnergyReporter(AtomsMMReporter):
         self._availableForceGroup = lastForceGroup + 1
         if self._describe:
             for (index, value) in self._states.iterrows():
-                print("# State {}:".format(index),
-                      ", ".join("{}={}".format(v, value[v]) for v in self._variables),
+                print('# State {}:'.format(index),
+                      ', '.join('{}={}'.format(v, value[v]) for v in self._variables),
                       file=self._out)
         self._flush(self._headers())
         self.report(simulation, None)
@@ -339,7 +339,7 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
         The importance weights for biasing the probability of picking each state in an exchange.
     temperature : unit.Quantity
         The system temperature.
-    separator : str, optional, default=","
+    separator : str, optional, default=','
         By default the data is written in comma-separated-value (CSV) format, but you can specify a
         different separator to use.
     describeStates : bool, optional, default=False
@@ -348,7 +348,7 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
 
     """
     def __init__(self, file, exchangeInterval, reportInterval, states, weights,
-                 temperature, separator=",", describeStates=False):
+                 temperature, separator=',', describeStates=False):
         super().__init__(file, exchangeInterval, states, separator, describeStates)
         self._reportInterval = reportInterval
         self._weights = np.array(weights)
@@ -358,7 +358,7 @@ class ExpandedEnsembleReporter(MultistateEnergyReporter):
         self._exchangeCount = 0
 
     def _headers(self):
-        return ["step", "state"]+["E{}".format(index) for (index, value) in self._states.iterrows()]
+        return ['step', 'state']+['E{}'.format(index) for (index, value) in self._states.iterrows()]
 
     def report(self, simulation, state):
         energies = np.array(self._multistateEnergies(simulation.context))
