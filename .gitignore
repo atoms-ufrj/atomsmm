@@ -63,7 +63,3 @@ docs/_build
 .appveyor.token
 *.bak
 .pytest_cache/
-
-# Example outputs
-examples/*/*.csv
-examples/*/*.pdb

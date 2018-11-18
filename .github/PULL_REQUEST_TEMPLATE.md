@@ -24,7 +24,7 @@ _Provide any relevant details about how the changes are implemented, how correct
 
 - [ ] The feature(s) in this pull request is complete
 - [ ] Documentation has been properly updated
-- [ ] One or more examples have been included
+- [ ] One or more examples have been included to [atomsmm_examples](https://github.com/atoms-ufrj/atomsmm_examples.git)
 - [ ] The source code has passed a complete `tox` test
 
 ## Further Information, Files, and Links
