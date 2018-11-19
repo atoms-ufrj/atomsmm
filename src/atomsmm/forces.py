@@ -24,7 +24,7 @@ from atomsmm.utils import LennardJones
 from atomsmm.utils import LorentzBerthelot
 
 
-class _AtomsMM_Force(object):
+class _AtomsMM_Force:
     """
     This is the base class of every AtomsMM Force object. In AtomsMM, a force object is a
     combination of OpenMM Force_ objects treated as a single force.
@@ -128,7 +128,7 @@ class _AtomsMM_CompoundForce:
                 The object is returned for chaining purposes.
 
         """
-        exceptions = _AtomsMM_CustomBondForce()
+        exceptions = NonbondedExceptionsForce()
         exceptions.setForceGroup(self.getForceGroup())
         self.forces.append(exceptions)
         return self
