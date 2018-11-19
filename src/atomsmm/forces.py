@@ -265,6 +265,16 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
         return self
 
+    def getGlobalParameters(self):
+        """
+        Return a dictionary with all global parameters and their default values.
+
+        """
+        globals = dict()
+        for index in range(self.getNumGlobalParameters()):
+            globals[self.getGlobalParameterName(index)] = self.getGlobalParameterDefaultValue(index)
+        return globals
+
 
 class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
     """
@@ -441,9 +451,6 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
         switch_distance : Number or unit.Quantity
             The distance at which the switching function begins to smooth the approach of the
             nonbonded interaction towards zero.
-        shifted : Bool, optional, default=True
-            If True, a potential shift is done for both the Lennard-Jones and the Coulomb term
-            prior to the potential smoothing.
         adjustment : str, optional, default=None
             A keyword for modifying the potential energy function. If it is `None`, then the
             switching function is applied directly to the original potential. Other options are
@@ -454,9 +461,9 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
 
     """
     def __init__(self, cutoff_distance, switch_distance, adjustment=None):
-        self.globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
-                             'rc0': cutoff_distance,
-                             'rs0': switch_distance}
+        globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
+                        'rc0': cutoff_distance,
+                        'rs0': switch_distance}
         if adjustment is None:
             expression = 'S*(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r);'
             expression += 'S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);'
@@ -480,8 +487,7 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
             raise InputError('unknown adjustment option')
         expression += 'u=(r-rs0)/(rc0-rs0);'
         expression += LorentzBerthelot()
-        super().__init__(expression, cutoff_distance, None, **self.globalParams)
-        self.expression = expression
+        super().__init__(expression, cutoff_distance, None, **globalParams)
 
 
 class FarNonbondedForce(_AtomsMM_CompoundForce):
@@ -514,10 +520,10 @@ class FarNonbondedForce(_AtomsMM_CompoundForce):
     def __init__(self, preceding, cutoff_distance, switch_distance=None):
         if not isinstance(preceding, NearNonbondedForce):
             raise InputError('argument \'preceding\' must be of class NearNonbondedForce')
-        potential = preceding.expression.split(';')
+        potential = preceding.getEnergyFunction().split(';')
         potential[0] = '-step(rc0-r)*({})'.format(potential[0])
         expression = ';'.join(potential)
-        discount = _AtomsMM_CustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
+        discount = _AtomsMM_CustomNonbondedForce(expression, cutoff_distance, None, **preceding.getGlobalParameters())
         total = _AtomsMM_NonbondedForce(cutoff_distance, switch_distance)
         super().__init__([total, discount])
 
