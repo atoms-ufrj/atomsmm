@@ -24,19 +24,22 @@ from atomsmm.utils import LennardJones
 from atomsmm.utils import LorentzBerthelot
 
 
-class _Proxy(object):
-    def __init__(self, force, method):
-        self.force = force
-        self.method = method
+class _AtomsMM_Force(object):
+    """
+    This is the base class of every AtomsMM Force object. In AtomsMM, a force object is a
+    combination of OpenMM Force_ objects treated as a single force.
 
-    def __call__(self, *args, **kwargs):
-        for instance in self.force:
-            if hasattr(instance, self.method):
-                getattr(instance, self.method)(*args, **kwargs)
-        return self.force
+    Parameters
+    ----------
+        forces : list(openmm.Force)
+            A list of OpenMM Force objects.
+
+    """
+    def addTo(self, system):
+        system.addForce(self)
 
 
-class AtomsMMForce:
+class _AtomsMM_CompoundForce:
     """
     This is the base class of every AtomsMM Force object. In AtomsMM, a force object is a
     combination of OpenMM Force_ objects treated as a single force.
@@ -65,13 +68,24 @@ class AtomsMMForce:
     def __getitem__(self, i):
         return self.forces[i]
 
+    class _Proxy(object):
+        def __init__(self, force, method):
+            self.force = force
+            self.method = method
+
+        def __call__(self, *args, **kwargs):
+            for instance in self.force:
+                if hasattr(instance, self.method):
+                    getattr(instance, self.method)(*args, **kwargs)
+            return self.force
+
     def __getattr__(self, method):
         """
         Returns a proxy object which, in turn, will apply the `method`, with the same arguments of
         the original call, to all OpenMM forces which are stored in `self` and have `method` as an
         attribute. In the end, the proxy will return that AtomsMM force for the purpose of chaining.
         """
-        return _Proxy(self, method)
+        return self._Proxy(self, method)
 
     def getForceGroup(self):
         """
@@ -120,19 +134,19 @@ class AtomsMMForce:
                 The object is returned for chaining purposes.
 
         """
-        exceptions = _AtomsMMCustomBondForce()
+        exceptions = _AtomsMM_CustomBondForce()
         exceptions.setForceGroup(self.getForceGroup())
         self.forces.append(exceptions)
         return self
 
 
-class _AtomsMMNonbondedForce(openmm.NonbondedForce):
+class _AtomsMM_NonbondedForce(openmm.NonbondedForce):
     """
     An extension of OpenMM's NonbondedForce_ class, but without non-exclusion exceptions. These must
-    be handled separately using a :class:`_AtomsMMCustomBondForce` object.
+    be handled separately using a :class:`_AtomsMM_CustomBondForce` object.
 
     .. warning::
-        When the :func:`~_AtomsMMNonbondedForce.importFrom` is used, all exceptions of the OpenMM
+        When the :func:`~_AtomsMM_NonbondedForce.importFrom` is used, all exceptions of the OpenMM
         NonbondedForce_ passed as argument will be turned into exclusions.
 
     Parameters
@@ -167,7 +181,7 @@ class _AtomsMMNonbondedForce(openmm.NonbondedForce):
 
         Returns
         -------
-            :class:`_AtomsMMNonbondedForce`
+            :class:`_AtomsMM_NonbondedForce`
                 The object is returned for chaining purposes.
 
         """
@@ -185,7 +199,7 @@ class _AtomsMMNonbondedForce(openmm.NonbondedForce):
         return self
 
 
-class _AtomsMMCustomNonbondedForce(openmm.CustomNonbondedForce):
+class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
 
@@ -233,7 +247,7 @@ class _AtomsMMCustomNonbondedForce(openmm.CustomNonbondedForce):
 
         Returns
         -------
-            :class:`_AtomsMMCustomNonbondedForce`
+            :class:`_AtomsMM_CustomNonbondedForce`
                 The object is returned for chaining purposes.
 
         """
@@ -260,9 +274,9 @@ class _AtomsMMCustomNonbondedForce(openmm.CustomNonbondedForce):
         return self
 
 
-class _AtomsMMCustomBondForce(openmm.CustomBondForce):
+class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
     """
-    An extension of OpenMM's CustomBondForce_ class used to handle NonbondedForce exceptions.
+    A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
 
     """
     def __init__(self):
@@ -294,7 +308,7 @@ class _AtomsMMCustomBondForce(openmm.CustomBondForce):
         return self
 
 
-class DampedSmoothedForce(AtomsMMForce):
+class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce, _AtomsMM_Force):
     """
     A damped-smoothed version of the Lennard-Jones/Coulomb potential.
 
@@ -336,23 +350,13 @@ class DampedSmoothedForce(AtomsMMForce):
             energy += 'S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);'
             energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={};'.format(degree)
         energy += LorentzBerthelot()
-        force = _AtomsMMCustomNonbondedForce(energy, cutoff_distance,
-                                             switch_distance if degree == 1 else None,
-                                             Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
-                                             alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
-        super().__init__(force)
+        super().__init__(energy, cutoff_distance,
+                         switch_distance if degree == 1 else None,
+                         Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
+                         alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
 
 
-class NonbondedExceptionsForce(AtomsMMForce):
-    """
-    A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
-
-    """
-    def __init__(self):
-        super().__init__(_AtomsMMCustomBondForce())
-
-
-class NearNonbondedForce(AtomsMMForce):
+class NearNonbondedForce(_AtomsMM_CustomNonbondedForce, _AtomsMM_Force):
     """
     This is a smoothed version of the Lennard-Jones + Coulomb potential
 
@@ -461,12 +465,11 @@ class NearNonbondedForce(AtomsMMForce):
             raise InputError('unknown adjustment option')
         expression += 'u=(r-rs0)/(rc0-rs0);'
         expression += LorentzBerthelot()
-        force = _AtomsMMCustomNonbondedForce(expression, cutoff_distance, None, **self.globalParams)
-        super().__init__(force)
+        super().__init__(expression, cutoff_distance, None, **self.globalParams)
         self.expression = expression
 
 
-class FarNonbondedForce(AtomsMMForce):
+class FarNonbondedForce(_AtomsMM_CompoundForce):
     """
     The complement of NearNonbondedForce and NonbondedExceptionsForce classes in order to form a
     complete OpenMM NonbondedForce.
@@ -499,12 +502,12 @@ class FarNonbondedForce(AtomsMMForce):
         potential = preceding.expression.split(';')
         potential[0] = '-step(rc0-r)*({})'.format(potential[0])
         expression = ';'.join(potential)
-        discount = _AtomsMMCustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
-        total = _AtomsMMNonbondedForce(cutoff_distance, switch_distance)
+        discount = _AtomsMM_CustomNonbondedForce(expression, cutoff_distance, None, **preceding.globalParams)
+        total = _AtomsMM_NonbondedForce(cutoff_distance, switch_distance)
         super().__init__([total, discount])
 
 
-class SoftcoreLennardJonesForce(AtomsMMForce):
+class SoftcoreLennardJonesForce(_AtomsMM_CompoundForce):
     """
     A softened version of the Lennard-Jones potential.
 
@@ -526,5 +529,5 @@ class SoftcoreLennardJonesForce(AtomsMMForce):
     def __init__(self, cutoff_distance, switch_distance=None):
         globalParams = {'lambda': 1.0}
         potential = '4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);' + LorentzBerthelot()
-        force = _AtomsMMCustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
+        force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
         super().__init__(force)
