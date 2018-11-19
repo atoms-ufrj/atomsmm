@@ -24,6 +24,7 @@ from .propagators import VelocityVerletPropagator  # noqa: F401
 from .reporters import ExpandedEnsembleReporter  # noqa: F401
 from .reporters import ExtendedStateDataReporter  # noqa: F401
 from .reporters import MultistateEnergyReporter  # noqa: F401
+from .systems import RESPASystem  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
 from .utils import hijackForce  # noqa: F401
@@ -65,6 +66,10 @@ __reporters__ = [
     'MultistateEnergyReporter',
     ]  # noqa E123
 
+__systems__ = [
+    'RESPASystem',
+    ]  # noqa E123
+
 __utils__ = [
     'countDegreesOfFreedom',
     'findNonbondedForce',
@@ -72,4 +77,4 @@ __utils__ = [
     'splitPotentialEnergy',
     ]  # noqa E123
 
-__all__ = __forces__ + __integrators__ + __propagators__ + __reporters__ + __utils__
+__all__ = __forces__ + __integrators__ + __propagators__ + __reporters__ + __systems__ + __utils__

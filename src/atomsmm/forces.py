@@ -134,7 +134,7 @@ class _AtomsMM_CompoundForce:
         return self
 
 
-class _AtomsMM_NonbondedForce(openmm.NonbondedForce):
+class _AtomsMM_NonbondedForce(openmm.NonbondedForce, _AtomsMM_Force):
     """
     An extension of OpenMM's NonbondedForce_ class, but without non-exclusion exceptions. These must
     be handled separately using a :class:`_AtomsMM_CustomBondForce` object.
@@ -193,7 +193,7 @@ class _AtomsMM_NonbondedForce(openmm.NonbondedForce):
         return self
 
 
-class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce):
+class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force):
     """
     An extension of OpenMM's CustomNonbondedForce_ class.
 
@@ -263,8 +263,6 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce):
                    builtin.NoCutoff: custom.NoCutoff,
                    builtin.PME: custom.CutoffPeriodic}
         self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
-        if not self.usesCharges:
-            self.setUseLongRangeCorrection(force.getUseDispersionCorrection())
         return self
 
 
@@ -301,8 +299,31 @@ class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
                 self.addBond(i, j, [chargeprod, sigma, epsilon])
         return self
 
+    def extractFrom(self, force):
+        """
+        Extract all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object
+        and transform them into exclusion ones.
 
-class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce, _AtomsMM_Force):
+        Parameters
+        ----------
+            force : openmm.NonbondedForce
+                The force from which the exceptions will be imported.
+
+        Returns
+        -------
+            :class:`Force`
+                The object is returned for chaining purposes.
+
+        """
+        for index in range(force.getNumExceptions()):
+            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
+                self.addBond(i, j, [chargeprod, sigma, epsilon])
+                force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+        return self
+
+
+class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
     """
     A damped-smoothed version of the Lennard-Jones/Coulomb potential.
 
@@ -350,7 +371,7 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce, _AtomsMM_Force):
                          alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
 
 
-class NearNonbondedForce(_AtomsMM_CustomNonbondedForce, _AtomsMM_Force):
+class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
     """
     This is a smoothed version of the Lennard-Jones + Coulomb potential
 
