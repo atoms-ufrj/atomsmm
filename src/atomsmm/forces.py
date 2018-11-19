@@ -68,24 +68,18 @@ class _AtomsMM_CompoundForce:
     def __getitem__(self, i):
         return self.forces[i]
 
-    class _Proxy(object):
-        def __init__(self, force, method):
-            self.force = force
-            self.method = method
-
-        def __call__(self, *args, **kwargs):
-            for instance in self.force:
-                if hasattr(instance, self.method):
-                    getattr(instance, self.method)(*args, **kwargs)
-            return self.force
-
     def __getattr__(self, method):
         """
-        Returns a proxy object which, in turn, will apply the `method`, with the same arguments of
+        Returns a closure which, in turn, will apply the `method`, with the same arguments of
         the original call, to all OpenMM forces which are stored in `self` and have `method` as an
-        attribute. In the end, the proxy will return that AtomsMM force for the purpose of chaining.
+        attribute. In the end, the closure will return `self` for the purpose of chaining.
         """
-        return self._Proxy(self, method)
+        def closure(*args, **kwargs):
+            for instance in self.forces:
+                if hasattr(instance, method):
+                    getattr(instance, method)(*args, **kwargs)
+            return self
+        return closure
 
     def getForceGroup(self):
         """
