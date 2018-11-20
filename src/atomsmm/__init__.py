@@ -25,6 +25,7 @@ from .reporters import ExpandedEnsembleReporter  # noqa: F401
 from .reporters import ExtendedStateDataReporter  # noqa: F401
 from .reporters import MultistateEnergyReporter  # noqa: F401
 from .systems import RESPASystem  # noqa: F401
+from .systems import VirialComputationSystem  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
 from .utils import hijackForce  # noqa: F401
@@ -68,6 +69,7 @@ __reporters__ = [
 
 __systems__ = [
     'RESPASystem',
+    'VirialComputationSystem',
     ]  # noqa E123
 
 __utils__ = [

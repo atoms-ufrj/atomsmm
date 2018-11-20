@@ -14,6 +14,8 @@ import pandas as pd
 from simtk import openmm
 from simtk import unit
 
+from .systems import VirialComputationSystem
+
 try:
     import bz2
     have_bz2 = True
@@ -47,6 +49,8 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         values = super()._constructReportValues(simulation, state)
         if self._virial or self._pressure:
             if self._needsInitialization:
+                print(simulation.context.getSystem().__class__.__name__)
+                exit()
                 if simulation.context.getSystem().getNumConstraints() > 0:
                     raise RuntimeError('cannot report virial/pressure for system with constraints')
                 self._handleForces(simulation)
@@ -65,91 +69,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         return values
 
     def _handleForces(self, simulation):
-        system = simulation.context.getSystem()
-
-        def first(members, type):
-            for (index, member) in enumerate(members):
-                if isinstance(member, type):
-                    return index, member
-            return None, None
-
-        iforce, nbforce = first(system.getForces(), openmm.NonbondedForce)
-        if nbforce and nbforce.getNumParticles() > 0:
-            expression = 'select(virial, 4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6), 0)'
-            expression += '; sigma=0.5*(sigma1+sigma2)'
-            expression += '; epsilon=sqrt(epsilon1*epsilon2)'
-            force = openmm.CustomNonbondedForce(expression)
-            force.addGlobalParameter('virial', 0)
-            force.addPerParticleParameter('sigma')
-            force.addPerParticleParameter('epsilon')
-            mapping = {nbforce.CutoffNonPeriodic: force.CutoffNonPeriodic,
-                       nbforce.CutoffPeriodic: force.CutoffPeriodic,
-                       nbforce.Ewald: force.CutoffPeriodic,
-                       nbforce.NoCutoff: force.NoCutoff,
-                       nbforce.PME: force.CutoffPeriodic}
-            force.setNonbondedMethod(mapping[nbforce.getNonbondedMethod()])
-            force.setCutoffDistance(nbforce.getCutoffDistance())
-            force.setUseLongRangeCorrection(nbforce.getUseDispersionCorrection())
-            useSwitchingFunction = nbforce.getUseSwitchingFunction()
-            force.setUseSwitchingFunction(useSwitchingFunction)
-            if useSwitchingFunction:
-                force.setSwitchingDistance(nbforce.getSwitchingDistance())
-            for index in range(nbforce.getNumParticles()):
-                charge, sigma, epsilon = nbforce.getParticleParameters(index)
-                force.addParticle([sigma, epsilon])
-            exceptions = openmm.CustomBondForce(expression)
-            exceptions.addGlobalParameter('virial', 0)
-            exceptions.addPerBondParameter('sigma')
-            exceptions.addPerBondParameter('epsilon')
-            for index in range(nbforce.getNumExceptions()):
-                i, j, chargeprod, sigma, epsilon = nbforce.getExceptionParameters(index)
-                force.addExclusion(i, j)
-                if epsilon/epsilon.unit != 0.0:
-                    exceptions.addBond(i, j, [sigma, epsilon])
-            system.addForce(force)
-            if exceptions.getNumBonds() > 0:
-                system.addForce(exceptions)
-
-        iforce, bondforce = first(system.getForces(), openmm.HarmonicBondForce)
-        if bondforce and bondforce.getNumBonds() > 0:
-            expression = 'select(virial, -K*r*(r-r0), 0.5*K*(r-r0)^2)'
-            force = openmm.CustomBondForce(expression)
-            force.addGlobalParameter('virial', 0)
-            force.addPerBondParameter('r0')
-            force.addPerBondParameter('K')
-            for index in range(bondforce.getNumBonds()):
-                i, j, r0, K = bondforce.getBondParameters(index)
-                force.addBond(i, j, [r0, K])
-            system.removeForce(iforce)
-            system.addForce(force)
-
-        iforce, angleforce = first(system.getForces(), openmm.HarmonicAngleForce)
-        if angleforce and angleforce.getNumAngles() > 0:
-            expression = 'select(virial, 0, 0.5*K*(theta-theta0)^2)'
-            force = openmm.CustomAngleForce(expression)
-            force.addGlobalParameter('virial', 0)
-            force.addPerAngleParameter('theta0')
-            force.addPerAngleParameter('K')
-            for index in range(angleforce.getNumAngles()):
-                i, j, k, theta0, K = angleforce.getAngleParameters(index)
-                force.addAngle(i, j, k, [theta0, K])
-            system.removeForce(iforce)
-            system.addForce(force)
-
-        iforce, torsionforce = first(system.getForces(), openmm.PeriodicTorsionForce)
-        if torsionforce and torsionforce.getNumTorsions() > 0:
-            expression = 'select(virial, 0, K*(1+cos(n*theta−theta0)))'
-            force = openmm.CustomTorsionForce(expression)
-            force.addGlobalParameter('virial', 0)
-            force.addPerTorsionParameter('n')
-            force.addPerTorsionParameter('theta0')
-            force.addPerTorsionParameter('K')
-            for index in range(torsionforce.getNumAngles()):
-                i, j, k, l, n, theta0, K = torsionforce.getTorsionParameters(index)
-                force.addTorsion(i, j, k, l, [n, theta0, K])
-            system.removeForce(iforce)
-            system.addForce(force)
-
+        VirialComputationSystem(simulation.context.getSystem(), inline=True)
         simulation.context.reinitialize(preserveState=True)
 
 
