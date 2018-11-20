@@ -115,11 +115,11 @@ class VirialComputationSystem(openmm.System):
 
         iforce, nbforce = first(self.getForces(), openmm.NonbondedForce)
         if nbforce and nbforce.getNumParticles() > 0:
-            expression = 'select(virial, 4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6), 0)'
+            expression = 'select(virialSwitch, 4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6), 0)'
             expression += '; sigma=0.5*(sigma1+sigma2)'
             expression += '; epsilon=sqrt(epsilon1*epsilon2)'
             force = openmm.CustomNonbondedForce(expression)
-            force.addGlobalParameter('virial', 0)
+            force.addGlobalParameter('virialSwitch', 0)
             force.addPerParticleParameter('sigma')
             force.addPerParticleParameter('epsilon')
             mapping = {nbforce.CutoffNonPeriodic: force.CutoffNonPeriodic,
@@ -138,7 +138,7 @@ class VirialComputationSystem(openmm.System):
                 charge, sigma, epsilon = nbforce.getParticleParameters(index)
                 force.addParticle([sigma, epsilon])
             exceptions = openmm.CustomBondForce(expression)
-            exceptions.addGlobalParameter('virial', 0)
+            exceptions.addGlobalParameter('virialSwitch', 0)
             exceptions.addPerBondParameter('sigma')
             exceptions.addPerBondParameter('epsilon')
             for index in range(nbforce.getNumExceptions()):
@@ -152,9 +152,9 @@ class VirialComputationSystem(openmm.System):
 
         iforce, bondforce = first(self.getForces(), openmm.HarmonicBondForce)
         if bondforce and bondforce.getNumBonds() > 0:
-            expression = 'select(virial, -K*r*(r-r0), 0.5*K*(r-r0)^2)'
+            expression = 'select(virialSwitch, -K*r*(r-r0), 0.5*K*(r-r0)^2)'
             force = openmm.CustomBondForce(expression)
-            force.addGlobalParameter('virial', 0)
+            force.addGlobalParameter('virialSwitch', 0)
             force.addPerBondParameter('r0')
             force.addPerBondParameter('K')
             for index in range(bondforce.getNumBonds()):
@@ -165,9 +165,9 @@ class VirialComputationSystem(openmm.System):
 
         iforce, angleforce = first(self.getForces(), openmm.HarmonicAngleForce)
         if angleforce and angleforce.getNumAngles() > 0:
-            expression = 'select(virial, 0, 0.5*K*(theta-theta0)^2)'
+            expression = 'select(virialSwitch, 0, 0.5*K*(theta-theta0)^2)'
             force = openmm.CustomAngleForce(expression)
-            force.addGlobalParameter('virial', 0)
+            force.addGlobalParameter('virialSwitch', 0)
             force.addPerAngleParameter('theta0')
             force.addPerAngleParameter('K')
             for index in range(angleforce.getNumAngles()):
@@ -178,9 +178,9 @@ class VirialComputationSystem(openmm.System):
 
         iforce, torsionforce = first(self.getForces(), openmm.PeriodicTorsionForce)
         if torsionforce and torsionforce.getNumTorsions() > 0:
-            expression = 'select(virial, 0, K*(1+cos(n*theta−theta0)))'
+            expression = 'select(virialSwitch, 0, K*(1+cos(n*theta−theta0)))'
             force = openmm.CustomTorsionForce(expression)
-            force.addGlobalParameter('virial', 0)
+            force.addGlobalParameter('virialSwitch', 0)
             force.addPerTorsionParameter('n')
             force.addPerTorsionParameter('theta0')
             force.addPerTorsionParameter('K')

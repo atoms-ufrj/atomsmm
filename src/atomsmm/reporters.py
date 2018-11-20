@@ -33,8 +33,6 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     def __init__(self, *args, **kwargs):
         self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
-        if self._virial or self._pressure:
-            self._needsInitialization = True
         super().__init__(*args, **kwargs)
 
     def _constructHeaders(self):
@@ -48,16 +46,12 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
         if self._virial or self._pressure:
-            if self._needsInitialization:
-                print(simulation.context.getSystem().__class__.__name__)
-                exit()
-                if simulation.context.getSystem().getNumConstraints() > 0:
-                    raise RuntimeError('cannot report virial/pressure for system with constraints')
-                self._handleForces(simulation)
-                self._needsInitialization = False
-            simulation.context.setParameter('virial', 1)
+            try:
+                simulation.context.setParameter('virialSwitch', 1)
+            except Exception:
+                raise RuntimeError('VirialComputationSystem required for reporting virial/pressure')
             virial = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-            simulation.context.setParameter('virial', 0)
+            simulation.context.setParameter('virialSwitch', 0)
             if self._virial:
                 values.append(virial.value_in_unit(unit.kilojoules_per_mole))
             if self._pressure:
@@ -67,10 +61,6 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
                 pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
                 values.append(pressure.value_in_unit(unit.atmospheres))
         return values
-
-    def _handleForces(self, simulation):
-        VirialComputationSystem(simulation.context.getSystem(), inline=True)
-        simulation.context.reinitialize(preserveState=True)
 
 
 class AtomsMMReporter(object):
