@@ -97,12 +97,16 @@ class VirialComputationSystem(_AtomsMMSystem):
     """
     An OpenMM System_ prepared for virial and pressure computation and reporting.
 
+    ..warning:
+        Currently, only fully flexible systems (i.e. without constraints) are supported.
+
     Parameters
     ----------
         system : openmm.System
             The original system from which to generate the VirialComputationSystem.
 
     """
+    # teste
     def __init__(self, system, **kwargs):
         if system.getNumConstraints() > 0:
             raise RuntimeError('cannot compute virial/pressure for system with constraints')

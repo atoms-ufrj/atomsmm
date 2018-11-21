@@ -36,7 +36,7 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     An extension of OpenMM's StateDataReporter_ class, which outputs information about a simulation,
     such as energy and temperature, to a file.
 
-    All original funcionalities of StateDataReporter_ are preserved, while the following ones are
+    All original functionalities of StateDataReporter_ are preserved, while the following ones are
     added:
 
     1. Report the internal virial of a fully-flexible system:

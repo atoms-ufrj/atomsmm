@@ -490,7 +490,7 @@ class RespaPropagator(Propagator):
             distribution sampled by the rRESPA scheme. Propagator `shell[k]` will be excecuted in
             both extremities of the loop involving forces of group `k`. If it is `None` (default),
             then no shell propagators will be applied. Dictionary keys must be integers from `0` to
-            `N-1` and ommitted keys mean that no shell propagators will be considered at those
+            `N-1` and omitted keys mean that no shell propagators will be considered at those
             particular loop levels.
 
     """
@@ -645,7 +645,7 @@ class VelocityRescalingPropagator(Propagator):
 
 class NoseHooverPropagator(Propagator):
     """
-    This class implements a Nose-Hoove propagator.
+    This class implements a Nose-Hoover propagator.
 
     As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
     :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`.
