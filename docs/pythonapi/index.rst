@@ -8,6 +8,7 @@ Python API
     integrators
     propagators
     reporters
+    systems
     utils
 
 

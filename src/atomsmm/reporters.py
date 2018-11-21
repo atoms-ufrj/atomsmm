@@ -6,6 +6,7 @@
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
 
 .. _pandas.DataFrame: https://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html
+.. _StateDataReporter: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.app.statedatareporter.StateDataReporter.html
 
 """
 
@@ -31,6 +32,41 @@ except ModuleNotFoundError:
 
 
 class ExtendedStateDataReporter(openmm.app.StateDataReporter):
+    """
+    An extension of OpenMM's StateDataReporter_ class, which outputs information about a simulation,
+    such as energy and temperature, to a file.
+
+    All original funcionalities of StateDataReporter_ are preserved, while the following ones are
+    added:
+
+    1. Report the internal virial of a fully-flexible system:
+
+    .. math::
+        W = -\\sum_{i,j} r_{ij} E^\\prime(r_{ij}),
+
+    where :math:`E^\\prime(r)` is the derivative of the pairwise interaction potential as a function
+    of the distance between to atoms. This includes van der Waals, Coulomb, and bond-stretching
+    interactions.
+
+    2. Report the internal pressure of a fully-flexible system:
+
+    .. math::
+        P = \\frac{2K + W}{3 V},
+
+    where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V` is
+    the volume of the system.
+
+    Keyword Args
+    ------------
+        virial : bool, optional, default=False
+            Whether to write the total internal virial to the file.
+        pressure : bool, optional, default=False
+            Whether to write the internal pressure to the file.
+        virialSystem : :class:`~atomsmm.systems.VirialComputationSystem`, optional, default=None
+            A system designed to compute the internal virial. This is mandatory if keyword `virial`
+            or `pressure` is set to `True`.
+
+    """
     def __init__(self, *args, **kwargs):
         self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
@@ -40,14 +76,15 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             if not isinstance(self._virialSystem, VirialComputationSystem):
                 raise InputError('VirialComputationSystem required for reporting virial/pressure')
             self._requiresInitialization = True
+            self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
         if self._virial:
-            headers.append('Virial (kJ/mol)')
+            headers.insert(self._backSteps, 'Virial (kJ/mole)')
         if self._pressure:
-            headers.append('Pressure (atm)')
+            headers.insert(self._backSteps, 'Pressure (atm)')
         return headers
 
     def _constructReportValues(self, simulation, state):
@@ -66,12 +103,12 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
             self._virialContext.setPositions(state.getPositions())
             virial = self._virialContext.getState(getEnergy=True).getPotentialEnergy()
             if self._virial:
-                values.append(virial.value_in_unit(unit.kilojoules_per_mole))
+                values.insert(self._backSteps, virial.value_in_unit(unit.kilojoules_per_mole))
             if self._pressure:
                 dNkT = 2*state.getKineticEnergy()
                 volume = box[0][0]*box[1][1]*box[2][2]
                 pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-                values.append(pressure.value_in_unit(unit.atmospheres))
+                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
         return values
 
 

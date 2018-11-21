@@ -17,17 +17,19 @@ import atomsmm
 
 
 class _AtomsMMSystem(openmm.System):
-    def __init__(self, system, **kwargs):
-        if kwargs.pop('inline', False):
-            self.__dict__ = system.__dict__
-        else:
-            self.__dict__ = copy.deepcopy(system).__dict__
-
-    def findForce(self, type):
-        for (index, force) in enumerate(self.getForces()):
-            if isinstance(force, type):
-                return index, force
-        return None, None
+    def __init__(self, system, copyForces=True):
+        super().__init__()
+        self.setDefaultPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())
+        for index in range(system.getNumParticles()):
+            self.addParticle(system.getParticleMass(index))
+        for index in range(system.getNumParticles()):
+            if system.isVirtualSite(index):
+                self.setVirtualSite(index, system.getVirtualSite())
+        for index in range(system.getNumConstraints()):
+            self.addConstraint(*system.getConstraintParameters(index))
+        if copyForces:
+            for force in system.getForces():
+                self.addForce(copy.deepcopy(force))
 
 
 class RESPASystem(_AtomsMMSystem):
@@ -36,7 +38,7 @@ class RESPASystem(_AtomsMMSystem):
 
     Parameters
     ----------
-        system : System_
+        system : openmm.System
             The original system from which to generate the RESPASystem.
         rcutIn : Number or unit.Quantity
             The distance at which the near nonbonded interactions vanish.
@@ -53,28 +55,29 @@ class RESPASystem(_AtomsMMSystem):
             applied to a potential that is already null at the cutoff due to a previous shift.
             If it is `'force-switch'`, then the potential is modified so that the switching
             function is applied to the forces rather than the potential energy.
-        inline : bool, optional, default=False
-            If `True`, then the system passed as argument will be modified to become a RESPASystem.
-            Otherwise, a new system will be created, leaving the passed one intact.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
-        super().__init__(system, **kwargs)
+        super().__init__(system)
 
         for force in self.getForces():
-            if force.getForceGroup() != 31:
+            if isinstance(force, openmm.NonbondedForce):
+                nonbonded = force
+                force.setForceGroup(2)
+                force.setReciprocalSpaceForceGroup(2)
+            else:
                 force.setForceGroup(0)
-
-        iforce, nonbonded = self.findForce(openmm.NonbondedForce)
 
         exceptions = atomsmm.NonbondedExceptionsForce()
         exceptions.extractFrom(nonbonded)
         if exceptions.getNumBonds() > 0:
+            exceptions.setForceGroup(0)
             self.addForce(exceptions)
 
         adjustment = kwargs.pop('adjustment', 'force-switch')
         innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
         innerForce.importFrom(nonbonded)
+        innerForce.setForceGroup(1)
         self.addForce(innerForce)
 
         potential = innerForce.getEnergyFunction().split(';')
@@ -84,31 +87,24 @@ class RESPASystem(_AtomsMMSystem):
         globals = innerForce.getGlobalParameters()
         discount = atomsmm.forces._AtomsMM_CustomNonbondedForce(potential, cutoff, None, **globals)
         discount.importFrom(nonbonded)
+        discount.setForceGroup(2)
         self.addForce(discount)
 
-        exceptions.setForceGroup(0)
-        innerForce.setForceGroup(1)
-        discount.setForceGroup(2)
-        nonbonded.setForceGroup(2)
-        nonbonded.setReciprocalSpaceForceGroup(2)
 
-
-class VirialComputationSystem(openmm.System):
+class VirialComputationSystem(_AtomsMMSystem):
     """
     An OpenMM System_ prepared for virial and pressure computation and reporting.
 
     Parameters
     ----------
-        system : System_
+        system : openmm.System
             The original system from which to generate the VirialComputationSystem.
 
     """
     def __init__(self, system, **kwargs):
         if system.getNumConstraints() > 0:
             raise RuntimeError('cannot compute virial/pressure for system with constraints')
-        super().__init__()
-        for index in range(system.getNumParticles()):
-            self.addParticle(system.getParticleMass(index))
+        super().__init__(system, copyForces=False)
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 self.addForce(copy.deepcopy(force))
@@ -132,3 +128,5 @@ class VirialComputationSystem(openmm.System):
                     i, j, r0, K = force.getBondParameters(index)
                     bondforce.addBond(i, j, [r0, K])
                 self.addForce(bondforce)
+            elif isinstance(force, openmm.CustomBondForce) and force.getNumBonds() > 0:
+                raise RuntimeError("CustomBondForce support not implemented yet")
