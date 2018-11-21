@@ -12,6 +12,8 @@
 import copy
 
 from simtk import openmm
+from sympy import Symbol
+from sympy.parsing.sympy_parser import parse_expr
 
 import atomsmm
 
@@ -129,4 +131,24 @@ class VirialComputationSystem(_AtomsMMSystem):
                     bondforce.addBond(i, j, [r0, K])
                 self.addForce(bondforce)
             elif isinstance(force, openmm.CustomBondForce) and force.getNumBonds() > 0:
-                raise RuntimeError("CustomBondForce support not implemented yet")
+                bondforce = openmm.CustomBondForce(self._virialExpression(force))
+                for index in range(force.getNumPerBondParameters()):
+                    bondforce.addPerBondParameter(force.getPerBondParameterName(index))
+                for index in range(force.getNumGlobalParameters()):
+                    bondforce.addGlobalParameter(force.getGlobalParameterName(index),
+                                                 force.getGlobalParameterDefaultValue(index))
+                for index in range(force.getNumBonds()):
+                    bondforce.addBond(*force.getBondParameters(index))
+                self.addForce(bondforce)
+
+    def _virialExpression(self, force):
+        definitions = force.getEnergyFunction().split(';')
+        function = parse_expr(definitions.pop(0))
+        for definition in definitions:
+            name, expression = definition.split('=')
+            symbol = Symbol(name.strip())
+            expression = parse_expr(expression.replace('^', '**'))
+            function = function.subs(symbol, expression)
+        r = Symbol('r')
+        virial = -r*function.diff(r)
+        return virial.__repr__()
