@@ -16,7 +16,21 @@ from simtk import openmm
 import atomsmm
 
 
-class RESPASystem(openmm.System):
+class _AtomsMMSystem(openmm.System):
+    def __init__(self, system, **kwargs):
+        if kwargs.pop('inline', False):
+            self.__dict__ = system.__dict__
+        else:
+            self.__dict__ = copy.deepcopy(system).__dict__
+
+    def findForce(self, type):
+        for (index, force) in enumerate(self.getForces()):
+            if isinstance(force, type):
+                return index, force
+        return None, None
+
+
+class RESPASystem(_AtomsMMSystem):
     """
     An OpenMM System_ prepared for Multiple Time-Scale Integration with RESPA.
 
@@ -45,15 +59,13 @@ class RESPASystem(openmm.System):
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
-        if kwargs.pop('inline', False):
-            self.__dict__ = system.__dict__
-        else:
-            self.__dict__ = copy.deepcopy(system).__dict__
+        super().__init__(system, **kwargs)
 
         for force in self.getForces():
-            force.setForceGroup(0)
+            if force.getForceGroup() != 31:
+                force.setForceGroup(0)
 
-        nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
+        iforce, nonbonded = self.findForce(openmm.NonbondedForce)
 
         exceptions = atomsmm.NonbondedExceptionsForce()
         exceptions.extractFrom(nonbonded)
@@ -90,102 +102,35 @@ class VirialComputationSystem(openmm.System):
         system : System_
             The original system from which to generate the VirialComputationSystem.
 
-    Keyword Args
-    ------------
-        inline : bool, optional, default=False
-            If `True`, then the system passed as argument will be modified to become a
-            VirialComputationSystem. Otherwise, a new system will be created, leaving the passed
-            one intact.
-
     """
     def __init__(self, system, **kwargs):
         if system.getNumConstraints() > 0:
-            raise RuntimeError('cannot create VirialComputationSystem from a system with constraints')
+            raise RuntimeError('cannot compute virial/pressure for system with constraints')
+        super().__init__()
+        self.setDefaultPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())
+        for index in range(system.getNumParticles()):
+            self.addParticle(system.getParticleMass(index))
 
-        if kwargs.pop('inline', False):
-            self.__dict__ = system.__dict__
-        else:
-            self.__dict__ = copy.deepcopy(system).__dict__
-
-        def first(members, type):
-            for (index, member) in enumerate(members):
-                if isinstance(member, type):
-                    return index, member
-            return None, None
-
-        iforce, nbforce = first(self.getForces(), openmm.NonbondedForce)
-        if nbforce and nbforce.getNumParticles() > 0:
-            expression = 'select(virialSwitch, 4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6), 0)'
-            expression += '; sigma=0.5*(sigma1+sigma2)'
-            expression += '; epsilon=sqrt(epsilon1*epsilon2)'
-            force = openmm.CustomNonbondedForce(expression)
-            force.addGlobalParameter('virialSwitch', 0)
-            force.addPerParticleParameter('sigma')
-            force.addPerParticleParameter('epsilon')
-            mapping = {nbforce.CutoffNonPeriodic: force.CutoffNonPeriodic,
-                       nbforce.CutoffPeriodic: force.CutoffPeriodic,
-                       nbforce.Ewald: force.CutoffPeriodic,
-                       nbforce.NoCutoff: force.NoCutoff,
-                       nbforce.PME: force.CutoffPeriodic}
-            force.setNonbondedMethod(mapping[nbforce.getNonbondedMethod()])
-            force.setCutoffDistance(nbforce.getCutoffDistance())
-            force.setUseLongRangeCorrection(nbforce.getUseDispersionCorrection())
-            useSwitchingFunction = nbforce.getUseSwitchingFunction()
-            force.setUseSwitchingFunction(useSwitchingFunction)
-            if useSwitchingFunction:
-                force.setSwitchingDistance(nbforce.getSwitchingDistance())
-            for index in range(nbforce.getNumParticles()):
-                charge, sigma, epsilon = nbforce.getParticleParameters(index)
-                force.addParticle([sigma, epsilon])
-            exceptions = openmm.CustomBondForce(expression)
-            exceptions.addGlobalParameter('virialSwitch', 0)
-            exceptions.addPerBondParameter('sigma')
-            exceptions.addPerBondParameter('epsilon')
-            for index in range(nbforce.getNumExceptions()):
-                i, j, chargeprod, sigma, epsilon = nbforce.getExceptionParameters(index)
-                force.addExclusion(i, j)
-                if epsilon/epsilon.unit != 0.0:
-                    exceptions.addBond(i, j, [sigma, epsilon])
-            self.addForce(force)
-            if exceptions.getNumBonds() > 0:
-                self.addForce(exceptions)
-
-        iforce, bondforce = first(self.getForces(), openmm.HarmonicBondForce)
-        if bondforce and bondforce.getNumBonds() > 0:
-            expression = 'select(virialSwitch, -K*r*(r-r0), 0.5*K*(r-r0)^2)'
-            force = openmm.CustomBondForce(expression)
-            force.addGlobalParameter('virialSwitch', 0)
-            force.addPerBondParameter('r0')
-            force.addPerBondParameter('K')
-            for index in range(bondforce.getNumBonds()):
-                i, j, r0, K = bondforce.getBondParameters(index)
-                force.addBond(i, j, [r0, K])
-            self.removeForce(iforce)
-            self.addForce(force)
-
-        iforce, angleforce = first(self.getForces(), openmm.HarmonicAngleForce)
-        if angleforce and angleforce.getNumAngles() > 0:
-            expression = 'select(virialSwitch, 0, 0.5*K*(theta-theta0)^2)'
-            force = openmm.CustomAngleForce(expression)
-            force.addGlobalParameter('virialSwitch', 0)
-            force.addPerAngleParameter('theta0')
-            force.addPerAngleParameter('K')
-            for index in range(angleforce.getNumAngles()):
-                i, j, k, theta0, K = angleforce.getAngleParameters(index)
-                force.addAngle(i, j, k, [theta0, K])
-            self.removeForce(iforce)
-            self.addForce(force)
-
-        iforce, torsionforce = first(self.getForces(), openmm.PeriodicTorsionForce)
-        if torsionforce and torsionforce.getNumTorsions() > 0:
-            expression = 'select(virialSwitch, 0, K*(1+cos(n*theta−theta0)))'
-            force = openmm.CustomTorsionForce(expression)
-            force.addGlobalParameter('virialSwitch', 0)
-            force.addPerTorsionParameter('n')
-            force.addPerTorsionParameter('theta0')
-            force.addPerTorsionParameter('K')
-            for index in range(torsionforce.getNumAngles()):
-                i, j, k, l, n, theta0, K = torsionforce.getTorsionParameters(index)
-                force.addTorsion(i, j, k, l, [n, theta0, K])
-            self.removeForce(iforce)
-            self.addForce(force)
+        for force in system.getForces():
+            if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
+                self.addForce(copy.deepcopy(force))
+                expression = '4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6)'
+                expression += '; sigma=0.5*(sigma1+sigma2)'
+                expression += '; epsilon=sqrt(epsilon1*epsilon2)'
+                rcut = force.getCutoffDistance()
+                rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
+                delta = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch, usesCharges=False)
+                delta.importFrom(force)
+                self.addForce(delta)
+                exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression, usesCharges=False)
+                exceptions.importFrom(force)
+                if exceptions.getNumBonds() > 0:
+                    self.addForce(exceptions)
+            elif isinstance(force, openmm.HarmonicBondForce) and force.getNumBonds() > 0:
+                bondforce = openmm.CustomBondForce('-K*r*(r-r0)')
+                bondforce.addPerBondParameter('r0')
+                bondforce.addPerBondParameter('K')
+                for index in range(force.getNumBonds()):
+                    i, j, r0, K = force.getBondParameters(index)
+                    bondforce.addBond(i, j, [r0, K])
+                self.addForce(bondforce)

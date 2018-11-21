@@ -15,6 +15,9 @@ from simtk import openmm
 from simtk import unit
 
 from .systems import VirialComputationSystem
+from .utils import findNonbondedForce
+from .utils import InputError
+from .utils import splitPotentialEnergy
 
 try:
     import bz2
@@ -33,7 +36,13 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     def __init__(self, *args, **kwargs):
         self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
+        self._virialSystem = kwargs.pop('virialSystem', None)
         super().__init__(*args, **kwargs)
+        if self._virial or self._pressure:
+            if not isinstance(self._virialSystem, VirialComputationSystem):
+                raise InputError('VirialComputationSystem required for reporting virial/pressure')
+            self._requiresInitialization = True
+            self._needsPositions = True
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
@@ -46,17 +55,18 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
         if self._virial or self._pressure:
-            try:
-                simulation.context.setParameter('virialSwitch', 1)
-            except Exception:
-                raise RuntimeError('VirialComputationSystem required for reporting virial/pressure')
-            virial = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-            simulation.context.setParameter('virialSwitch', 0)
+            if self._requiresInitialization:
+                integrator = openmm.CustomIntegrator(0)
+                self._virialContext = openmm.Context(self._virialSystem, integrator)
+                self._requiresInitialization = False
+            box = state.getPeriodicBoxVectors()
+            self._virialContext.setPeriodicBoxVectors(*box)
+            self._virialContext.setPositions(state.getPositions())
+            virial = self._virialContext.getState(getEnergy=True).getPotentialEnergy()
             if self._virial:
                 values.append(virial.value_in_unit(unit.kilojoules_per_mole))
             if self._pressure:
                 dNkT = 2*state.getKineticEnergy()
-                box = state.getPeriodicBoxVectors()
                 volume = box[0][0]*box[1][1]*box[2][2]
                 pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
                 values.append(pressure.value_in_unit(unit.atmospheres))

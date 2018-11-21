@@ -276,17 +276,26 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         return globals
 
 
-class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
+class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
     """
-    A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
+    An extension of OpenMM's CustomNonbondedForce_ class.
+
+    Parameters
+    ----------
+        energy : str
+            An algebraic expression giving the interaction energy between two particles as a
+            function of their distance `r`, as well as any per-particle and global parameters.
 
     """
-    def __init__(self):
-        super().__init__('4*epsilon*x*(x-1) + Kc*chargeprod/r; x=(sigma/r)^6')
-        self.addGlobalParameter('Kc', 138.935456*unit.kilojoules_per_mole/unit.nanometer)
-        self.addPerBondParameter('chargeprod')
+    def __init__(self, energy, usesCharges=True, **globalParams):
+        super().__init__(energy)
+        self.usesCharges = usesCharges
+        if self.usesCharges:
+            self.addPerBondParameter('chargeprod')
         self.addPerBondParameter('sigma')
         self.addPerBondParameter('epsilon')
+        for (name, value) in globalParams.items():
+            self.addGlobalParameter(name, value)
 
     def importFrom(self, force):
         """
@@ -306,7 +315,10 @@ class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
         for index in range(force.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
             if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                self.addBond(i, j, [chargeprod, sigma, epsilon])
+                if self.usesCharges:
+                    self.addBond(i, j, [chargeprod, sigma, epsilon])
+                else:
+                    self.addBond(i, j, [sigma, epsilon])
         return self
 
     def extractFrom(self, force):
@@ -331,6 +343,16 @@ class NonbondedExceptionsForce(openmm.CustomBondForce, _AtomsMM_Force):
                 self.addBond(i, j, [chargeprod, sigma, epsilon])
                 force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
         return self
+
+
+class NonbondedExceptionsForce(_AtomsMM_CustomBondForce):
+    """
+    A special class designed to compute only the exceptions of an OpenMM NonbondedForce object.
+
+    """
+    def __init__(self):
+        super().__init__('4*epsilon*x*(x-1) + Kc*chargeprod/r; x=(sigma/r)^6',
+                         Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer)
 
 
 class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
