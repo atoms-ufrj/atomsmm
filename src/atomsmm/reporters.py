@@ -10,6 +10,8 @@
 
 """
 
+import sys
+
 import numpy as np
 import pandas as pd
 from simtk import openmm
@@ -31,7 +33,44 @@ except ModuleNotFoundError:
     have_gzip = False
 
 
-class ExtendedStateDataReporter(openmm.app.StateDataReporter):
+class _AtomsMM_Reporter(openmm.app.StateDataReporter):
+    """
+    Base class for reporters.
+
+    Keyword Args
+    ------------
+        extra : str or file, optional, default=None
+            Extra file to write to, specified as a file name or a file object.
+
+    """
+    def __init__(self, file, reportInterval, **kwargs):
+        extra = kwargs.pop('extra', None)
+        if extra is None:
+            super().__init__(file, reportInterval, **kwargs)
+        else:
+            super().__init__(self._MultiStream([file, extra]), reportInterval, **kwargs)
+
+    class _MultiStream:
+        def __init__(self, outputs):
+            self._outputs = list()
+            for output in outputs:
+                self._outputs.append(open(output, 'w') if isinstance(output, str) else output)
+
+        def __del__(self):
+            for output in self._outputs:
+                if output != sys.stdout and output != sys.stderr:
+                    output.close()
+
+        def write(self, message):
+            for output in self._outputs:
+                output.write(message)
+
+        def flush(self):
+            for output in self._outputs:
+                output.flush()
+
+
+class ExtendedStateDataReporter(_AtomsMM_Reporter):
     """
     An extension of OpenMM's StateDataReporter_ class, which outputs information about a simulation,
     such as energy and temperature, to a file.
@@ -65,13 +104,15 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         virialSystem : :class:`~atomsmm.systems.VirialComputationSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
+        extra : str or file, optional, default=None
+            Extra file to write to, specified as a file name or a file object.
 
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, file, reportInterval, **kwargs):
         self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
         self._virialSystem = kwargs.pop('virialSystem', None)
-        super().__init__(*args, **kwargs)
+        super().__init__(file, reportInterval, **kwargs)
         if self._virial or self._pressure:
             if not isinstance(self._virialSystem, VirialComputationSystem):
                 raise InputError('VirialComputationSystem required for reporting virial/pressure')
