@@ -107,10 +107,8 @@ class VirialComputationSystem(openmm.System):
         if system.getNumConstraints() > 0:
             raise RuntimeError('cannot compute virial/pressure for system with constraints')
         super().__init__()
-        self.setDefaultPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())
         for index in range(system.getNumParticles()):
             self.addParticle(system.getParticleMass(index))
-
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 self.addForce(copy.deepcopy(force))

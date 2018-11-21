@@ -15,9 +15,7 @@ from simtk import openmm
 from simtk import unit
 
 from .systems import VirialComputationSystem
-from .utils import findNonbondedForce
 from .utils import InputError
-from .utils import splitPotentialEnergy
 
 try:
     import bz2
@@ -57,7 +55,11 @@ class ExtendedStateDataReporter(openmm.app.StateDataReporter):
         if self._virial or self._pressure:
             if self._requiresInitialization:
                 integrator = openmm.CustomIntegrator(0)
-                self._virialContext = openmm.Context(self._virialSystem, integrator)
+                platform = simulation.context.getPlatform()
+                properties = dict()
+                for name in platform.getPropertyNames():
+                    properties[name] = platform.getPropertyValue(simulation.context, name)
+                self._virialContext = openmm.Context(self._virialSystem, integrator, platform, properties)
                 self._requiresInitialization = False
             box = state.getPeriodicBoxVectors()
             self._virialContext.setPeriodicBoxVectors(*box)
