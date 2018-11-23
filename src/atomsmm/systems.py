@@ -113,19 +113,27 @@ class VirialComputationSystem(_AtomsMMSystem):
         super().__init__(system, copyForces=False)
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
-                self.addForce(copy.deepcopy(force))
-                expression = '4*epsilon*(11*(sigma/r)^12-5*(sigma/r)^6)'
+                nonbonded = copy.deepcopy(force)
+                self.addForce(nonbonded)
+                expression = '24*epsilon*(2*(sigma/r)^12-(sigma/r)^6)'
                 expression += '; sigma=0.5*(sigma1+sigma2)'
                 expression += '; epsilon=sqrt(epsilon1*epsilon2)'
                 rcut = force.getCutoffDistance()
                 rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
-                delta = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch, usesCharges=False)
-                delta.importFrom(force)
-                self.addForce(delta)
+                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch, usesCharges=False)
+                virial.importFrom(nonbonded)
+                self.addForce(virial)
                 exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression, usesCharges=False)
-                exceptions.importFrom(force)
+                for index in range(nonbonded.getNumExceptions()):
+                    i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
+                    if epsilon/epsilon.unit != 0.0:
+                        exceptions.addBond(i, j, [sigma, epsilon])
+                        nonbonded.setExceptionParameters(index, i, j, chargeprod, 1.0, 0.0)
                 if exceptions.getNumBonds() > 0:
                     self.addForce(exceptions)
+                for index in range(nonbonded.getNumParticles()):
+                    charge, sigma, epsilon = nonbonded.getParticleParameters(index)
+                    nonbonded.setParticleParameters(index, charge, 1.0, 0.0)
             elif isinstance(force, openmm.HarmonicBondForce) and force.getNumBonds() > 0:
                 bondforce = openmm.CustomBondForce('-K*r*(r-r0)')
                 bondforce.addPerBondParameter('r0')
