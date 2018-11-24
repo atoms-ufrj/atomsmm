@@ -93,7 +93,7 @@ class RESPASystem(_AtomsMMSystem):
         self.addForce(discount)
 
 
-class VirialComputationSystem(_AtomsMMSystem):
+class ComputingSystem(_AtomsMMSystem):
     """
     An OpenMM System_ prepared for virial and pressure computation and reporting.
 
@@ -103,17 +103,21 @@ class VirialComputationSystem(_AtomsMMSystem):
     Parameters
     ----------
         system : openmm.System
-            The original system from which to generate the VirialComputationSystem.
+            The original system from which to generate the ComputingSystem.
 
     """
-    # teste
     def __init__(self, system, **kwargs):
-        if system.getNumConstraints() > 0:
-            raise RuntimeError('cannot compute virial/pressure for system with constraints')
         super().__init__(system, copyForces=False)
+        self._okVirial = system.getNumConstraints() == 0
+        virialGroup = 0
+        coulombGroup = 1
+        self._virialSet = set([virialGroup, coulombGroup])
+        self._coulombSet = set([coulombGroup])
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 nonbonded = copy.deepcopy(force)
+                nonbonded.setForceGroup(coulombGroup)
+                nonbonded.setReciprocalSpaceForceGroup(coulombGroup)
                 self.addForce(nonbonded)
                 expression = '24*epsilon*(2*(sigma/r)^12-(sigma/r)^6)'
                 expression += '; sigma=0.5*(sigma1+sigma2)'
@@ -122,6 +126,7 @@ class VirialComputationSystem(_AtomsMMSystem):
                 rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
                 virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch, usesCharges=False)
                 virial.importFrom(nonbonded)
+                virial.setForceGroup(virialGroup)
                 self.addForce(virial)
                 exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression, usesCharges=False)
                 for index in range(nonbonded.getNumExceptions()):
@@ -130,6 +135,7 @@ class VirialComputationSystem(_AtomsMMSystem):
                         exceptions.addBond(i, j, [sigma, epsilon])
                         nonbonded.setExceptionParameters(index, i, j, chargeprod, 1.0, 0.0)
                 if exceptions.getNumBonds() > 0:
+                    exceptions.setForceGroup(virialGroup)
                     self.addForce(exceptions)
                 for index in range(nonbonded.getNumParticles()):
                     charge, sigma, epsilon = nonbonded.getParticleParameters(index)
@@ -141,6 +147,7 @@ class VirialComputationSystem(_AtomsMMSystem):
                 for index in range(force.getNumBonds()):
                     i, j, r0, K = force.getBondParameters(index)
                     bondforce.addBond(i, j, [r0, K])
+                bondforce.setForceGroup(virialGroup)
                 self.addForce(bondforce)
             elif isinstance(force, openmm.CustomBondForce) and force.getNumBonds() > 0:
                 bondforce = openmm.CustomBondForce(self._virialExpression(force))
@@ -151,6 +158,7 @@ class VirialComputationSystem(_AtomsMMSystem):
                                                  force.getGlobalParameterDefaultValue(index))
                 for index in range(force.getNumBonds()):
                     bondforce.addBond(*force.getBondParameters(index))
+                bondforce.setForceGroup(virialGroup)
                 self.addForce(bondforce)
 
     def _virialExpression(self, force):

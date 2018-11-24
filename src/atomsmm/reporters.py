@@ -17,7 +17,7 @@ import pandas as pd
 from simtk import openmm
 from simtk import unit
 
-from .systems import VirialComputationSystem
+from .systems import ComputingSystem
 from .utils import InputError
 
 try:
@@ -78,30 +78,41 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
     All original functionalities of StateDataReporter_ are preserved, while the following ones are
     added:
 
-    1. Report the internal virial of a fully-flexible system:
+    1. Report the Coulomb contribution of the potential energy:
 
-    .. math::
-        W = -\\sum_{i,j} r_{ij} E^\\prime(r_{ij}),
+        The Coulomb contribution includes both real- and reciprocal-space terms.
 
-    where :math:`E^\\prime(r)` is the derivative of the pairwise interaction potential as a function
-    of the distance between to atoms. This includes van der Waals, Coulomb, and bond-stretching
-    interactions.
+    2. Report the internal virial of a fully-flexible system:
 
-    2. Report the internal pressure of a fully-flexible system:
+        .. math::
+            W = -\\sum_{i,j} r_{ij} E^\\prime(r_{ij}),
 
-    .. math::
-        P = \\frac{2K + W}{3 V},
+        where :math:`E^\\prime(r)` is the derivative of the pairwise interaction potential as a
+        function of the distance between to atoms. This includes van der Waals, Coulomb, and
+        bond-stretching interactions.
 
-    where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V` is
-    the volume of the system.
+    3. Report the internal pressure of a fully-flexible system:
+
+        .. math::
+            P = \\frac{2K + W}{3 V},
+
+        where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V`
+        is the volume of the system.
+
+    4. Allow specification of an extra file for reporting.
+
+        This can be used for replicating a report simultaneously to `sys.stdout` and to a file
+        using a unique reporter.
 
     Keyword Args
     ------------
+        coulombEnergy : bool, optional, default=False
+            Whether to write the Coulomb contribution of the potential energy to the file.
         virial : bool, optional, default=False
             Whether to write the total internal virial to the file.
         pressure : bool, optional, default=False
             Whether to write the internal pressure to the file.
-        virialSystem : :class:`~atomsmm.systems.VirialComputationSystem`, optional, default=None
+        computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
         extra : str or file, optional, default=None
@@ -109,19 +120,24 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
 
     """
     def __init__(self, file, reportInterval, **kwargs):
+        self._coulombEnergy = kwargs.pop('coulombEnergy', False)
         self._virial = kwargs.pop('virial', False)
         self._pressure = kwargs.pop('pressure', False)
-        self._virialSystem = kwargs.pop('virialSystem', None)
+        self._computer = kwargs.pop('computer', None)
         super().__init__(file, reportInterval, **kwargs)
-        if self._virial or self._pressure:
-            if not isinstance(self._virialSystem, VirialComputationSystem):
-                raise InputError('VirialComputationSystem required for reporting virial/pressure')
+        if self._coulombEnergy or self._virial or self._pressure:
+            if not isinstance(self._computer, ComputingSystem):
+                raise InputError('ComputingSystem is required')
+            if (self._virial or self._pressure) and not self._computer._okVirial:
+                raise RuntimeError('cannot compute virial/pressure for system with constraints')
             self._requiresInitialization = True
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
+        if self._coulombEnergy:
+            headers.insert(self._backSteps, 'Coulomb Energy (kJ/mole)')
         if self._virial:
             headers.insert(self._backSteps, 'Virial (kJ/mole)')
         if self._pressure:
@@ -130,26 +146,31 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._virial or self._pressure:
+        if self._coulombEnergy or self._virial or self._pressure:
             if self._requiresInitialization:
                 integrator = openmm.CustomIntegrator(0)
                 platform = simulation.context.getPlatform()
                 properties = dict()
                 for name in platform.getPropertyNames():
                     properties[name] = platform.getPropertyValue(simulation.context, name)
-                self._virialContext = openmm.Context(self._virialSystem, integrator, platform, properties)
+                self._computeContext = openmm.Context(self._computer, integrator, platform, properties)
                 self._requiresInitialization = False
-            box = state.getPeriodicBoxVectors()
-            self._virialContext.setPeriodicBoxVectors(*box)
-            self._virialContext.setPositions(state.getPositions())
-            virial = self._virialContext.getState(getEnergy=True).getPotentialEnergy()
-            if self._virial:
-                values.insert(self._backSteps, virial.value_in_unit(unit.kilojoules_per_mole))
-            if self._pressure:
-                dNkT = 2*state.getKineticEnergy()
-                volume = box[0][0]*box[1][1]*box[2][2]
-                pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+            context = self._computeContext
+            context.setPositions(state.getPositions())
+            if self._coulombEnergy:
+                energy = context.getState(getEnergy=True, groups=self._computer._coulombSet).getPotentialEnergy()
+                values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
+            if self._virial or self._pressure:
+                box = state.getPeriodicBoxVectors()
+                context.setPeriodicBoxVectors(*box)
+                virial = context.getState(getEnergy=True, groups=self._computer._virialSet).getPotentialEnergy()
+                if self._virial:
+                    values.insert(self._backSteps, virial.value_in_unit(unit.kilojoules_per_mole))
+                if self._pressure:
+                    dNkT = 2*state.getKineticEnergy()
+                    volume = box[0][0]*box[1][1]*box[2][2]
+                    pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                    values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
         return values
 
 
