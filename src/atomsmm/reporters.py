@@ -39,12 +39,12 @@ class _AtomsMM_Reporter(openmm.app.StateDataReporter):
 
     Keyword Args
     ------------
-        extra : str or file, optional, default=None
+        extraFile : str or file, optional, default=None
             Extra file to write to, specified as a file name or a file object.
 
     """
     def __init__(self, file, reportInterval, **kwargs):
-        extra = kwargs.pop('extra', None)
+        extra = kwargs.pop('extraFile', None)
         if extra is None:
             super().__init__(file, reportInterval, **kwargs)
         else:
@@ -115,7 +115,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
-        extra : str or file, optional, default=None
+        extraFile : str or file, optional, default=None
             Extra file to write to, specified as a file name or a file object.
 
     """

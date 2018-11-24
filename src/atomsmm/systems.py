@@ -95,10 +95,12 @@ class RESPASystem(_AtomsMMSystem):
 
 class ComputingSystem(_AtomsMMSystem):
     """
-    An OpenMM System_ prepared for virial and pressure computation and reporting.
+    An OpenMM System_ prepared for computing the Coulomb contribution of the potential energy and
+    the total internal virial of an atomic system.
 
     ..warning:
-        Currently, only fully flexible systems (i.e. without constraints) are supported.
+        Currently, virial computation if only supported for fully flexible systems (i.e. without
+        distance constraints).
 
     Parameters
     ----------
