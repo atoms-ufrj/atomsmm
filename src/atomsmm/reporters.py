@@ -129,7 +129,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             if not isinstance(self._computer, ComputingSystem):
                 raise InputError('ComputingSystem is required')
             if (self._virial or self._pressure) and not self._computer._okVirial:
-                raise RuntimeError('cannot compute virial/pressure for system with constraints')
+                raise RuntimeError('virial/pressure unsupported for system with constraints or dispersion correction')
             self._requiresInitialization = True
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True

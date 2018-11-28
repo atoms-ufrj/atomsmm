@@ -118,6 +118,7 @@ class ComputingSystem(_AtomsMMSystem):
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 nonbonded = copy.deepcopy(force)
+                self._okVirial = self._okVirial and not nonbonded.getUseDispersionCorrection()
                 nonbonded.setForceGroup(coulombGroup)
                 nonbonded.setReciprocalSpaceForceGroup(coulombGroup)
                 self.addForce(nonbonded)
