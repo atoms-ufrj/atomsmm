@@ -108,8 +108,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
     ------------
         coulombEnergy : bool, optional, default=False
             Whether to write the Coulomb contribution of the potential energy to the file.
-        virial : bool, optional, default=False
-            Whether to write the total internal virial to the file.
+        atomicVirial : bool, optional, default=False
+            Whether to write the total atomic virial to the file.
+        nonbondedVirial : bool, optional, default=False
+            Whether to write the nonbonded contribution to the atomic virial to the file.
         pressure : bool, optional, default=False
             Whether to write the internal pressure to the file.
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
@@ -121,15 +123,14 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
     """
     def __init__(self, file, reportInterval, **kwargs):
         self._coulombEnergy = kwargs.pop('coulombEnergy', False)
-        self._virial = kwargs.pop('virial', False)
+        self._atomicVirial = kwargs.pop('atomicVirial', False)
+        self._nonbondedVirial = kwargs.pop('nonbondedVirial', False)
         self._pressure = kwargs.pop('pressure', False)
         self._computer = kwargs.pop('computer', None)
         super().__init__(file, reportInterval, **kwargs)
-        if self._coulombEnergy or self._virial or self._pressure:
+        if self._coulombEnergy or self._atomicVirial or self._nonbondedVirial or self._pressure:
             if not isinstance(self._computer, ComputingSystem):
                 raise InputError('ComputingSystem is required')
-            if (self._virial or self._pressure) and not self._computer._okVirial:
-                raise RuntimeError('virial/pressure unsupported for system with constraints or dispersion correction')
             self._requiresInitialization = True
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
@@ -138,15 +139,17 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         headers = super()._constructHeaders()
         if self._coulombEnergy:
             headers.insert(self._backSteps, 'Coulomb Energy (kJ/mole)')
-        if self._virial:
-            headers.insert(self._backSteps, 'Virial (kJ/mole)')
+        if self._atomicVirial:
+            headers.insert(self._backSteps, 'Atomic Virial (kJ/mole)')
+        if self._nonbondedVirial:
+            headers.insert(self._backSteps, 'Nonbonded Virial (kJ/mole)')
         if self._pressure:
             headers.insert(self._backSteps, 'Pressure (atm)')
         return headers
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._coulombEnergy or self._virial or self._pressure:
+        if self._coulombEnergy or self._atomicVirial or self._pressure:
             if self._requiresInitialization:
                 integrator = openmm.CustomIntegrator(0)
                 platform = simulation.context.getPlatform()
@@ -158,14 +161,17 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             context = self._computeContext
             context.setPositions(state.getPositions())
             if self._coulombEnergy:
-                energy = context.getState(getEnergy=True, groups=self._computer._coulombSet).getPotentialEnergy()
+                energy = context.getState(getEnergy=True, groups=self._computer._coulomb).getPotentialEnergy()
                 values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
-            if self._virial or self._pressure:
+            if self._atomicVirial or self._nonbondedVirial or self._pressure:
                 box = state.getPeriodicBoxVectors()
                 context.setPeriodicBoxVectors(*box)
-                virial = context.getState(getEnergy=True, groups=self._computer._virialSet).getPotentialEnergy()
-                if self._virial:
+                virial = context.getState(getEnergy=True).getPotentialEnergy()
+                if self._atomicVirial:
                     values.insert(self._backSteps, virial.value_in_unit(unit.kilojoules_per_mole))
+                if self._nonbondedVirial:
+                    bonded = context.getState(getEnergy=True, groups=self._computer._bonded).getPotentialEnergy()
+                    values.insert(self._backSteps, (virial - bonded).value_in_unit(unit.kilojoules_per_mole))
                 if self._pressure:
                     dNkT = 2*state.getKineticEnergy()
                     volume = box[0][0]*box[1][1]*box[2][2]
