@@ -115,8 +115,11 @@ class ComputingSystem(_AtomsMMSystem):
         dispersionGroup = 0
         bondedGroup = 1
         coulombGroup = 2
+        othersGroup = 3
+        self._dispersion = 2**dispersionGroup
         self._bonded = 2**bondedGroup
         self._coulomb = 2**coulombGroup
+        self._others = 2**othersGroup
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 nonbonded = copy.deepcopy(force)
@@ -166,6 +169,10 @@ class ComputingSystem(_AtomsMMSystem):
                     bondforce.addBond(*force.getBondParameters(index))
                 bondforce.setForceGroup(bondedGroup)
                 self.addForce(bondforce)
+            else:
+                otherforce = copy.deepcopy(force)
+                otherforce.setForceGroup(othersGroup)
+                self.addForce(otherforce)
 
     def _virialExpression(self, force):
         definitions = force.getEnergyFunction().split(';')

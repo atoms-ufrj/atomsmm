@@ -90,31 +90,68 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
     An extension of OpenMM's StateDataReporter_ class, which outputs information about a simulation,
     such as energy and temperature, to a file.
 
-    All original functionalities of StateDataReporter_ are preserved, while the following ones are
-    added:
+    All original functionalities of StateDataReporter_ are preserved and the following ones are
+    included:
 
-    1. Report the Coulomb contribution of the potential energy:
+    1. Report the Coulomb contribution of the potential energy (keyword: `coulombEnergy`):
 
-        The Coulomb contribution includes both real- and reciprocal-space terms.
+        This contribution includes both real- and reciprocal-space terms.
 
-    2. Report the internal virial of a fully-flexible system:
+    2. Report the atomic virial of a fully-flexible system (keyword: `atomicVirial`):
+
+        Considering full scaling of atomic coordinates in a box volume change (i.e. without any
+        distance constraints), the internal virial of the system is given by
 
         .. math::
             W = -\\sum_{i,j} r_{ij} E^\\prime(r_{ij}),
 
         where :math:`E^\\prime(r)` is the derivative of the pairwise interaction potential as a
-        function of the distance between to atoms. This includes van der Waals, Coulomb, and
-        bond-stretching interactions.
+        function of the distance between to atoms. Such interaction includes van der Waals, Coulomb,
+        and bond-stretching contributions. Bond-bending and dihedral angles are not considered
+        because they are invariant to full volume-scaling of atomic coordinates.
 
-    3. Report the internal pressure of a fully-flexible system:
+    3. Report the nonbonded contribution of the atomic virial (keyword: `nonbondedVirial`):
+
+        The nonbonded virial is given by
+
+        .. math::
+            W_\\mathrm{nb} = -\\sum_{i,j} r_{ij} E_\\mathrm{nb}^\\prime(r_{ij}),
+
+        where :math:`E_\\mathrm{nb}^\\prime(r)` is the derivative of the nonbonded pairwise
+        potential, which comprises van der Waals and Coulomb interactions only.
+
+    4. Report the molecular virial of a system (keyword: `molecularVirial`):
+
+        To compute the molecular virial, only the center-of-mass coordinates of the molecules are
+        considered to scale in a box volume change, while the internal molecular structure is kept
+        unaltered. The molecular virial is computed from the nonbonded part of the atomic virial by
+        using the formulation of Ref. :cite:`Hunenberger_2002`:
+
+        .. math::
+            W_\\mathrm{mol} = W - \\sum_{i} (\\mathbf{r}_i - \\mathbf{r}_i^\\mathrm{cm}) \\cdot \\mathbf{F}_i,
+
+        where :math:`\\mathbf{r}_i` is the coordinate of atom i, :math:`\\mathbf{F}_i` is the
+        resultant pairwise force acting on it (excluding bond-bending and dihedral angles), and
+        :math:`\\mathbf{r}_i^\\mathrm{cm}` is the center-of-mass coordinate of its containing
+        molecule.
+
+    5. Report the atomic pressure of a fully-flexible system (keyword: `atomicPressure`):
 
         .. math::
             P = \\frac{2K + W}{3 V},
 
         where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V`
-        is the volume of the system.
+        is the box volume.
 
-    4. Allow specification of an extra file for reporting.
+    6. Report the molecular pressure of a system (keyword: `molecularPressure`):
+
+        .. math::
+            P = \\frac{2K + W}{3 V},
+
+        where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V`
+        is the box volume.
+
+    7. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
         This can be used for replicating a report simultaneously to `sys.stdout` and to a file
         using a unique reporter.
@@ -127,6 +164,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             Whether to write the total atomic virial to the file.
         nonbondedVirial : bool, optional, default=False
             Whether to write the nonbonded contribution to the atomic virial to the file.
+        molecularVirial : bool, optional, default=False
+            Whether to write the molecular virial to the file.
         pressure : bool, optional, default=False
             Whether to write the internal pressure to the file.
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
@@ -184,33 +223,36 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     self._selection, self._massFrac = self._moleculeTotalizers(simulation)
                 self._requiresInitialization = False
             context = self._computeContext
+            box = state.getPeriodicBoxVectors()
+            context.setPeriodicBoxVectors(*box)
             positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
             context.setPositions(positions)
+            dispersionVirial = context.getState(getEnergy=True, groups=self._computer._dispersion).getPotentialEnergy()
+            coulombVirial = context.getState(getEnergy=True, groups=self._computer._coulomb).getPotentialEnergy()
+            bondVirial = context.getState(getEnergy=True, groups=self._computer._bonded).getPotentialEnergy()
+            atomicVirial = dispersionVirial + coulombVirial + bondVirial
             if self._coulombEnergy:
-                energy = context.getState(getEnergy=True, groups=self._computer._coulomb).getPotentialEnergy()
-                values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
-            if self._virial:
-                box = state.getPeriodicBoxVectors()
-                context.setPeriodicBoxVectors(*box)
-                virial = context.getState(getEnergy=True).getPotentialEnergy()
-                if self._atomicVirial:
-                    values.insert(self._backSteps, virial.value_in_unit(unit.kilojoules_per_mole))
-                if self._nonbondedVirial:
-                    bonded = context.getState(getEnergy=True, groups=self._computer._bonded).getPotentialEnergy()
-                    values.insert(self._backSteps, (virial - bonded).value_in_unit(unit.kilojoules_per_mole))
-                if self._molecularVirial:
-                    forces = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
-                    resultants = self._selection.dot(forces)
-                    centers_of_mass = self._massFrac.dot(positions)
-                    molecularVirial = virial.value_in_unit(unit.kilojoules_per_mole)
-                    molecularVirial -= np.sum(positions*forces)
-                    molecularVirial += np.sum(centers_of_mass*resultants)
-                    values.insert(self._backSteps, molecularVirial)
-                if self._pressure:
-                    dNkT = 2*state.getKineticEnergy()
-                    volume = box[0][0]*box[1][1]*box[2][2]
-                    pressure = (dNkT + virial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-                    values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+                values.insert(self._backSteps, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
+            if self._atomicVirial:
+                values.insert(self._backSteps, atomicVirial.value_in_unit(unit.kilojoules_per_mole))
+            if self._nonbondedVirial:
+                nonbondedVirial = dispersionVirial + coulombVirial
+                values.insert(self._backSteps, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
+            if self._molecularVirial:
+                molecularVirial = atomicVirial.value_in_unit(unit.kilojoules_per_mole)
+                total = state.getForces(asNumpy=True)
+                others = context.getState(getForces=True, groups=self._computer._others).getForces(asNumpy=True)
+                forces = (total - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+                molecularVirial -= np.sum(positions*forces)
+                resultantForces = self._selection.dot(forces)
+                centersOfMass = self._massFrac.dot(positions)
+                molecularVirial += np.sum(centersOfMass*resultantForces)
+                values.insert(self._backSteps, molecularVirial)
+            if self._pressure:
+                dNkT = 2*state.getKineticEnergy()
+                volume = box[0][0]*box[1][1]*box[2][2]
+                pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
         return values
 
 
