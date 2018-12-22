@@ -120,7 +120,18 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         where :math:`E_\\mathrm{nb}^\\prime(r)` is the derivative of the nonbonded pairwise
         potential, which comprises van der Waals and Coulomb interactions only.
 
-    4. Report the molecular virial of a system (keyword: `molecularVirial`):
+    4. Report the atomic pressure of a fully-flexible system (keyword: `atomicPressure`):
+
+        .. math::
+            P = \\frac{2 K + W}{3 V},
+
+        where :math:`K` is the kinetic energy sum for all atoms in the system. If keyword
+        `bathTemperature` is employed (see below), the instantaneous kinetic energy is substituted
+        by its equipartition-theorem average
+        :math:`\\left\\langle K \\right\\rangle = 3 N_\\mathrm{atoms} k_B T/2`,
+        where :math:`T` is the heat-bath temperature.
+
+    5. Report the molecular virial of a system (keyword: `molecularVirial`):
 
         To compute the molecular virial, only the center-of-mass coordinates of the molecules are
         considered to scale in a box volume change, while the internal molecular structure is kept
@@ -135,23 +146,22 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         :math:`\\mathbf{r}_i^\\mathrm{cm}` is the center-of-mass coordinate of its containing
         molecule.
 
-    5. Report the atomic pressure of a fully-flexible system (keyword: `atomicPressure`):
-
-        .. math::
-            P = \\frac{2K + W}{3 V},
-
-        where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V`
-        is the box volume.
-
     6. Report the molecular pressure of a system (keyword: `molecularPressure`):
 
         .. math::
-            P = \\frac{2K + W}{3 V},
+            P = \\frac{2 K_\\mathrm{mol} + W_\\mathrm{mol}}{3 V},
 
-        where :math:`K` is the total kinetic energy, :math:`W` is the internal virial, and :math:`V`
-        is the box volume.
+        where :math:`K_\\mathrm{mol}` is the center-of-mass kinetic energy sum for all molecules in
+        the system. If keyword `bathTemperature` is employed (see below), the instantaneous kinetic
+        energy is substituted by its equipartition-theorem average
+        :math:`\\left\\langle K_\\mathrm{mol} \\right\\rangle = 3 N_\\mathrm{mols} k_B T/2`,
+        where :math:`T` is the heat-bath temperature.
 
-    7. Allow specification of an extra file for reporting (keyword: `extraFile`).
+    7. Allow specification of heat-bath temperature (keyword: `bathTemperature`).
+
+        This can be used in the computation of atomic and/or molecular pressures.
+
+    8. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
         This can be used for replicating a report simultaneously to `sys.stdout` and to a file
         using a unique reporter.
@@ -164,10 +174,12 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             Whether to write the total atomic virial to the file.
         nonbondedVirial : bool, optional, default=False
             Whether to write the nonbonded contribution to the atomic virial to the file.
+        atomicPressure : bool, optional, default=False
+            Whether to write the internal atomic pressure to the file.
         molecularVirial : bool, optional, default=False
             Whether to write the molecular virial to the file.
-        pressure : bool, optional, default=False
-            Whether to write the internal pressure to the file.
+        molecularPressure : bool, optional, default=False
+            Whether to write the internal molecular pressure to the file.
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
@@ -179,10 +191,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._coulombEnergy = kwargs.pop('coulombEnergy', False)
         self._atomicVirial = kwargs.pop('atomicVirial', False)
         self._nonbondedVirial = kwargs.pop('nonbondedVirial', False)
+        self._atomicPressure = kwargs.pop('atomicPressure', False)
         self._molecularVirial = kwargs.pop('molecularVirial', False)
-        self._pressure = kwargs.pop('pressure', False)
         self._computer = kwargs.pop('computer', None)
-        self._virial = self._atomicVirial or self._nonbondedVirial or self._molecularVirial or self._pressure
+        self._virial = self._atomicVirial or self._nonbondedVirial or self._molecularVirial or self._atomicPressure
         super().__init__(file, reportInterval, **kwargs)
         if self._coulombEnergy or self._virial:
             if not isinstance(self._computer, ComputingSystem):
@@ -200,10 +212,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             headers.insert(self._backSteps, 'Atomic Virial (kJ/mole)')
         if self._nonbondedVirial:
             headers.insert(self._backSteps, 'Nonbonded Virial (kJ/mole)')
+        if self._atomicPressure:
+            headers.insert(self._backSteps, 'Atomic Pressure (atm)')
         if self._molecularVirial:
             headers.insert(self._backSteps, 'Molecular Virial (kJ/mole)')
-        if self._pressure:
-            headers.insert(self._backSteps, 'Pressure (atm)')
         return headers
 
     def _localContext(self, simulation):
@@ -238,6 +250,11 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             if self._nonbondedVirial:
                 nonbondedVirial = dispersionVirial + coulombVirial
                 values.insert(self._backSteps, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
+            if self._atomicPressure:
+                dNkT = 2*state.getKineticEnergy()
+                volume = box[0][0]*box[1][1]*box[2][2]
+                pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
             if self._molecularVirial:
                 molecularVirial = atomicVirial.value_in_unit(unit.kilojoules_per_mole)
                 total = state.getForces(asNumpy=True)
@@ -248,11 +265,6 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 centersOfMass = self._massFrac.dot(positions)
                 molecularVirial += np.sum(centersOfMass*resultantForces)
                 values.insert(self._backSteps, molecularVirial)
-            if self._pressure:
-                dNkT = 2*state.getKineticEnergy()
-                volume = box[0][0]*box[1][1]*box[2][2]
-                pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
         return values
 
 
