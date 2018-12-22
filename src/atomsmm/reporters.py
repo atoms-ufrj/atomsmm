@@ -10,6 +10,8 @@
 
 """
 
+import itertools
+import scipy
 import sys
 
 import numpy as np
@@ -69,6 +71,19 @@ class _AtomsMM_Reporter(openmm.app.StateDataReporter):
             for output in self._outputs:
                 output.flush()
 
+    def _moleculeTotalizers(self, simulation):
+        molecules = simulation.context.getMolecules()
+        atoms = list(itertools.chain.from_iterable(molecules))
+        nmols = len(molecules)
+        natoms = len(atoms)
+        mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
+        selection = scipy.sparse.csr_matrix((np.ones(natoms, np.int), (mol, atoms)), shape=(nmols, natoms))
+        system = simulation.context.getSystem()
+        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
+        total = selection.T.dot(selection.dot(mass))
+        massFrac = scipy.sparse.csr_matrix((mass/total, (mol, atoms)), shape=(nmols, natoms))
+        return selection, massFrac
+
 
 class ExtendedStateDataReporter(_AtomsMM_Reporter):
     """
@@ -125,15 +140,18 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._coulombEnergy = kwargs.pop('coulombEnergy', False)
         self._atomicVirial = kwargs.pop('atomicVirial', False)
         self._nonbondedVirial = kwargs.pop('nonbondedVirial', False)
+        self._molecularVirial = kwargs.pop('molecularVirial', False)
         self._pressure = kwargs.pop('pressure', False)
         self._computer = kwargs.pop('computer', None)
+        self._virial = self._atomicVirial or self._nonbondedVirial or self._molecularVirial or self._pressure
         super().__init__(file, reportInterval, **kwargs)
-        if self._coulombEnergy or self._atomicVirial or self._nonbondedVirial or self._pressure:
+        if self._coulombEnergy or self._virial:
             if not isinstance(self._computer, ComputingSystem):
                 raise InputError('ComputingSystem is required')
             self._requiresInitialization = True
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
+            self._needsForces = self._molecularVirial
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
@@ -143,27 +161,35 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             headers.insert(self._backSteps, 'Atomic Virial (kJ/mole)')
         if self._nonbondedVirial:
             headers.insert(self._backSteps, 'Nonbonded Virial (kJ/mole)')
+        if self._molecularVirial:
+            headers.insert(self._backSteps, 'Molecular Virial (kJ/mole)')
         if self._pressure:
             headers.insert(self._backSteps, 'Pressure (atm)')
         return headers
 
+    def _localContext(self, simulation):
+        integrator = openmm.CustomIntegrator(0)
+        platform = simulation.context.getPlatform()
+        properties = dict()
+        for name in platform.getPropertyNames():
+            properties[name] = platform.getPropertyValue(simulation.context, name)
+        return openmm.Context(self._computer, integrator, platform, properties)
+
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._coulombEnergy or self._atomicVirial or self._pressure:
+        if self._coulombEnergy or self._virial:
             if self._requiresInitialization:
-                integrator = openmm.CustomIntegrator(0)
-                platform = simulation.context.getPlatform()
-                properties = dict()
-                for name in platform.getPropertyNames():
-                    properties[name] = platform.getPropertyValue(simulation.context, name)
-                self._computeContext = openmm.Context(self._computer, integrator, platform, properties)
+                self._computeContext = self._localContext(simulation)
+                if self._molecularVirial:
+                    self._selection, self._massFrac = self._moleculeTotalizers(simulation)
                 self._requiresInitialization = False
             context = self._computeContext
-            context.setPositions(state.getPositions())
+            positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
+            context.setPositions(positions)
             if self._coulombEnergy:
                 energy = context.getState(getEnergy=True, groups=self._computer._coulomb).getPotentialEnergy()
                 values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
-            if self._atomicVirial or self._nonbondedVirial or self._pressure:
+            if self._virial:
                 box = state.getPeriodicBoxVectors()
                 context.setPeriodicBoxVectors(*box)
                 virial = context.getState(getEnergy=True).getPotentialEnergy()
@@ -172,6 +198,14 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 if self._nonbondedVirial:
                     bonded = context.getState(getEnergy=True, groups=self._computer._bonded).getPotentialEnergy()
                     values.insert(self._backSteps, (virial - bonded).value_in_unit(unit.kilojoules_per_mole))
+                if self._molecularVirial:
+                    forces = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+                    resultants = self._selection.dot(forces)
+                    centers_of_mass = self._massFrac.dot(positions)
+                    molecularVirial = virial.value_in_unit(unit.kilojoules_per_mole)
+                    molecularVirial -= np.sum(positions*forces)
+                    molecularVirial += np.sum(centers_of_mass*resultants)
+                    values.insert(self._backSteps, molecularVirial)
                 if self._pressure:
                     dNkT = 2*state.getKineticEnergy()
                     volume = box[0][0]*box[1][1]*box[2][2]
