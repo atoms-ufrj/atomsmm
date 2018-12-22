@@ -194,9 +194,15 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._atomicPressure = kwargs.pop('atomicPressure', False)
         self._molecularVirial = kwargs.pop('molecularVirial', False)
         self._computer = kwargs.pop('computer', None)
-        self._virial = self._atomicVirial or self._nonbondedVirial or self._molecularVirial or self._atomicPressure
+        temp = kwargs.pop('bathTemperature', None)
+        self._kT = unit.MOLAR_GAS_CONSTANT_R*temp if (temp is not None) else False
+        self._active = any([self._coulombEnergy,
+                            self._atomicVirial,
+                            self._nonbondedVirial,
+                            self._atomicPressure,
+                            self._molecularVirial])
         super().__init__(file, reportInterval, **kwargs)
-        if self._coulombEnergy or self._virial:
+        if self._active:
             if not isinstance(self._computer, ComputingSystem):
                 raise InputError('ComputingSystem is required')
             self._requiresInitialization = True
@@ -228,7 +234,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._coulombEnergy or self._virial:
+        if self._active:
             if self._requiresInitialization:
                 self._computeContext = self._localContext(simulation)
                 if self._molecularVirial:
@@ -251,7 +257,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 nonbondedVirial = dispersionVirial + coulombVirial
                 values.insert(self._backSteps, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
             if self._atomicPressure:
-                dNkT = 2*state.getKineticEnergy()
+                if self._kT:
+                    dNkT = dNkT = 3*context.getSystem().getNumParticles()*self._kT
+                else:
+                    dNkT = 2*state.getKineticEnergy()
                 volume = box[0][0]*box[1][1]*box[2][2]
                 pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
                 values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
