@@ -80,9 +80,10 @@ class _AtomsMM_Reporter(openmm.app.StateDataReporter):
         selection = scipy.sparse.csr_matrix((np.ones(natoms, np.int), (mol, atoms)), shape=(nmols, natoms))
         system = simulation.context.getSystem()
         mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
-        total = selection.T.dot(selection.dot(mass))
+        molMass = selection.dot(mass)
+        total = selection.T.dot(molMass)
         massFrac = scipy.sparse.csr_matrix((mass/total, (mol, atoms)), shape=(nmols, natoms))
-        return nmols, selection, massFrac
+        return nmols, molMass, selection, massFrac
 
 
 class ExtendedStateDataReporter(_AtomsMM_Reporter):
@@ -243,7 +244,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             if self._requiresInitialization:
                 self._computeContext = self._localContext(simulation)
                 if self._molecularVirial:
-                    self._nmols, self._selection, self._massFrac = self._moleculeTotalizers(simulation)
+                    self._nmols, self._molMass, self._selection, self._massFrac = self._moleculeTotalizers(simulation)
                 self._requiresInitialization = False
             context = self._computeContext
             box = state.getPeriodicBoxVectors()
@@ -276,13 +277,16 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 forces = (total - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
                 resultantForces = self._selection.dot(forces)
-                centersOfMass = self._massFrac.dot(positions)
-                molecularVirial += np.sum(centersOfMass*resultantForces)
+                centerOfMassPositions = self._massFrac.dot(positions)
+                molecularVirial += np.sum(centerOfMassPositions*resultantForces)
                 if self._molecularVirial:
                     values.insert(self._backSteps, molecularVirial)
                 if self._molecularPressure:
                     if self._kT is None:
-                        dNkT = 0.0
+                        nm_ps = unit.nanometers/unit.picosecond
+                        velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
+                        centerOfMassVelocities = self._massFrac.dot(velocities)
+                        dNkT = np.sum(self._molMass*np.sum(centerOfMassVelocities**2, axis=1))*unit.dalton*nm_ps**2
                     else:
                         dNkT = 3*self._nmols*self._kT
                     volume = box[0][0]*box[1][1]*box[2][2]
