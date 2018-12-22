@@ -82,7 +82,7 @@ class _AtomsMM_Reporter(openmm.app.StateDataReporter):
         mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
         total = selection.T.dot(selection.dot(mass))
         massFrac = scipy.sparse.csr_matrix((mass/total, (mol, atoms)), shape=(nmols, natoms))
-        return selection, massFrac
+        return nmols, selection, massFrac
 
 
 class ExtendedStateDataReporter(_AtomsMM_Reporter):
@@ -193,14 +193,16 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._nonbondedVirial = kwargs.pop('nonbondedVirial', False)
         self._atomicPressure = kwargs.pop('atomicPressure', False)
         self._molecularVirial = kwargs.pop('molecularVirial', False)
+        self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._computer = kwargs.pop('computer', None)
         temp = kwargs.pop('bathTemperature', None)
-        self._kT = unit.MOLAR_GAS_CONSTANT_R*temp if (temp is not None) else False
+        self._kT = None if temp is None else unit.MOLAR_GAS_CONSTANT_R*temp
         self._active = any([self._coulombEnergy,
                             self._atomicVirial,
                             self._nonbondedVirial,
                             self._atomicPressure,
-                            self._molecularVirial])
+                            self._molecularVirial,
+                            self._molecularPressure])
         super().__init__(file, reportInterval, **kwargs)
         if self._active:
             if not isinstance(self._computer, ComputingSystem):
@@ -209,6 +211,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
             self._needsForces = self._molecularVirial
+            self._needsVelocities = self._molecularPressure and self._kT is None
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
@@ -222,6 +225,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             headers.insert(self._backSteps, 'Atomic Pressure (atm)')
         if self._molecularVirial:
             headers.insert(self._backSteps, 'Molecular Virial (kJ/mole)')
+        if self._molecularPressure:
+            headers.insert(self._backSteps, 'Molecular Pressure (atm)')
         return headers
 
     def _localContext(self, simulation):
@@ -238,7 +243,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             if self._requiresInitialization:
                 self._computeContext = self._localContext(simulation)
                 if self._molecularVirial:
-                    self._selection, self._massFrac = self._moleculeTotalizers(simulation)
+                    self._nmols, self._selection, self._massFrac = self._moleculeTotalizers(simulation)
                 self._requiresInitialization = False
             context = self._computeContext
             box = state.getPeriodicBoxVectors()
@@ -257,14 +262,14 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 nonbondedVirial = dispersionVirial + coulombVirial
                 values.insert(self._backSteps, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
             if self._atomicPressure:
-                if self._kT:
-                    dNkT = dNkT = 3*context.getSystem().getNumParticles()*self._kT
-                else:
+                if self._kT is None:
                     dNkT = 2*state.getKineticEnergy()
+                else:
+                    dNkT = 3*context.getSystem().getNumParticles()*self._kT
                 volume = box[0][0]*box[1][1]*box[2][2]
                 pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
                 values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
-            if self._molecularVirial:
+            if self._molecularVirial or self._molecularPressure:
                 molecularVirial = atomicVirial.value_in_unit(unit.kilojoules_per_mole)
                 total = state.getForces(asNumpy=True)
                 others = context.getState(getForces=True, groups=self._computer._others).getForces(asNumpy=True)
@@ -273,7 +278,17 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 resultantForces = self._selection.dot(forces)
                 centersOfMass = self._massFrac.dot(positions)
                 molecularVirial += np.sum(centersOfMass*resultantForces)
-                values.insert(self._backSteps, molecularVirial)
+                if self._molecularVirial:
+                    values.insert(self._backSteps, molecularVirial)
+                if self._molecularPressure:
+                    if self._kT is None:
+                        dNkT = 0.0
+                    else:
+                        dNkT = 3*self._nmols*self._kT
+                    volume = box[0][0]*box[1][1]*box[2][2]
+                    molecularVirial *= unit.kilojoules_per_mole
+                    pressure = (dNkT + molecularVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                    values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
         return values
 
 
