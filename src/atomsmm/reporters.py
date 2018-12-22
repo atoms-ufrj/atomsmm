@@ -11,11 +11,11 @@
 """
 
 import itertools
-import scipy
 import sys
 
 import numpy as np
 import pandas as pd
+import scipy
 from simtk import openmm
 from simtk import unit
 

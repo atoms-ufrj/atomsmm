@@ -13,12 +13,12 @@ matrix:
     - python: '2.7'
       env:
         - TOXENV=py27,coveralls,codecov
-    - python: '3.5'
-      env:
-        - TOXENV=py35,coveralls,codecov
     - python: '3.6'
       env:
         - TOXENV=py36,coveralls,codecov
+    - python: '3.7'
+      env:
+        - TOXENV=py37,coveralls,codecov
 before_install:
   - python --version
   - uname -a
