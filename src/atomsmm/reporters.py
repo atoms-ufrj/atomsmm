@@ -249,35 +249,50 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 if self._molecularVirial or self._molecularPressure:
                     self._mols = _MoleculeTotalizer(simulation)
                 self._requiresInitialization = False
+
             context = self._computeContext
             box = state.getPeriodicBoxVectors()
             context.setPeriodicBoxVectors(*box)
             positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
             context.setPositions(positions)
-            dispersionVirial = context.getState(getEnergy=True, groups=self._computer._dispersion).getPotentialEnergy()
-            coulombVirial = context.getState(getEnergy=True, groups=self._computer._coulomb).getPotentialEnergy()
-            bondVirial = context.getState(getEnergy=True, groups=self._computer._bonded).getPotentialEnergy()
+
+            def potential(groups):
+                groupState = context.getState(getEnergy=True, groups=groups)
+                return groupState.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
+
+            dispersionVirial = potential(self._computer._dispersion)
+            coulombVirial = potential(self._computer._coulomb)
+            bondVirial = potential(self._computer._bonded)
             atomicVirial = dispersionVirial + coulombVirial + bondVirial
+
+            if self._atomicPressure or self._molecularPressure:
+                volume = box[0][0]*box[1][1]*box[2][2]
+                vfactor = 1/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+
             if self._coulombEnergy:
-                values.insert(self._backSteps, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
+                values.insert(self._backSteps, coulombVirial)
+
             if self._atomicVirial:
-                values.insert(self._backSteps, atomicVirial.value_in_unit(unit.kilojoules_per_mole))
+                values.insert(self._backSteps, atomicVirial)
+
             if self._nonbondedVirial:
                 nonbondedVirial = dispersionVirial + coulombVirial
-                values.insert(self._backSteps, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
+                values.insert(self._backSteps, nonbondedVirial)
+
             if self._atomicPressure:
                 if self._kT is None:
                     dNkT = 2*state.getKineticEnergy()
                 else:
                     dNkT = 3*context.getSystem().getNumParticles()*self._kT
-                volume = box[0][0]*box[1][1]*box[2][2]
-                pressure = (dNkT + atomicVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
                 values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+
             if self._molecularVirial or self._molecularPressure:
-                molecularVirial = atomicVirial.value_in_unit(unit.kilojoules_per_mole)
-                total = state.getForces(asNumpy=True)
-                others = context.getState(getForces=True, groups=self._computer._others).getForces(asNumpy=True)
-                forces = (total - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+                molecularVirial = atomicVirial
+                forces = state.getForces(asNumpy=True)
+                others = context.getState(getForces=True, groups=self._computer._others)
+                forces -= others.getForces(asNumpy=True)
+                forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
                 resultantForces = self._mols.selection.dot(forces)
                 centerOfMassPositions = self._mols.massFrac.dot(positions)
@@ -288,14 +303,14 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     if self._kT is None:
                         nm_ps = unit.nanometers/unit.picosecond
                         velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
-                        centerOfMassVelocities = self._mols.massFrac.dot(velocities)
-                        dNkT = np.sum(self._mols.molMass*np.sum(centerOfMassVelocities**2, axis=1))*unit.dalton*nm_ps**2
+                        cmVelocities = self._mols.massFrac.dot(velocities)
+                        cmKineticEnergies = self._mols.molMass*np.sum(cmVelocities**2, axis=1)
+                        dNkT = np.sum(cmKineticEnergies)*unit.dalton*nm_ps**2
                     else:
                         dNkT = 3*self._mols.nmols*self._kT
-                    volume = box[0][0]*box[1][1]*box[2][2]
-                    molecularVirial *= unit.kilojoules_per_mole
-                    pressure = (dNkT + molecularVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
+                    pressure = (dNkT + molecularVirial*unit.kilojoules_per_mole)*vfactor
                     values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+
         return values
 
 
