@@ -35,6 +35,23 @@ except ModuleNotFoundError:
     have_gzip = False
 
 
+class _MoleculeTotalizer(object):
+    def __init__(self, simulation):
+        molecules = simulation.context.getMolecules()
+        atoms = list(itertools.chain.from_iterable(molecules))
+        nmols = self.nmols = len(molecules)
+        natoms = self.natoms = len(atoms)
+        mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
+        def sparseMatrix(data):
+            return scipy.sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
+        selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
+        system = simulation.context.getSystem()
+        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
+        molMass = self.molMass = selection.dot(mass)
+        total = selection.T.dot(molMass)
+        self.massFrac = sparseMatrix(mass/total)
+
+
 class _AtomsMM_Reporter(openmm.app.StateDataReporter):
     """
     Base class for reporters.
@@ -70,20 +87,6 @@ class _AtomsMM_Reporter(openmm.app.StateDataReporter):
         def flush(self):
             for output in self._outputs:
                 output.flush()
-
-    def _moleculeTotalizers(self, simulation):
-        molecules = simulation.context.getMolecules()
-        atoms = list(itertools.chain.from_iterable(molecules))
-        nmols = len(molecules)
-        natoms = len(atoms)
-        mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
-        selection = scipy.sparse.csr_matrix((np.ones(natoms, np.int), (mol, atoms)), shape=(nmols, natoms))
-        system = simulation.context.getSystem()
-        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
-        molMass = selection.dot(mass)
-        total = selection.T.dot(molMass)
-        massFrac = scipy.sparse.csr_matrix((mass/total, (mol, atoms)), shape=(nmols, natoms))
-        return nmols, molMass, selection, massFrac
 
 
 class ExtendedStateDataReporter(_AtomsMM_Reporter):
@@ -207,7 +210,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         super().__init__(file, reportInterval, **kwargs)
         if self._active:
             if not isinstance(self._computer, ComputingSystem):
-                raise InputError('ComputingSystem is required')
+                raise InputError('keyword \'computer\' requires a ComputingSystem instance')
             self._requiresInitialization = True
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
@@ -243,8 +246,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         if self._active:
             if self._requiresInitialization:
                 self._computeContext = self._localContext(simulation)
-                if self._molecularVirial:
-                    self._nmols, self._molMass, self._selection, self._massFrac = self._moleculeTotalizers(simulation)
+                if self._molecularVirial or self._molecularPressure:
+                    self._mols = _MoleculeTotalizer(simulation)
                 self._requiresInitialization = False
             context = self._computeContext
             box = state.getPeriodicBoxVectors()
@@ -276,8 +279,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 others = context.getState(getForces=True, groups=self._computer._others).getForces(asNumpy=True)
                 forces = (total - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
-                resultantForces = self._selection.dot(forces)
-                centerOfMassPositions = self._massFrac.dot(positions)
+                resultantForces = self._mols.selection.dot(forces)
+                centerOfMassPositions = self._mols.massFrac.dot(positions)
                 molecularVirial += np.sum(centerOfMassPositions*resultantForces)
                 if self._molecularVirial:
                     values.insert(self._backSteps, molecularVirial)
@@ -285,10 +288,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     if self._kT is None:
                         nm_ps = unit.nanometers/unit.picosecond
                         velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
-                        centerOfMassVelocities = self._massFrac.dot(velocities)
-                        dNkT = np.sum(self._molMass*np.sum(centerOfMassVelocities**2, axis=1))*unit.dalton*nm_ps**2
+                        centerOfMassVelocities = self._mols.massFrac.dot(velocities)
+                        dNkT = np.sum(self._mols.molMass*np.sum(centerOfMassVelocities**2, axis=1))*unit.dalton*nm_ps**2
                     else:
-                        dNkT = 3*self._nmols*self._kT
+                        dNkT = 3*self._mols.nmols*self._kT
                     volume = box[0][0]*box[1][1]*box[2][2]
                     molecularVirial *= unit.kilojoules_per_mole
                     pressure = (dNkT + molecularVirial)/(3*volume*unit.AVOGADRO_CONSTANT_NA)
