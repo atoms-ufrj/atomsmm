@@ -55,7 +55,7 @@ class _MoleculeTotalizer(object):
 
         atomResidues = {}
         for atom in simulation.topology.atoms():
-            atomResidues[int(atom.id)-1] = atom.residue.name
+            atomResidues[int(atom.index)-1] = atom.residue.name
         self.residues = [atomResidues[item[0]] for item in molecules]
 
 

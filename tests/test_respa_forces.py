@@ -34,7 +34,7 @@ def test_shifted_near():
     executeNearForceTest("shift", -26451.885982885935)
 
 
-def test_force_swiched_near():
+def test_force_switched_near():
     executeNearForceTest("force-switch", -26516.68871844118)
 
 
@@ -75,5 +75,5 @@ def test_shifted_far():
     executeFarForceTest(atomsmm.FarNonbondedForce, "shift")
 
 
-def test_force_swiched_far():
+def test_force_switched_far():
     executeFarForceTest(atomsmm.FarNonbondedForce, "force-switch")

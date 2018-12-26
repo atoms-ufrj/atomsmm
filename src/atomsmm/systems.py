@@ -18,7 +18,7 @@ from sympy.parsing.sympy_parser import parse_expr
 import atomsmm
 
 
-class _AtomsMMSystem(openmm.System):
+class _AtomsMM_System(openmm.System):
     def __init__(self, system, copyForces=True):
         super().__init__()
         self.setDefaultPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())
@@ -34,7 +34,7 @@ class _AtomsMMSystem(openmm.System):
                 self.addForce(copy.deepcopy(force))
 
 
-class RESPASystem(_AtomsMMSystem):
+class RESPASystem(_AtomsMM_System):
     """
     An OpenMM System_ prepared for Multiple Time-Scale Integration with RESPA.
 
@@ -93,7 +93,7 @@ class RESPASystem(_AtomsMMSystem):
         self.addForce(discount)
 
 
-class ComputingSystem(_AtomsMMSystem):
+class ComputingSystem(_AtomsMM_System):
     """
     An OpenMM System_ prepared for computing the Coulomb contribution to the potential energy, as
     well as the total internal virial of an atomic system.

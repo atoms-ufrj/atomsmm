@@ -75,7 +75,7 @@ class Propagator:
             :class:`Integrator`
 
         """
-        integrator = atomsmm.integrators.Integrator(stepSize)
+        integrator = atomsmm.integrators._AtomsMM_Integrator(stepSize)
         self.addVariables(integrator)
         self.addSteps(integrator)
         return integrator

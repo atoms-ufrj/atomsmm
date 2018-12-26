@@ -21,13 +21,13 @@ from atomsmm.propagators import Propagator as DummyPropagator
 from atomsmm.utils import InputError
 
 
-class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
+class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
     def __init__(self, stepSize):
         super().__init__(stepSize)
         self.addGlobalVariable('mvv', 0.0)
-        self.obsoleteKinetic = True
-        self.forceFinder = re.compile('f[0-9]*')
-        self.obsoleteContextState = True
+        self._obsoleteKinetic = True
+        self._forceFinder = re.compile('f[0-9]*')
+        self._obsoleteContextState = True
 
     def __str__(self):
         return self.pretty_format()
@@ -54,36 +54,36 @@ class Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator)
 
         """
         requirements = self._required_variables(variable, expression)
-        if self.obsoleteKinetic and 'mvv' in requirements:
-            super(Integrator, self).addComputeSum('mvv', 'm*v*v')
-            self.obsoleteKinetic = False
-        if self.obsoleteContextState and any(self.forceFinder.match(s) for s in requirements):
-            super(Integrator, self).addUpdateContextState()
-            self.obsoleteContextState = False
+        if self._obsoleteKinetic and 'mvv' in requirements:
+            super().addComputeSum('mvv', 'm*v*v')
+            self._obsoleteKinetic = False
+        if self._obsoleteContextState and any(self._forceFinder.match(s) for s in requirements):
+            super().addUpdateContextState()
+            self._obsoleteContextState = False
 
     def addUpdateContextState(self):
-        if self.obsoleteContextState:
-            super(Integrator, self).addUpdateContextState()
-            self.obsoleteContextState = False
+        if self._obsoleteContextState:
+            super().addUpdateContextState()
+            self._obsoleteContextState = False
 
     def addComputeGlobal(self, variable, expression):
         if variable == 'mvv':
             raise InputError('Cannot assign value to global variable mvv')
         self._checkUpdate(variable, expression)
-        super(Integrator, self).addComputeGlobal(variable, expression)
+        super().addComputeGlobal(variable, expression)
 
     def addComputePerDof(self, variable, expression):
         self._checkUpdate(variable, expression)
-        super(Integrator, self).addComputePerDof(variable, expression)
+        super().addComputePerDof(variable, expression)
         if variable == 'v':
-            self.obsoleteKinetic = True
+            self._obsoleteKinetic = True
 
     def setRandomNumberSeed(self, seed):
-        super(Integrator, self).setRandomNumberSeed(seed)
+        super().setRandomNumberSeed(seed)
         random.seed(seed)
 
 
-class GlobalThermostatIntegrator(Integrator):
+class GlobalThermostatIntegrator(_AtomsMM_Integrator):
     """
     This class extends OpenMM's CustomIntegrator_ class in order to facilitate the construction
     of NVT integrators which include a global thermostat, that is, one that acts equally and
@@ -123,7 +123,7 @@ class GlobalThermostatIntegrator(Integrator):
         thermostat.addSteps(self, 1/2)
 
 
-class SIN_R_Integrator(Integrator):
+class SIN_R_Integrator(_AtomsMM_Integrator):
     """
     This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
     Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
