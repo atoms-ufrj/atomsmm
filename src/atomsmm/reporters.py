@@ -42,14 +42,21 @@ class _MoleculeTotalizer(object):
         nmols = self.nmols = len(molecules)
         natoms = self.natoms = len(atoms)
         mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
+
         def sparseMatrix(data):
             return scipy.sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
+
         selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
         system = simulation.context.getSystem()
         mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
         molMass = self.molMass = selection.dot(mass)
         total = selection.T.dot(molMass)
         self.massFrac = sparseMatrix(mass/total)
+
+        atomResidues = {}
+        for atom in simulation.topology.atoms():
+            atomResidues[int(atom.id)-1] = atom.residue.name
+        self.residues = [atomResidues[item[0]] for item in molecules]
 
 
 class _AtomsMM_Reporter(openmm.app.StateDataReporter):
@@ -295,8 +302,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
                 resultantForces = self._mols.selection.dot(forces)
-                centerOfMassPositions = self._mols.massFrac.dot(positions)
-                molecularVirial += np.sum(centerOfMassPositions*resultantForces)
+                cmPositions = self._mols.massFrac.dot(positions)
+                molecularVirial += np.sum(cmPositions*resultantForces)
                 if self._molecularVirial:
                     values.insert(self._backSteps, molecularVirial)
                 if self._molecularPressure:
@@ -312,6 +319,30 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
 
         return values
+
+
+class CenterOfMassReporter(_AtomsMM_Reporter):
+    """
+    Outputs a series of frames containing the center-of-mass coordinates of all molecules from a
+    Simulation to an XYZ-format file.
+
+    To use it, create a CenterOfMassReporter, then add it to the Simulation's list of reporters.
+
+    """
+    def __init__(self, file, reportInterval, **kwargs):
+        super().__init__(file, reportInterval, **kwargs)
+        self._nextModel = 0
+        self._needsPositions = True
+
+    def report(self, simulation, state):
+        if self._nextModel == 0:
+            self._mols = _MoleculeTotalizer(simulation)
+            self._nextModel += 1
+
+        positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
+        cmPositions = self._mols.massFrac.dot(positions)
+        print(self._mols.nmols, file=self._out)
+        pd.DataFrame(index=self._mols.residues, data=cmPositions).to_csv(self._out, sep='\t')
 
 
 class AtomsMMReporter(object):

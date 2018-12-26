@@ -21,6 +21,7 @@ from .propagators import TrotterSuzukiPropagator  # noqa: F401
 from .propagators import VelocityBoostPropagator  # noqa: F401
 from .propagators import VelocityRescalingPropagator  # noqa: F401
 from .propagators import VelocityVerletPropagator  # noqa: F401
+from .reporters import CenterOfMassReporter  # noqa: F401
 from .reporters import ExpandedEnsembleReporter  # noqa: F401
 from .reporters import ExtendedStateDataReporter  # noqa: F401
 from .reporters import MultistateEnergyReporter  # noqa: F401
@@ -62,6 +63,7 @@ __propagators__ = [
     ]  # noqa E123
 
 __reporters__ = [
+    'CenterOfMassReporter',
     'ExpandedEnsembleReporter',
     'ExtendedStateDataReporter',
     'MultistateEnergyReporter',
