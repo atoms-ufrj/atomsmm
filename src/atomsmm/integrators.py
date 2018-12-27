@@ -28,6 +28,7 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
         self._obsoleteKinetic = True
         self._forceFinder = re.compile('f[0-9]*')
         self._obsoleteContextState = True
+        self._uninitialized = True
 
     def __str__(self):
         return self.pretty_format()
@@ -82,6 +83,18 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
         super().setRandomNumberSeed(seed)
         random.seed(seed)
 
+    def step(self, steps):
+        if self._uninitialized:
+            self.initialize()
+            self._uninitialized = False
+        return super().step(steps)
+
+    def initialize(self):
+        """
+        Perform initialization of atomic velocities and other random per-dof variables.
+
+        """
+        pass
 
 class GlobalThermostatIntegrator(_AtomsMM_Integrator):
     """
@@ -213,21 +226,17 @@ class SIN_R_Integrator(_AtomsMM_Integrator):
             propagator = propagators.RespaPropagator(loops, core=OU, shell={level: NH}, boost=isoF)
         propagator.addVariables(self)
         propagator.addSteps(self)
-        self.requiresInitialization = True
 
-    def step(self, steps):
-        if self.requiresInitialization:
-            kT = self.getGlobalVariableByName('kT')
-            Q1 = self.getGlobalVariableByName('Q1')
-            Q2 = self.getGlobalVariableByName('Q2')
-            v1 = self.getPerDofVariableByName('v1')
-            v2 = self.getPerDofVariableByName('v2')
-            S1 = math.sqrt(2*kT/Q1)
-            S2 = math.sqrt(kT/Q2)
-            for i in range(len(v1)):
-                v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
-                v2[i] = openmm.Vec3(random.gauss(0, S2), random.gauss(0, S2), random.gauss(0, S2))
-            self.setPerDofVariableByName('v1', v1)
-            self.setPerDofVariableByName('v2', v2)
-            self.requiresInitialization = False
-        return super().step(steps)
+    def initialize(self):
+        kT = self.getGlobalVariableByName('kT')
+        Q1 = self.getGlobalVariableByName('Q1')
+        Q2 = self.getGlobalVariableByName('Q2')
+        v1 = self.getPerDofVariableByName('v1')
+        v2 = self.getPerDofVariableByName('v2')
+        S1 = math.sqrt(2*kT/Q1)
+        S2 = math.sqrt(kT/Q2)
+        for i in range(len(v1)):
+            v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
+            v2[i] = openmm.Vec3(random.gauss(0, S2), random.gauss(0, S2), random.gauss(0, S2))
+        self.setPerDofVariableByName('v1', v1)
+        self.setPerDofVariableByName('v2', v2)
