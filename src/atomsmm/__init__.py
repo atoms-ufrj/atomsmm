@@ -6,6 +6,7 @@ from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
 from .forces import SoftcoreLennardJonesForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
+from .integrators import NHL_R_Integrator  # noqa: F401
 from .integrators import SIN_R_Integrator  # noqa: F401
 from .propagators import ChainedPropagator  # noqa: F401
 from .propagators import GenericBoostPropagator  # noqa: F401
@@ -42,6 +43,7 @@ __forces__ = [
 
 __integrators__ = [
     'GlobalThermostatIntegrator',
+    'NHL_R_Integrator',
     'SIN_R_Integrator',
     ]  # noqa E123
 

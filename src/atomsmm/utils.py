@@ -12,6 +12,8 @@ from copy import deepcopy
 from simtk import openmm
 from simtk import unit
 
+kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+
 
 class InputError(Exception):
     def __init__(self, msg):

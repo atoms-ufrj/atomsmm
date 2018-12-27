@@ -16,6 +16,7 @@ from simtk import unit
 
 import atomsmm
 from atomsmm.utils import InputError
+from atomsmm.utils import kB
 
 
 class Propagator:
@@ -35,8 +36,6 @@ class Propagator:
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
-
-    kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
 
     def __str__(self):
         return self.integrator(1*unit.femtoseconds).pretty_format()
@@ -334,7 +333,7 @@ class MassiveIsokineticPropagator(Propagator):
     """
     def __init__(self, temperature, timeScale, forceDependent):
         super().__init__()
-        self.globalVariables['kT'] = kT = self.kB*temperature
+        self.globalVariables['kT'] = kT = kB*temperature
         self.globalVariables['Q1'] = Q1 = kT*timeScale**2
         self.globalVariables['Q2'] = Q1
         self.perDofVariables['v1'] = 0
@@ -383,13 +382,17 @@ class OrnsteinUhlenbeckPropagator(Propagator):
             If it is `None`, then this force is considered as null.
 
     """
-    def __init__(self, temperature, frictionConstant, velocity='v', mass='m', force=None):
+    def __init__(self, temperature, frictionConstant, velocity='v', mass='m', force=None, **globals):
         super().__init__()
-        self.globalVariables['kT'] = self.kB*temperature
+        self.globalVariables['kT'] = kB*temperature
         self.globalVariables['friction'] = frictionConstant
         self.velocity = velocity
         self.mass = mass
         self.force = force
+        for key, value in globals.items():
+            self.globalVariables[key] = value
+        if velocity != 'v':
+            self.perDofVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         expression = 'x*{} + sqrt(kT*(1 - x*x)/{})*gaussian'.format(self.velocity, self.mass)
@@ -419,16 +422,51 @@ class GenericBoostPropagator(Propagator):
             The name of a per-dof variable considered as the force acting on each degree of freedom.
 
     """
-    def __init__(self, velocity='v', mass='m', force='f'):
+    def __init__(self, velocity='v', mass='m', force='f', **globals):
         super().__init__()
         self.velocity = velocity
         self.mass = mass
         self.force = force
+        for key, value in globals.items():
+            self.globalVariables[key] = value
+        if velocity != 'v':
+            self.perDofVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         expression = '{} + ({}*dt)*F/M'.format(self.velocity, fraction)
         expression += '; F = {}'.format(self.force)
         expression += '; M = {}'.format(self.mass)
+        integrator.addComputePerDof(self.velocity, expression)
+
+
+class GenericScalingPropagator(Propagator):
+    """
+    This class implements scaling by providing a solution for the following :term:`ODE` for
+    every degree of freedom in the system:
+
+    .. math::
+        \\frac{dV}{dt} = -\\lambda_\\mathrm{damping}*V.
+
+    Parameters
+    ----------
+        velocity : str
+            The name of a per-dof variable considered as the velocity of each degree of freedom.
+        damping : str
+            The name of a per-dof or global variable considered as the damping parameter associated
+            to each degree of freedom.
+
+    """
+    def __init__(self, velocity, damping, **globals):
+        super().__init__()
+        self.velocity = velocity
+        self.damping = damping
+        for key, value in globals.items():
+            self.globalVariables[key] = value
+        if velocity != 'v':
+            self.perDofVariables[velocity] = 0
+
+    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+        expression = '{}*exp(-({}*dt)*{})'.format(self.velocity, fraction, self.damping)
         integrator.addComputePerDof(self.velocity, expression)
 
 
@@ -666,8 +704,8 @@ class NoseHooverPropagator(Propagator):
     def __init__(self, temperature, degreesOfFreedom, timeScale, nloops=1):
         super().__init__()
         self.nloops = nloops
-        self.globalVariables['LkT'] = degreesOfFreedom*self.kB*temperature
-        self.globalVariables['Q'] = degreesOfFreedom*self.kB*temperature*timeScale**2
+        self.globalVariables['LkT'] = degreesOfFreedom*kB*temperature
+        self.globalVariables['Q'] = degreesOfFreedom*kB*temperature*timeScale**2
         self.globalVariables['vscaling'] = 0
         self.globalVariables['p_eta'] = 0
         self.globalVariables['n_NH'] = 0
