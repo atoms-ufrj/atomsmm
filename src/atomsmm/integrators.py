@@ -138,17 +138,9 @@ class GlobalThermostatIntegrator(_AtomsMM_Integrator):
         thermostat.addSteps(self, 1/2)
 
 
-class NHL_R_Integrator(_AtomsMM_Integrator):
+class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
     """
-    This class is an implementation of the Nosé-Hoover-Langevin (RESPA) integrator. The method
-    consists in solving the following equations for each degree of freedom (DOF) in the system:
-
-    .. math::
-        & \\frac{dx}{dt} = v \\\\
-        & \\frac{dv}{dt} = \\frac{f}{m} - v_1 v \\\\
-        & dv_1 = \\frac{m v^2 - kT}{Q_1}dt - \\gamma v_1 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_1}} dW
-
-    The equations are integrated by a reversible, multiple timescale numerical scheme.
+    This class implements a Multiple Time-Scale (MTS) integrator using the RESPA method.
 
     Parameters
     ----------
@@ -159,22 +151,20 @@ class NHL_R_Integrator(_AtomsMM_Integrator):
             while group `N-1` is composed of the slowest ones, `loops[k]` determines how many steps
             involving forces of group `k` are internally executed for every step involving those of
             group `k+1`.
-        temperature : unit.Quantity
-            The temperature to which the configurational sampling should correspond.
-        timeScale : unit.Quantity
-            A time scale :math:`\\tau` from which the inertial parameters are computed as
-            :math:`Q_1 = Q_2 = kT\\tau^2`.
-        frictionConstant : unit.Quantity
-            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
-            per-DOF thermostat variable :math:`v_2`.
+        move : :class:`Propagator`, optional, default = None
+            A move propagator.
+        boost : :class:`Propagator`, optional, default = None
+            A boost propagator.
+        bath : :class:`Propagator`, optional, default = None
+            A bath propagator.
 
     Keyword Args
     ------------
-        location : str or int, default = 'center'
+        location : str or int, default = 'middle'
             The position in the rRESPA scheme where the propagator :math:`e^{\\delta t \\, iL_N}`
-            :cite:`Leimkuhler_2013` is located. Valid options are 'center', 'xi-respa', 'xo-respa',
+            :cite:`Leimkuhler_2013` is located. Valid options are 'middle', 'xi-respa', 'xo-respa',
             or an integer from `0` to `N-1`.
-            If it is 'center', then the operator will be located inside the Ornstein-Uhlenbeck
+            If it is 'middle', then the operator will be located inside the Ornstein-Uhlenbeck
             process (thus, between coordinate moves during the fastest-force loops).
             If it is 'xi-respa', then the operator will be integrated in the extremities of each
             loop concerning the timescale of fastest forces in the system (force group `0`).
@@ -188,49 +178,86 @@ class NHL_R_Integrator(_AtomsMM_Integrator):
             The number of RESPA-like subdivisions.
 
     .. warning::
-        The 'xi-respa' scheme implemented here is slightly different from the one described in the
-        paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
+        The 'xo-respa' and 'xi-respa' schemes implemented here are slightly different from the ones
+        described in the paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
 
     """
-    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        location = kwargs.pop('location', 'center')
-        nsy = kwargs.pop('nsy', 1)
+    def __init__(self, stepSize, loops, move=None, boost=None, bath=None, **kwargs):
+        location = kwargs.pop('location', 'middle')
         nres = kwargs.pop('nres', 1)
+        nsy = kwargs.pop('nsy', 1)
         super().__init__(stepSize)
-        kT = kB*temperature
-        Q1 = kT*timeScale**2
-        scaling = propagators.GenericScalingPropagator('v', 'v1')
-        if location == 'center':
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                         'v1', 'Q1', 'm*v*v - kT', Q1=Q1, kT=kT)
-            # central = propagators.TrotterSuzukiPropagator(scaling, OU)
-            central = propagators.TrotterSuzukiPropagator(OU, scaling)
-            propagator = propagators.RespaPropagator(loops, core=central)
+        if nres > 1:
+            bath = propagators.SplitPropagator(bath, nres)
+        if nsy > 1:
+            bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
+        if location == 'middle':
+            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath)
         else:
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                         'v1', 'Q1', Q1=Q1)
-            v1boost = propagators.GenericBoostPropagator('v1', 'Q1', 'm*v*v - kT', Q1=Q1, kT=kT)
-            TS = propagators.TrotterSuzukiPropagator(scaling, v1boost)
-            NH = propagators.SuzukiYoshidaPropagator(propagators.SplitPropagator(TS, nres), nsy)
-            try:
-                level = {'xi-respa': 0, 'xo-respa': len(loops)-1}[location]
-            except KeyError:
+            if isinstance(location, int):
                 level = location
-            propagator = propagators.RespaPropagator(loops, core=OU, shell={level: NH})
+            elif location == 'xi-respa':
+                level = 0
+            elif location == 'xo-respa':
+                level = len(loops) - 1
+            else:
+                raise InputError('wrong value of location parameter')
+            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, shell={level: bath})
         propagator.addVariables(self)
         propagator.addSteps(self)
 
+
+class NHL_R_Integrator(MultipleTimeScaleIntegrator):
+    """
+    This class is an implementation of the massive Nosé-Hoover-Langevin (RESPA) integrator. The
+    method consists in solving the following equations for each degree of freedom (DOF) in the
+    system:
+
+    .. math::
+        & \\frac{dx}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{f}{m} - v_2 v \\\\
+        & dv_2 = \\frac{m v^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
+
+    The equations are integrated by a reversible, multiple timescale numerical scheme.
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which the inertial parameters are computed as
+            :math:`Q_2 = kT\\tau^2`.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        scaling = propagators.GenericScalingPropagator('v', 'v2')
+        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                      'v2', 'Q2', 'm*v^2 - kT',
+                                                      Q2=kB*temperature*timeScale**2,
+                                                      kT=kB*temperature)
+        bath = propagators.TrotterSuzukiPropagator(DOU, scaling)
+        super().__init__(stepSize, loops, None, None, bath)
+
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')
-        Q1 = self.getGlobalVariableByName('Q1')
-        v1 = self.getPerDofVariableByName('v1')
-        S1 = math.sqrt(kT/Q1)
-        for i in range(len(v1)):
-            v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
-        self.setPerDofVariableByName('v1', v1)
+        Q1 = self.getGlobalVariableByName('Q2')
+        v2 = self.getPerDofVariableByName('v2')
+        S = math.sqrt(kT/Q1)
+        for i in range(len(v2)):
+            v2[i] = openmm.Vec3(random.gauss(0, S), random.gauss(0, S), random.gauss(0, S))
+        self.setPerDofVariableByName('v2', v2)
 
 
-class SIN_R_Integrator(_AtomsMM_Integrator):
+class SIN_R_Integrator(MultipleTimeScaleIntegrator):
     """
     This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
     Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
@@ -259,10 +286,7 @@ class SIN_R_Integrator(_AtomsMM_Integrator):
         stepSize : unit.Quantity
             The largest time step for numerically integrating the system of equations.
         loops : list(int)
-            A list of `N` integers. Assuming that force group `0` is composed of the fastest forces,
-            while group `N-1` is composed of the slowest ones, `loops[k]` determines how many steps
-            involving forces of group `k` are internally executed for every step involving those of
-            group `k+1`.
+            See description in :class:`MultipleTimeScaleIntegrator`.
         temperature : unit.Quantity
             The temperature to which the configurational sampling should correspond.
         timeScale : unit.Quantity
@@ -271,55 +295,16 @@ class SIN_R_Integrator(_AtomsMM_Integrator):
         frictionConstant : unit.Quantity
             The friction constant :math:`\\gamma` present in the stochastic equation of motion for
             per-DOF thermostat variable :math:`v_2`.
-
-    Keyword Args
-    ------------
-        location : str or int, default = 'center'
-            The position in the rRESPA scheme where the propagator :math:`e^{\\delta t \\, iL_N}`
-            :cite:`Leimkuhler_2013` is located. Valid options are 'center', 'xi-respa', 'xo-respa',
-            or an integer from `0` to `N-1`.
-            If it is 'center', then the operator will be located inside the Ornstein-Uhlenbeck
-            process (thus, between coordinate moves during the fastest-force loops).
-            If it is 'xi-respa', then the operator will be integrated in the extremities of each
-            loop concerning the timescale of fastest forces in the system (force group `0`).
-            If it is 'xo-respa', then the operator will be integrated in the extremities of each
-            loop concerning the timescale of the slowest forces in the system (force group `N-1`).
-            If it is an integer `k`, then the operator will be integrated in the extremities of each
-            loop concerning the timescale of force group `k`.
-        nsy : int, default = 1
-            The number of Suzuki-Yoshida factorization terms. Valid options are 1, 3, 7, and 15.
-        nres : int, default = 1
-            The number of RESPA-like subdivisions.
-
-    .. warning::
-        The 'xi-respa' scheme implemented here is slightly different from the one described in the
-        paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        location = kwargs.pop('location', 'center')
-        nsy = kwargs.pop('nsy', 1)
-        nres = kwargs.pop('nres', 1)
-        super().__init__(stepSize)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        if location == 'center':
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2', 'Q1*v1*v1 - kT')
-            # central = propagators.TrotterSuzukiPropagator(isoN, OU)
-            central = propagators.TrotterSuzukiPropagator(OU, isoN)
-            propagator = propagators.RespaPropagator(loops, core=central, boost=isoF)
-        else:
-            OU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2')
-            v2boost = propagators.GenericBoostPropagator('v2', 'Q2', 'Q1*v1*v1 - kT')
-            TS = propagators.TrotterSuzukiPropagator(isoN, v2boost)
-            NH = propagators.SuzukiYoshidaPropagator(propagators.SplitPropagator(TS, nres), nsy)
-            try:
-                level = {'xi-respa': 0, 'xo-respa': len(loops)-1}[location]
-            except KeyError:
-                level = location
-            propagator = propagators.RespaPropagator(loops, core=OU, shell={level: NH}, boost=isoF)
-        propagator.addVariables(self)
-        propagator.addSteps(self)
+        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2', 'Q1*v1*v1 - kT')
+        bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
+        super().__init__(stepSize, loops, None, isoF, bath)
 
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')
