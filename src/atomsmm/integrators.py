@@ -191,7 +191,7 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
     """
     def __init__(self, stepSize, loops, move=None, boost=None, bath=None, **kwargs):
         scheme = kwargs.pop('scheme', 'middle')
-        location = kwargs.pop('location', None)
+        location = kwargs.pop('location', 0)
         nres = kwargs.pop('nres', 1)
         nsy = kwargs.pop('nsy', 1)
         super().__init__(stepSize)
@@ -250,7 +250,7 @@ class NHL_R_Integrator(MultipleTimeScaleIntegrator):
                                                       Q2=kB*temperature*timeScale**2,
                                                       kT=kB*temperature)
         bath = propagators.TrotterSuzukiPropagator(DOU, scaling)
-        super().__init__(stepSize, loops, None, None, bath)
+        super().__init__(stepSize, loops, None, None, bath, **kwargs)
 
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')
@@ -309,7 +309,7 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2', 'Q1*v1*v1 - kT')
         bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
-        super().__init__(stepSize, loops, None, isoF, bath)
+        super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
 
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')
