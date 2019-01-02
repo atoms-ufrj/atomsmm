@@ -160,30 +160,38 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
 
     Keyword Args
     ------------
-        location : str or int, default = 'middle'
-            The position in the rRESPA scheme where the propagator :math:`e^{\\delta t \\, iL_N}`
-            :cite:`Leimkuhler_2013` is located. Valid options are 'middle', 'xi-respa', 'xo-respa',
-            or an integer from `0` to `N-1`.
-            If it is 'middle', then the operator will be located inside the Ornstein-Uhlenbeck
-            process (thus, between coordinate moves during the fastest-force loops).
-            If it is 'xi-respa', then the operator will be integrated in the extremities of each
-            loop concerning the timescale of fastest forces in the system (force group `0`).
-            If it is 'xo-respa', then the operator will be integrated in the extremities of each
-            loop concerning the timescale of the slowest forces in the system (force group `N-1`).
-            If it is an integer `k`, then the operator will be integrated in the extremities of each
-            loop concerning the timescale of force group `k`.
-        nsy : int, default = 1
-            The number of Suzuki-Yoshida factorization terms. Valid options are 1, 3, 7, and 15.
-        nres : int, default = 1
-            The number of RESPA-like subdivisions.
+        scheme : str, optional, default = `middle`
+            The splitting scheme used to solve the equations of motion. Available options are
+            `middle`, `xi-respa`, `xo-respa`, `side`, and `blitz`.
+            If it is `middle` (default), then the bath propagator will be inserted between half-step
+            coordinate moves during the fastest-force loops.
+            If it is `xi-respa`, `xo-respa`, or `side`, then the bath propagator will be integrated
+            in both extremities of each loop concerning one of the `N` time scales, with `xi-respa`
+            referring to the time scale of fastest forces (force group `0`), `xo-respa` referring to
+            the time scale of the slowest forces (force group `N-1`), and `side` requiring the user
+            to select the time scale in which to locate the bath propagator via keyword argument
+            `location` (see below).
+            If it is `blitz`, then the force-related propagators will be fully integrated at the
+            outset of each loop in all time scales and the bath propagator will be integrated
+            between half-step coordinate moves during the fastest-force loops.
+        location : int, optional, default = None
+            The index of the force group (from `0` to `N-1`) that defines the time scale in which
+            the bath propagator will be located. This is only meaningful if keyword `scheme` is set
+            to `side` (see above).
+        nsy : int, optional, default = 1
+            The number of Suzuki-Yoshida terms to factorize the bath propagator. Valid options are
+            1, 3, 7, and 15.
+        nres : int, optional, default = 1
+            The number of RESPA-like subdivisions to factorize the bath propagator.
 
     .. warning::
-        The 'xo-respa' and 'xi-respa' schemes implemented here are slightly different from the ones
+        The `xo-respa` and `xi-respa` schemes implemented here are slightly different from the ones
         described in the paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
 
     """
     def __init__(self, stepSize, loops, move=None, boost=None, bath=None, **kwargs):
-        location = kwargs.pop('location', 'middle')
+        scheme = kwargs.pop('scheme', 'middle')
+        location = kwargs.pop('location', None)
         nres = kwargs.pop('nres', 1)
         nsy = kwargs.pop('nsy', 1)
         super().__init__(stepSize)
@@ -191,18 +199,15 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
             bath = propagators.SplitPropagator(bath, nres)
         if nsy > 1:
             bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
-        if location == 'middle':
+        if scheme == 'middle':
             propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath)
-        else:
-            if isinstance(location, int):
-                level = location
-            elif location == 'xi-respa':
-                level = 0
-            elif location == 'xo-respa':
-                level = len(loops) - 1
-            else:
-                raise InputError('wrong value of location parameter')
+        elif scheme == 'blitz':
+            propagator = propagators.BlitzRespaPropagator(loops, move=move, boost=boost, core=bath)
+        elif scheme in ['xi-respa', 'xo-respa', 'side']:
+            level = location if scheme == 'side' else (0 if scheme == 'xi-respa' else len(loops)-1)
             propagator = propagators.RespaPropagator(loops, move=move, boost=boost, shell={level: bath})
+        else:
+            raise InputError('wrong value of scheme parameter')
         propagator.addVariables(self)
         propagator.addSteps(self)
 

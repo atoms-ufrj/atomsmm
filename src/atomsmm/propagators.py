@@ -555,6 +555,13 @@ class RespaPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         self._addSubsteps(integrator, len(self.loops)-1, fraction)
 
+    def _internalSplitting(self, integrator, group, fraction, shell):
+        shell and shell.addSteps(integrator, 0.5*fraction)
+        self.boost.addSteps(integrator, 0.5*fraction, str(group))
+        self._addSubsteps(integrator, group-1, fraction)
+        self.boost.addSteps(integrator, 0.5*fraction, str(group))
+        shell and shell.addSteps(integrator, 0.5*fraction)
+
     def _addSubsteps(self, integrator, group, fraction):
         if group >= 0:
             n = self.loops[group]
@@ -562,12 +569,7 @@ class RespaPropagator(Propagator):
                 counter = 'n{}RESPA'.format(group)
                 integrator.addComputeGlobal(counter, '0')
                 integrator.beginWhileBlock('{} < {}'.format(counter, n))
-            shell = self.shell.get(group, None)
-            shell and shell.addSteps(integrator, 0.5*fraction/n)
-            self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
-            self._addSubsteps(integrator, group-1, fraction/n)
-            self.boost.addSteps(integrator, 0.5*fraction/n, str(group))
-            shell and shell.addSteps(integrator, 0.5*fraction/n)
+            self._internalSplitting(integrator, group, fraction/n, self.shell.get(group, None))
             if n > 1:
                 integrator.addComputeGlobal(counter, '{} + 1'.format(counter))
                 integrator.endBlock()
@@ -577,6 +579,12 @@ class RespaPropagator(Propagator):
             self.move.addSteps(integrator, 0.5*fraction)
             self.core.addSteps(integrator, fraction)
             self.move.addSteps(integrator, 0.5*fraction)
+
+
+class BlitzRespaPropagator(RespaPropagator):
+    def _internalSplitting(self, integrator, group, fraction, shell):
+        self.boost.addSteps(integrator, fraction, str(group))
+        self._addSubsteps(integrator, group-1, fraction)
 
 
 class VelocityVerletPropagator(Propagator):
