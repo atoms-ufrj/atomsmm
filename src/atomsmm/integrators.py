@@ -11,7 +11,6 @@ import math
 import re
 
 import numpy as np
-import openmmtools.integrators as openmmtools
 from simtk import openmm
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
@@ -22,7 +21,7 @@ from atomsmm.utils import InputError
 from atomsmm.utils import kB
 
 
-class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIntegrator):
+class _AtomsMM_Integrator(openmm.CustomIntegrator):
     def __init__(self, stepSize):
         super().__init__(stepSize)
         self.addGlobalVariable('mvv', 0.0)
@@ -33,9 +32,6 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
         self._obsoleteContextState = True
         self._random = np.random.RandomState()
         self._uninitialized = True
-
-    def __str__(self):
-        return self.pretty_format()
 
     def _normalVec(self):
         return openmm.Vec3(self._random.normal(), self._random.normal(), self._random.normal())

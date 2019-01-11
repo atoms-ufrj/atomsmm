@@ -28,17 +28,10 @@ class Propagator:
     solution obtained by a splitting scheme such as, for instance,
     :math:`e^{\\delta t \\, (iL_A+iL_B)} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`.
 
-    .. note::
-        One can visualize the steps of a propagator by simply using the `print()` function having
-        the propagator object as an argument.
-
     """
     def __init__(self):
         self.globalVariables = dict()
         self.perDofVariables = dict()
-
-    def __str__(self):
-        return self.integrator(1*unit.femtoseconds).pretty_format()
 
     def addVariables(self, integrator):
         for (name, value) in self.globalVariables.items():
