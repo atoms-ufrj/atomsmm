@@ -353,6 +353,43 @@ class MassiveIsokineticPropagator(Propagator):
         integrator.addComputePerDof('v1', 'H*v1')
 
 
+class NewMethodPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        forceDependent : bool
+            If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
+
+    """
+    def __init__(self, temperature, timeScale, L, forceDependent):
+        super().__init__()
+        self.globalVariables['kT'] = kT = kB*temperature
+        self.globalVariables['Q_eta'] = kT*timeScale**2
+        self.perDofVariables['v_eta'] = 0
+        self.perDofVariables['pi'] = 0
+        self.globalVariables['L'] = L
+        self.globalVariables['LkT'] = L*kT
+        self.forceDependent = forceDependent
+
+    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+        if self.forceDependent:
+            expression = 'pi + ({}*dt)*f{}/sqrt(m*LkT)'.format(fraction, forceGroup)
+        else:
+            expression = 'log(x + sqrt(x^2 + 1))'  # arcsinh(x)
+            expression += '; x = sinh(pi)*exp(-({}*dt)*v_eta)'.format(fraction)
+        integrator.addComputePerDof('pi', expression)
+        expression = 'sqrt(LkT/m)*tanh(pi)'
+        integrator.addComputePerDof('v', expression)
+
+
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
     This class implements an unconstrained, Ornstein-Uhlenbeck (OU) propagator, which provides a
@@ -456,18 +493,24 @@ class GenericScalingPropagator(Propagator):
             to each degree of freedom.
 
     """
-    def __init__(self, velocity, damping, **globals):
+    def __init__(self, velocity, damping, perDof=True, **globals):
         super().__init__()
         self.velocity = velocity
         self.damping = damping
+        self.perDof = perDof
         for key, value in globals.items():
             self.globalVariables[key] = value
-        if velocity != 'v':
+        if perDof and velocity != 'v':
             self.perDofVariables[velocity] = 0
+        elif not perDof:
+            self.globalVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         expression = '{}*exp(-({}*dt)*{})'.format(self.velocity, fraction, self.damping)
-        integrator.addComputePerDof(self.velocity, expression)
+        if self.perDof:
+            integrator.addComputePerDof(self.velocity, expression)
+        else:
+            integrator.addComputeGlobal(self.velocity, expression)
 
 
 class RespaPropagator(Propagator):

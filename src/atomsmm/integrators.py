@@ -8,9 +8,9 @@
 """
 
 import math
-import random
 import re
 
+import numpy as np
 import openmmtools.integrators as openmmtools
 from simtk import openmm
 from sympy import Symbol
@@ -29,10 +29,14 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
         self._obsoleteKinetic = True
         self._forceFinder = re.compile('f[0-9]*')
         self._obsoleteContextState = True
+        self._random = np.random.RandomState()
         self._uninitialized = True
 
     def __str__(self):
         return self.pretty_format()
+
+    def _normalVec(self):
+        return openmm.Vec3(self._random.normal(), self._random.normal(), self._random.normal())
 
     def _required_variables(self, variable, expression):
         """
@@ -52,7 +56,7 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
     def _checkUpdate(self, variable, expression):
         """
         Check whether it is necessary to update the mvv global variable (twice the kinetic energy)
-        or to let the forces update the context state.
+        or to let the openmm.Force objects update the context state.
 
         """
         requirements = self._required_variables(variable, expression)
@@ -81,8 +85,8 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
             self._obsoleteKinetic = True
 
     def setRandomNumberSeed(self, seed):
-        super().setRandomNumberSeed(seed)
-        random.seed(seed)
+        self._random.seed(seed)
+        super().setRandomNumberSeed(self._random.tomaxint() % 2**31)
 
     def step(self, steps):
         if self._uninitialized:
@@ -258,7 +262,7 @@ class NHL_R_Integrator(MultipleTimeScaleIntegrator):
         v2 = self.getPerDofVariableByName('v2')
         S = math.sqrt(kT/Q1)
         for i in range(len(v2)):
-            v2[i] = openmm.Vec3(random.gauss(0, S), random.gauss(0, S), random.gauss(0, S))
+            v2[i] = S*self._normalVec()
         self.setPerDofVariableByName('v2', v2)
 
 
@@ -320,7 +324,78 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
         S1 = math.sqrt(2*kT/Q1)
         S2 = math.sqrt(kT/Q2)
         for i in range(len(v1)):
-            v1[i] = openmm.Vec3(random.gauss(0, S1), random.gauss(0, S1), random.gauss(0, S1))
-            v2[i] = openmm.Vec3(random.gauss(0, S2), random.gauss(0, S2), random.gauss(0, S2))
+            v1[i] = S1*self._normalVec()
+            v2[i] = S2*self._normalVec()
         self.setPerDofVariableByName('v1', v1)
         self.setPerDofVariableByName('v2', v2)
+
+
+class NewMethodIntegrator(MultipleTimeScaleIntegrator):
+    """
+    This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
+    Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
+    equations for each degree of freedom (DOF) in the system:
+
+    .. math::
+        & \\frac{dx}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{f}{m} - \\lambda v \\\\
+        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
+        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
+
+    where:
+
+    .. math::
+        \\lambda = \\frac{f v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}.
+
+    A consequence of these equations is that
+
+    .. math::
+        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT.
+
+    The equations are integrated by a reversible, multiple timescale numerical scheme.
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which the inertial parameters are computed as
+            :math:`Q_1 = Q_2 = kT\\tau^2`.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        self.L = kwargs.pop('L', 1)
+        self.massive = kwargs.pop('massive', False)
+        self.kT = kB*temperature
+        isoF = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=True)
+        isoN = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=False)
+        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                      'v_eta', 'Q_eta', '(L+1)/L*m*v*v - kT')
+        bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
+        super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
+
+    def initialize(self):
+        kT = self.getGlobalVariableByName('kT')
+
+        pi = self.getPerDofVariableByName('pi')
+        sigma_tanh_pi = 1/np.sqrt(self.L + 1)
+        sigma = 2*sigma_tanh_pi**(3/2)  # EMPIRICAL: SHOULD BE MODIFIED
+        for i in range(len(pi)):
+            pi[i] = sigma*self._normalVec()*0
+        self.setPerDofVariableByName('pi', pi)
+
+        Q_eta = self.getGlobalVariableByName('Q_eta')
+        v_eta = self.getPerDofVariableByName('v_eta')
+        sigma = math.sqrt(kT/Q_eta)
+        for i in range(len(v_eta)):
+            v_eta[i] = sigma*self._normalVec()
+        self.setPerDofVariableByName('v_eta', v_eta)
