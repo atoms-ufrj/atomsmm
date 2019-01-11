@@ -372,8 +372,6 @@ class NewMethodPropagator(Propagator):
     def __init__(self, temperature, timeScale, L, forceDependent):
         super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
-        self.globalVariables['Q_eta'] = kT*timeScale**2
-        self.perDofVariables['v_eta'] = 0
         self.perDofVariables['pi'] = 0
         self.globalVariables['L'] = L
         self.globalVariables['LkT'] = L*kT
@@ -419,25 +417,34 @@ class OrnsteinUhlenbeckPropagator(Propagator):
             If it is `None`, then this force is considered as null.
 
     """
-    def __init__(self, temperature, frictionConstant, velocity='v', mass='m', force=None, **globals):
+    def __init__(self, temperature, frictionConstant, velocity='v', mass='m', force=None,
+                 overall=False, **globals):
         super().__init__()
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['friction'] = frictionConstant
         self.velocity = velocity
         self.mass = mass
         self.force = force
+        self.overall = overall
         for key, value in globals.items():
             self.globalVariables[key] = value
         if velocity != 'v':
-            self.perDofVariables[velocity] = 0
+            if self.overall:
+                self.globalVariables[velocity] = 0
+            else:
+                self.perDofVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        expression = 'x*{} + sqrt(kT*(1 - x*x)/{})*gaussian'.format(self.velocity, self.mass)
+        expression = 'x*{} + sqrt(kT*(1 - x*x)/mass)*gaussian'.format(self.velocity, self.mass)
         if self.force is not None:
-            expression += ' + G*(1 - x)/({}*friction)'.format(self.mass)
-            expression += '; G = {}'.format(self.force)
+            expression += ' + force*(1 - x)/(mass*friction)'
+            expression += '; force = {}'.format(self.force)
+        expression += '; mass = {}'.format(self.mass)
         expression += '; x = exp(-({}*dt)*friction)'.format(fraction)
-        integrator.addComputePerDof(self.velocity, expression)
+        if self.overall:
+            integrator.addComputeGlobal(self.velocity, expression)
+        else:
+            integrator.addComputePerDof(self.velocity, expression)
 
 
 class GenericBoostPropagator(Propagator):

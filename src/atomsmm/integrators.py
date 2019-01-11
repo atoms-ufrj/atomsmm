@@ -384,12 +384,19 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         self.L = kwargs.pop('L', 1)
         self.massive = kwargs.pop('massive', False)
         self.kT = kB*temperature
-        isoF = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=True)
-        isoN = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=False)
+
+        newF = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=True)
+        newN = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=False)
+
+        mass = 'Q_eta' if self.massive else 'NDOF*Q_eta'
+        force = '(L+1)/L*m*v*v - kT' if self.massive else '(L+1)/L*mvv - NDOF*kT'
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                      'v_eta', 'Q_eta', '(L+1)/L*m*v*v - kT')
-        bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
-        super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
+                                                      'v_eta', mass, force,
+                                                      overall=(not self.massive),
+                                                      Q_eta=self.kT*timeScale**2)
+
+        bath = propagators.TrotterSuzukiPropagator(DOU, newN)
+        super().__init__(stepSize, loops, None, newF, bath, **kwargs)
 
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')
@@ -402,8 +409,12 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         self.setPerDofVariableByName('pi', pi)
 
         Q_eta = self.getGlobalVariableByName('Q_eta')
-        v_eta = self.getPerDofVariableByName('v_eta')
-        sigma = math.sqrt(kT/Q_eta)
-        for i in range(len(v_eta)):
-            v_eta[i] = sigma*self._normalVec()
-        self.setPerDofVariableByName('v_eta', v_eta)
+        if self.massive:
+            sigma = math.sqrt(kT/Q_eta)
+            v_eta = self.getPerDofVariableByName('v_eta')
+            for i in range(len(v_eta)):
+                v_eta[i] = sigma*self._normalVec()
+            self.setPerDofVariableByName('v_eta', v_eta)
+        else:
+            sigma = math.sqrt(kT/(3*len(pi)*Q_eta))
+            self.setGlobalVariableByName('v_eta', sigma*self._random.normal())
