@@ -15,9 +15,10 @@ import sys
 
 import numpy as np
 import pandas as pd
-import scipy
+from scipy import sparse
 from simtk import openmm
 from simtk import unit
+from simtk.openmm import app
 
 from .systems import ComputingSystem
 from .utils import InputError
@@ -44,7 +45,7 @@ class _MoleculeTotalizer(object):
         mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
 
         def sparseMatrix(data):
-            return scipy.sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
+            return sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
 
         selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
         system = simulation.context.getSystem()
@@ -59,7 +60,7 @@ class _MoleculeTotalizer(object):
         self.residues = [atomResidues[item[0]] for item in molecules]
 
 
-class _AtomsMM_Reporter(openmm.app.StateDataReporter):
+class _AtomsMM_Reporter(app.StateDataReporter):
     """
     Base class for reporters.
 
