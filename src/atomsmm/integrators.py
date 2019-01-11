@@ -26,6 +26,8 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
     def __init__(self, stepSize):
         super().__init__(stepSize)
         self.addGlobalVariable('mvv', 0.0)
+        self.addGlobalVariable('NDOF', 0.0)
+        self.addPerDofVariable('ndof', 0.0)
         self._obsoleteKinetic = True
         self._forceFinder = re.compile('f[0-9]*')
         self._obsoleteContextState = True
@@ -90,6 +92,12 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator, openmmtools.PrettyPrintableIn
 
     def step(self, steps):
         if self._uninitialized:
+            ndof = self.getPerDofVariableByName('ndof')
+            NDOF = 3*len(ndof)
+            self.setGlobalVariableByName('NDOF', NDOF)
+            for i in range(len(ndof)):
+                ndof[i] = openmm.Vec3(NDOF, NDOF, NDOF)
+            self.setPerDofVariableByName('ndof', ndof)
             self.initialize()
             self._uninitialized = False
         return super().step(steps)
