@@ -368,14 +368,15 @@ class NewMethodPropagator(Propagator):
         self.perDofVariables['pi'] = 0
         self.globalVariables['L'] = L
         self.globalVariables['LkT'] = L*kT
+        self.perDofVariables['one'] = 1
         self.forceDependent = forceDependent
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         if self.forceDependent:
             expression = 'pi + ({}*dt)*f{}/sqrt(m*LkT)'.format(fraction, forceGroup)
         else:
-            expression = 'log(x + sqrt(x^2 + 1))'  # arcsinh(x)
-            expression += '; x = sinh(pi)*exp(-({}*dt)*v_eta)'.format(fraction)
+            expression = 'log(z + sqrt(z^2 + one))'  # arcsinh(z)
+            expression += '; z = sinh(pi)*exp(-({}*dt)*v_eta)'.format(fraction)
         integrator.addComputePerDof('pi', expression)
         expression = 'sqrt(LkT/m)*tanh(pi)'
         integrator.addComputePerDof('v', expression)
@@ -428,13 +429,14 @@ class OrnsteinUhlenbeckPropagator(Propagator):
                 self.perDofVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        expression = 'x*{} + sqrt(kT*(1 - x*x)/mass)*gaussian'.format(self.velocity, self.mass)
+        expression = 'z*{} + sqrt(kT*(one - z*z)/mass)*gaussian'.format(self.velocity, self.mass)
         if self.force is not None:
-            expression += ' + force*(1 - x)/(mass*friction)'
+            expression += ' + force*(one - z)/(mass*friction)'
             expression += '; force = {}'.format(self.force)
         expression += '; mass = {}'.format(self.mass)
-        expression += '; x = exp(-({}*dt)*friction)'.format(fraction)
+        expression += '; z = exp(-({}*dt)*friction)'.format(fraction)
         if self.overall:
+            expression += '; one = 1'
             integrator.addComputeGlobal(self.velocity, expression)
         else:
             integrator.addComputePerDof(self.velocity, expression)

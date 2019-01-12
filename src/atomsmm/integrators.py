@@ -385,7 +385,7 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         newN = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=False)
 
         mass = 'Q_eta' if self.massive else 'NDOF*Q_eta'
-        force = '(L+1)/L*m*v*v - kT' if self.massive else '(L+1)/L*mvv - NDOF*kT'
+        force = '(L+one)*m*v*v/L - kT' if self.massive else '(L+1)*mvv/L - NDOF*kT'
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
                                                       'v_eta', mass, force,
                                                       overall=(not self.massive),
@@ -401,7 +401,7 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         sigma_tanh_pi = 1/np.sqrt(self.L + 1)
         sigma = 2*sigma_tanh_pi**(3/2)  # EMPIRICAL: SHOULD BE MODIFIED
         for i in range(len(pi)):
-            pi[i] = sigma*self._normalVec()*0
+            pi[i] = sigma*self._normalVec()
         self.setPerDofVariableByName('pi', pi)
 
         Q_eta = self.getGlobalVariableByName('Q_eta')
