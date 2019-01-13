@@ -365,22 +365,21 @@ class NewMethodPropagator(Propagator):
     def __init__(self, temperature, timeScale, L, forceDependent):
         super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
-        self.perDofVariables['pi'] = 0
         self.globalVariables['L'] = L
-        self.globalVariables['LkT'] = L*kT
-        self.perDofVariables['one'] = 1
+        self.globalVariables['one'] = 1
         self.forceDependent = forceDependent
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
         if self.forceDependent:
-            expression = 'pi + ({}*dt)*f{}/sqrt(m*LkT)'.format(fraction, forceGroup)
+            expression = 'vmax*tanh(arctanh_vs + ({}*dt)*fs/m)'.format(fraction)
+            expression += '; arctanh_vs = 0.5*log((one + vs)/(one - vs))'
+            expression += '; fs = f{}/vmax'.format(forceGroup)
         else:
-            expression = 'log(z + sqrt(z^2 + one))'  # arcsinh(z)
-            expression += '; z = sinh(pi)*exp(-({}*dt)*v_eta)'.format(fraction)
-        integrator.addComputePerDof('pi', expression)
-        expression = 'sqrt(LkT/m)*tanh(pi)'
+            expression = 'vmax*vn/sqrt(one - vs*vs + vn*vn)'
+            expression += '; vn = vs*exp(-({}*dt)*v_eta)'.format(fraction)
+        expression += '; vs = v/vmax'
+        expression += '; vmax = sqrt(L*kT/m)'
         integrator.addComputePerDof('v', expression)
-
 
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
@@ -429,14 +428,13 @@ class OrnsteinUhlenbeckPropagator(Propagator):
                 self.perDofVariables[velocity] = 0
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        expression = 'z*{} + sqrt(kT*(one - z*z)/mass)*gaussian'.format(self.velocity, self.mass)
+        expression = 'z*{} + sqrt(kT*(1 - z*z)/mass)*gaussian'.format(self.velocity, self.mass)
         if self.force is not None:
-            expression += ' + force*(one - z)/(mass*friction)'
+            expression += ' + force*(1 - z)/(mass*friction)'
             expression += '; force = {}'.format(self.force)
         expression += '; mass = {}'.format(self.mass)
         expression += '; z = exp(-({}*dt)*friction)'.format(fraction)
         if self.overall:
-            expression += '; one = 1'
             integrator.addComputeGlobal(self.velocity, expression)
         else:
             integrator.addComputePerDof(self.velocity, expression)

@@ -12,6 +12,7 @@ import re
 
 import numpy as np
 from simtk import openmm
+from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -89,7 +90,7 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
     def step(self, steps):
         if self._uninitialized:
             ndof = self.getPerDofVariableByName('ndof')
-            NDOF = 3*len(ndof)
+            self._ndof = NDOF = 3*len(ndof)
             self.setGlobalVariableByName('NDOF', NDOF)
             for i in range(len(ndof)):
                 ndof[i] = openmm.Vec3(NDOF, NDOF, NDOF)
@@ -97,6 +98,12 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
             self.initialize()
             self._uninitialized = False
         return super().step(steps)
+
+    def setVelocitiesInContext(self, context):
+        """
+        Sets the velocities of all atoms in a context.
+        """
+        pass
 
     def initialize(self):
         """
@@ -377,40 +384,51 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        self.L = kwargs.pop('L', 1)
-        self.massive = kwargs.pop('massive', False)
-        self.kT = kB*temperature
-
-        newF = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=True)
-        newN = propagators.NewMethodPropagator(temperature, timeScale, self.L, forceDependent=False)
-
-        mass = 'Q_eta' if self.massive else 'NDOF*Q_eta'
-        force = '(L+one)*m*v*v/L - kT' if self.massive else '(L+1)*mvv/L - NDOF*kT'
+        self._kT = kB*temperature
+        self._velocitiesSet = False
+        self._L = kwargs.pop('L', 1)
+        self._massive = kwargs.pop('massive', False)
+        newF = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=True)
+        newN = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=False)
+        mass = 'Q_eta' if self._massive else 'NDOF*Q_eta'
+        force = '(L + one)*m*v*v/L - kT' if self._massive else '(L + 1)*mvv/L - NDOF*kT'
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
                                                       'v_eta', mass, force,
-                                                      overall=(not self.massive),
-                                                      Q_eta=self.kT*timeScale**2)
-
+                                                      overall=(not self._massive),
+                                                      Q_eta=self._kT*timeScale**2,
+                                                      one=1)
         bath = propagators.TrotterSuzukiPropagator(DOU, newN)
         super().__init__(stepSize, loops, None, newF, bath, **kwargs)
 
+    def setVelocitiesInContext(self, context):
+        system = context.getSystem()
+        N = system.getNumParticles()
+        tanh_pi = np.empty(shape=(N, 3))
+        m = np.zeros_like(tanh_pi)*unit.dalton
+        for i in range(N):
+            m[i] = system.getParticleMass(i)
+            for j in range(3):
+                tanh_pi[i, j] = self._random.normal()
+        tanh_pi *= np.sqrt(1/(self._L + 1))
+        limit = 0.99
+        tanh_pi[np.where(tanh_pi > limit)] = limit
+        tanh_pi[np.where(tanh_pi < -limit)] = -limit
+        sigmaSq = (self._L*self._kT/m).value_in_unit((unit.nanometer/unit.picoseconds)**2)
+        v = np.sqrt(sigmaSq)*tanh_pi
+        context.setVelocities(v)
+        self._velocitiesSet = True
+
     def initialize(self):
+        if not self._velocitiesSet:
+            raise RuntimeError('NewMethodIntegrator requires call to setVelocitiesInContext')
         kT = self.getGlobalVariableByName('kT')
-
-        pi = self.getPerDofVariableByName('pi')
-        sigma_tanh_pi = 1/np.sqrt(self.L + 1)
-        sigma = 2*sigma_tanh_pi**(3/2)  # EMPIRICAL: SHOULD BE MODIFIED
-        for i in range(len(pi)):
-            pi[i] = sigma*self._normalVec()
-        self.setPerDofVariableByName('pi', pi)
-
         Q_eta = self.getGlobalVariableByName('Q_eta')
-        if self.massive:
+        if self._massive:
             sigma = math.sqrt(kT/Q_eta)
             v_eta = self.getPerDofVariableByName('v_eta')
             for i in range(len(v_eta)):
                 v_eta[i] = sigma*self._normalVec()
             self.setPerDofVariableByName('v_eta', v_eta)
         else:
-            sigma = math.sqrt(kT/(3*len(pi)*Q_eta))
+            sigma = math.sqrt(kT/(self._ndof*Q_eta))
             self.setGlobalVariableByName('v_eta', sigma*self._random.normal())
