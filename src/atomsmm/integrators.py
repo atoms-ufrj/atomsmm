@@ -386,17 +386,16 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
         self._kT = kB*temperature
         self._velocitiesSet = False
-        self._L = kwargs.pop('L', 1)
+        L = self._L = kwargs.pop('L', 1)
         self._massive = kwargs.pop('massive', False)
         newF = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=True)
         newN = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=False)
         mass = 'Q_eta' if self._massive else 'NDOF*Q_eta'
-        force = '(L + one)*m*v*v/L - kT' if self._massive else '(L + 1)*mvv/L - NDOF*kT'
+        force = ('{}*m*v*v - kT' if self._massive else '{}*mvv - NDOF*kT').format((L+1)/L)
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
                                                       'v_eta', mass, force,
                                                       overall=(not self._massive),
-                                                      Q_eta=self._kT*timeScale**2,
-                                                      one=1)
+                                                      Q_eta=self._kT*timeScale**2)
         bath = propagators.TrotterSuzukiPropagator(DOU, newN)
         super().__init__(stepSize, loops, None, newF, bath, **kwargs)
 
