@@ -99,12 +99,6 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
             self._uninitialized = False
         return super().step(steps)
 
-    def setVelocitiesInContext(self, context):
-        """
-        Sets the velocities of all atoms in a context.
-        """
-        pass
-
     def initialize(self):
         """
         Perform initialization of atomic velocities and other random per-dof variables.
@@ -384,42 +378,20 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        self._kT = kB*temperature
-        self._velocitiesSet = False
-        L = self._L = kwargs.pop('L', 1)
+        L = kwargs.pop('L', 1)
         self._massive = kwargs.pop('massive', False)
-        newF = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=True)
-        newN = propagators.NewMethodPropagator(temperature, timeScale, self._L, forceDependent=False)
+        newF = propagators.NewMethodPropagator(temperature, timeScale, L, forceDependent=True)
+        newN = propagators.NewMethodPropagator(temperature, timeScale, L, forceDependent=False)
         mass = 'Q_eta' if self._massive else 'NDOF*Q_eta'
         force = ('{}*m*v*v - kT' if self._massive else '{}*mvv - NDOF*kT').format((L+1)/L)
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
                                                       'v_eta', mass, force,
                                                       overall=(not self._massive),
-                                                      Q_eta=self._kT*timeScale**2)
+                                                      Q_eta=kB*temperature*timeScale**2)
         bath = propagators.TrotterSuzukiPropagator(DOU, newN)
         super().__init__(stepSize, loops, None, newF, bath, **kwargs)
 
-    def setVelocitiesInContext(self, context):
-        system = context.getSystem()
-        N = system.getNumParticles()
-        tanh_pi = np.empty(shape=(N, 3))
-        m = np.zeros_like(tanh_pi)*unit.dalton
-        for i in range(N):
-            m[i] = system.getParticleMass(i)
-            for j in range(3):
-                tanh_pi[i, j] = self._random.normal()
-        tanh_pi *= np.sqrt(1/(self._L + 1))
-        limit = 0.99
-        tanh_pi[np.where(tanh_pi > limit)] = limit
-        tanh_pi[np.where(tanh_pi < -limit)] = -limit
-        sigmaSq = (self._L*self._kT/m).value_in_unit((unit.nanometer/unit.picoseconds)**2)
-        v = np.sqrt(sigmaSq)*tanh_pi
-        context.setVelocities(v)
-        self._velocitiesSet = True
-
     def initialize(self):
-        if not self._velocitiesSet:
-            raise RuntimeError('NewMethodIntegrator requires call to setVelocitiesInContext')
         kT = self.getGlobalVariableByName('kT')
         Q_eta = self.getGlobalVariableByName('Q_eta')
         if self._massive:

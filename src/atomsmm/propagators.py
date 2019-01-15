@@ -366,19 +366,22 @@ class NewMethodPropagator(Propagator):
         super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
         self.globalVariables['LkT'] = L*kT
+        self.perDofVariables['vc'] = math.sqrt(L/(L+1))
+        self.perDofVariables['norm'] = 1
         self.forceDependent = forceDependent
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        expression = 'vmax*z/sqrt(1 - vs^2 + z^2)'
         if self.forceDependent:
-            expression += '; z = vs*cosh(fsdt) + sinh(fsdt)'
+            expression = 'vs*cosh(fsdt) + sinh(fsdt)'
             expression += '; fsdt = ({}*dt)*f{}/(m*vmax)'.format(fraction, forceGroup)
         else:
-            expression += '; z = vs*exp(-({}*dt)*v_eta)'.format(fraction)
+            expression = 'vs*exp(-({}*dt)*v_eta)'.format(fraction)
         expression += '; vs = v/vmax'
         expression += '; vmax = sqrt(LkT/m)'
         integrator.addComputePerDof('v', expression)
-
+        integrator.addComputePerDof('norm', 'sqrt(v^2 + vc^2)')
+        integrator.addComputePerDof('v', 'sqrt(LkT/m)*v/norm')
+        integrator.addComputePerDof('vc', 'vc/norm')
 
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
