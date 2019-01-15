@@ -324,26 +324,33 @@ class MassiveIsokineticPropagator(Propagator):
             If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
 
     """
-    def __init__(self, temperature, timeScale, forceDependent):
+    def __init__(self, temperature, timeScale, L, forceDependent):
         super().__init__()
-        self.globalVariables['kT'] = kT = kB*temperature
-        self.globalVariables['Q1'] = Q1 = kT*timeScale**2
-        self.globalVariables['Q2'] = Q1
-        self.perDofVariables['v1'] = 0
-        self.perDofVariables['v2'] = 0
+        self.globalVariables['Q1'] = kB*temperature*timeScale**2
+        self.globalVariables['LkT'] = L*kB*temperature
+        self.L = L
+        for i in range(L):
+            self.perDofVariables['v1_{}'.format(i)] = 0
+            self.perDofVariables['v2_{}'.format(i)] = 0
         self.perDofVariables['H'] = 0
         self.forceDependent = forceDependent
 
     def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+        L = self.L
+        v1 = ['v1_{}'.format(i) for i in range(L)]
+        v2 = ['v2_{}'.format(i) for i in range(L)]
         if self.forceDependent:
-            expression = 'v*cosh(x) + sqrt(kT/m)*sinh(x)'
-            expression += '; x = ({}*dt)*f{}/sqrt(m*kT)'.format(fraction, forceGroup)
+            expression = 'v*cosh(x) + sqrt(LkT/m)*sinh(x)'
+            expression += '; x = ({}*dt)*f{}/sqrt(m*LkT)'.format(fraction, forceGroup)
             integrator.addComputePerDof('v', expression)
         else:
-            integrator.addComputePerDof('v1', 'v1*exp(-({}*dt)*v2)'.format(fraction))
-        integrator.addComputePerDof('H', 'sqrt(kT/(m*v^2 + 0.5*Q1*v1^2))')
+            for i in range(L):
+                integrator.addComputePerDof(v1[i], '{}*exp(-({}*dt)*{})'.format(v1[i], fraction, v2[i]))
+        sumv1sq = '+'.join(['{}^2'.format(v1[i]) for i in range(L)])
+        integrator.addComputePerDof('H', 'sqrt(LkT/(m*v^2 + {}*Q1*({})))'.format(L/(L+1), sumv1sq))
         integrator.addComputePerDof('v', 'H*v')
-        integrator.addComputePerDof('v1', 'H*v1')
+        for i in range(L):
+            integrator.addComputePerDof(v1[i], 'H*{}'.format(v1[i]))
 
 
 class NewMethodPropagator(Propagator):

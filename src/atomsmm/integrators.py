@@ -314,9 +314,19 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=True)
-        isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, forceDependent=False)
-        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, 'v2', 'Q2', 'Q1*v1*v1 - kT')
+        L = self._L = kwargs.pop('L', 1)
+        isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=True)
+        isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=False)
+        v1 = ['v1_{}'.format(i) for i in range(L)]
+        v2 = ['v2_{}'.format(i) for i in range(L)]
+        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                      v2[0], 'Q2', 'Q1*{}^2 - kT'.format(v1[0]),
+                                                      Q2=kB*temperature*timeScale**2)
+        for i in range(1, L):
+            New = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                          v2[i], 'Q2', 'Q1*{}^2 - kT'.format(v1[i]),
+                                                          Q2=kB*temperature*timeScale**2)
+            DOU = propagators.ChainedPropagator(DOU, New)
         bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
         super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
 
@@ -324,15 +334,16 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
         kT = self.getGlobalVariableByName('kT')
         Q1 = self.getGlobalVariableByName('Q1')
         Q2 = self.getGlobalVariableByName('Q2')
-        v1 = self.getPerDofVariableByName('v1')
-        v2 = self.getPerDofVariableByName('v2')
-        S1 = math.sqrt(2*kT/Q1)
-        S2 = math.sqrt(kT/Q2)
-        for i in range(len(v1)):
-            v1[i] = S1*self._normalVec()
-            v2[i] = S2*self._normalVec()
-        self.setPerDofVariableByName('v1', v1)
-        self.setPerDofVariableByName('v2', v2)
+        for i in range(self._L):
+            v1 = self.getPerDofVariableByName('v1_{}'.format(i))
+            v2 = self.getPerDofVariableByName('v2_{}'.format(i))
+            S1 = math.sqrt((self._L + 1)/self._L*kT/Q1)
+            S2 = math.sqrt(kT/Q2)
+            for j in range(len(v1)):
+                v1[j] = S1*self._normalVec()
+                v2[j] = S2*self._normalVec()
+            self.setPerDofVariableByName('v1_{}'.format(i), v1)
+            self.setPerDofVariableByName('v2_{}'.format(i), v2)
 
 
 class NewMethodIntegrator(MultipleTimeScaleIntegrator):
