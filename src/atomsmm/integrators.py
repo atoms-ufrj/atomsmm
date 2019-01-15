@@ -12,7 +12,6 @@ import re
 
 import numpy as np
 from simtk import openmm
-from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -398,7 +397,7 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
                                                       'v_eta', mass, force,
                                                       overall=(not self._massive),
-                                                      Q_eta=kB*temperature*timeScale**2)
+                                                      Q_eta=L*kB*temperature*timeScale**2)
         bath = propagators.TrotterSuzukiPropagator(DOU, newN)
         super().__init__(stepSize, loops, None, newF, bath, **kwargs)
 

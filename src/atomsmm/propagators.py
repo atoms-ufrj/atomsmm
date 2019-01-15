@@ -390,6 +390,7 @@ class NewMethodPropagator(Propagator):
         integrator.addComputePerDof('v', 'sqrt(LkT/m)*v/norm')
         integrator.addComputePerDof('vc', 'vc/norm')
 
+
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
     This class implements an unconstrained, Ornstein-Uhlenbeck (OU) propagator, which provides a
