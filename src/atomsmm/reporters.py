@@ -163,17 +163,26 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         .. math::
             P = \\frac{2 K_\\mathrm{mol} + W_\\mathrm{mol}}{3 V},
 
-        where :math:`K_\\mathrm{mol}` is the center-of-mass kinetic energy sum for all molecules in
-        the system. If keyword `bathTemperature` is employed (see below), the instantaneous kinetic
-        energy is substituted by its equipartition-theorem average
+        where :math:`K_\\mathrm{mol}` is the center-of-mass kinetic energy summed for all molecules
+        in the system. If keyword `bathTemperature` is employed (see below), the instantaneous
+        kinetic energy is substituted by its equipartition-theorem average
         :math:`\\left\\langle K_\\mathrm{mol} \\right\\rangle = 3 N_\\mathrm{mols} k_B T/2`,
         where :math:`T` is the heat-bath temperature.
 
-    7. Allow specification of heat-bath temperature (keyword: `bathTemperature`).
+    7. Report the center-of-mass kinetic energy (keyword: `molecularKineticEnergy`):
+
+        .. math::
+            K_\\mathrm{mol} = \\frac{1}{2} \\sum_{i=1}^{N_\\mathrm{mol}} M_i v_{\\mathrm{cm}, i}^2,
+
+        where :math:`N_\\mathrm{mol}` is the number of molecules in the system, :math:`M_i` is the
+        total mass of molecule `i`, and :math:`v_{\\mathrm{cm}, i}` is the center-of-mass velocity
+        of molecule `i`.
+
+    8. Allow specification of heat-bath temperature (keyword: `bathTemperature`).
 
         This can be used in the computation of atomic and/or molecular pressures.
 
-    8. Allow specification of an extra file for reporting (keyword: `extraFile`).
+    9. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
         This can be used for replicating a report simultaneously to `sys.stdout` and to a file
         using a unique reporter.
@@ -192,6 +201,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             Whether to write the molecular virial to the file.
         molecularPressure : bool, optional, default=False
             Whether to write the internal molecular pressure to the file.
+        molecularKineticEnergy : bool, optional, default=False
+            Whether to write the molecular center-of-mass kinetic energy to the file.
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
@@ -206,6 +217,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._atomicPressure = kwargs.pop('atomicPressure', False)
         self._molecularVirial = kwargs.pop('molecularVirial', False)
         self._molecularPressure = kwargs.pop('molecularPressure', False)
+        self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._computer = kwargs.pop('computer', None)
         temp = kwargs.pop('bathTemperature', None)
         self._kT = None if temp is None else unit.MOLAR_GAS_CONSTANT_R*temp
@@ -214,7 +226,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                             self._nonbondedVirial,
                             self._atomicPressure,
                             self._molecularVirial,
-                            self._molecularPressure])
+                            self._molecularPressure,
+                            self._molecularKineticEnergy])
         super().__init__(file, reportInterval, **kwargs)
         if self._active:
             if not isinstance(self._computer, ComputingSystem):
@@ -223,7 +236,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
             self._needsForces = self._molecularVirial
-            self._needsVelocities = self._molecularPressure and self._kT is None
+            self._needsVelocities = (self._molecularPressure and self._kT is None) or self._molecularKineticEnergy
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
@@ -239,6 +252,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             headers.insert(self._backSteps, 'Molecular Virial (kJ/mole)')
         if self._molecularPressure:
             headers.insert(self._backSteps, 'Molecular Pressure (atm)')
+        if self._molecularKineticEnergy:
+            headers.insert(self._backSteps, 'Molecular Kinetic Energy (kJ/mol)')
         return headers
 
     def _localContext(self, simulation):
@@ -295,6 +310,15 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
                 values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
 
+            if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
+                cmPositions = self._mols.massFrac.dot(positions)
+                if self._needsVelocities:
+                    nm_ps = unit.nanometers/unit.picosecond
+                    velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
+                    cmVelocities = self._mols.massFrac.dot(velocities)
+                    cmKineticEnergies = self._mols.molMass*np.sum(cmVelocities**2, axis=1)
+                    molKinEng = np.sum(cmKineticEnergies)*unit.dalton*nm_ps**2
+
             if self._molecularVirial or self._molecularPressure:
                 molecularVirial = atomicVirial
                 forces = state.getForces(asNumpy=True)
@@ -303,21 +327,15 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
                 resultantForces = self._mols.selection.dot(forces)
-                cmPositions = self._mols.massFrac.dot(positions)
                 molecularVirial += np.sum(cmPositions*resultantForces)
                 if self._molecularVirial:
                     values.insert(self._backSteps, molecularVirial)
                 if self._molecularPressure:
-                    if self._kT is None:
-                        nm_ps = unit.nanometers/unit.picosecond
-                        velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
-                        cmVelocities = self._mols.massFrac.dot(velocities)
-                        cmKineticEnergies = self._mols.molMass*np.sum(cmVelocities**2, axis=1)
-                        dNkT = np.sum(cmKineticEnergies)*unit.dalton*nm_ps**2
-                    else:
-                        dNkT = 3*self._mols.nmols*self._kT
+                    dNkT = molKinEng if self._kT is None else 3*self._mols.nmols*self._kT
                     pressure = (dNkT + molecularVirial*unit.kilojoules_per_mole)*vfactor
                     values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+                if self._molecularKineticEnergy:
+                    values.insert(self._backSteps, molKinEng.value_in_unit(unit.kilojoules_per_mole))
 
         return values
 
