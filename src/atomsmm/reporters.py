@@ -253,7 +253,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         if self._molecularPressure:
             headers.insert(self._backSteps, 'Molecular Pressure (atm)')
         if self._molecularKineticEnergy:
-            headers.insert(self._backSteps, 'Molecular Kinetic Energy (kJ/mol)')
+            headers.insert(self._backSteps, 'Molecular Kinetic Energy (kJ/mole)')
         return headers
 
     def _localContext(self, simulation):
