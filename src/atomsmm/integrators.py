@@ -33,6 +33,41 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
         self._random = np.random.RandomState()
         self._uninitialized = True
 
+    def __repr__(self):
+        """
+        A human-readable version of each integrator step (adapted from openmmtools)
+
+        Returns
+        -------
+        readable_lines : str
+           A list of human-readable versions of each step of the integrator
+
+        """
+        step_type_str = [
+            '{target} <- {expr}',
+            '{target} <- {expr}',
+            '{target} <- sum({expr})',
+            'constrain positions',
+            'constrain velocities',
+            'allow forces to update the context state',
+            'if ({expr}):',
+            'while ({expr}):',
+            'end'
+        ]
+        readable_lines = []
+        indent_level = 0
+        for step in range(self.getNumComputations()):
+            line = ''
+            step_type, target, expr = self.getComputationStep(step)
+            if step_type == 8:
+                indent_level -= 1
+            command = step_type_str[step_type].format(target=target, expr=expr)
+            line += '{:4d}: '.format(step) + '   '*indent_level + command
+            if step_type in [6, 7]:
+                indent_level += 1
+            readable_lines.append(line)
+        return '\n'.join(readable_lines)
+
     def _normalVec(self):
         return openmm.Vec3(self._random.normal(), self._random.normal(), self._random.normal())
 
