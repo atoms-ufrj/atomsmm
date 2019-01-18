@@ -49,7 +49,7 @@ class Propagator:
         self.globalVariables.update(propagator.globalVariables)
         self.perDofVariables.update(propagator.perDofVariables)
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         pass
 
     def integrator(self, stepSize):
@@ -108,7 +108,7 @@ class ChainedPropagator(Propagator):
         for propagator in [self.A, self.B]:
             self.absorbVariables(propagator)
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         self.B.addSteps(integrator, fraction)
         self.A.addSteps(integrator, fraction)
 
@@ -136,7 +136,7 @@ class SplitPropagator(Propagator):
         self.n = n
         self.globalVariables['nSplit'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         n = self.n
         if n == 1:
             self.A.addSteps(integrator, fraction)
@@ -180,7 +180,7 @@ class TrotterSuzukiPropagator(Propagator):
         for propagator in [self.A, self.B]:
             self.absorbVariables(propagator)
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         self.B.addSteps(integrator, 0.5*fraction)
         self.A.addSteps(integrator, fraction)
         self.B.addSteps(integrator, 0.5*fraction)
@@ -212,7 +212,7 @@ class SuzukiYoshidaPropagator(Propagator):
         self.nsy = nsy
         self.absorbVariables(self.A)
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.nsy == 15:
             weights = [0.9148442462, 0.2536933366, -1.4448522369, -0.1582406354, 1.9381391376, -1.960610233, 0.1027998494]
         elif self.nsy == 7:
@@ -242,7 +242,7 @@ class TranslationPropagator(Propagator):
         if constrained:
             self.perDofVariables['x0'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.constrained:
             integrator.addComputePerDof('x0', 'x')
         integrator.addComputePerDof('x', 'x + ({}*dt)*v'.format(fraction))
@@ -266,8 +266,8 @@ class VelocityBoostPropagator(Propagator):
         super().__init__()
         self.constrained = constrained
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        integrator.addComputePerDof('v', 'v + ({}*dt)*f{}/m'.format(fraction, forceGroup))
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        integrator.addComputePerDof('v', 'v + ({}*dt)*{}/m'.format(fraction, force))
         if self.constrained:
             integrator.addConstrainVelocities()
 
@@ -335,13 +335,13 @@ class MassiveIsokineticPropagator(Propagator):
         self.perDofVariables['H'] = 0
         self.forceDependent = forceDependent
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         L = self.L
         v1 = ['v1_{}'.format(i) for i in range(L)]
         v2 = ['v2_{}'.format(i) for i in range(L)]
         if self.forceDependent:
             expression = 'v*cosh(x) + sqrt(LkT/m)*sinh(x)'
-            expression += '; x = ({}*dt)*f{}/sqrt(m*LkT)'.format(fraction, forceGroup)
+            expression += '; x = ({}*dt)*{}/sqrt(m*LkT)'.format(fraction, force)
             integrator.addComputePerDof('v', expression)
         else:
             for i in range(L):
@@ -377,10 +377,10 @@ class NewMethodPropagator(Propagator):
         self.perDofVariables['norm'] = 1
         self.forceDependent = forceDependent
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.forceDependent:
             expression = 'vs*cosh(fsdt) + sinh(fsdt)'
-            expression += '; fsdt = ({}*dt)*f{}/(m*vmax)'.format(fraction, forceGroup)
+            expression += '; fsdt = ({}*dt)*{}/(m*vmax)'.format(fraction, force)
         else:
             expression = 'vs*exp(-({}*dt)*v_eta)'.format(fraction)
         expression += '; vs = v/vmax'
@@ -437,7 +437,7 @@ class OrnsteinUhlenbeckPropagator(Propagator):
             else:
                 self.perDofVariables[velocity] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         expression = 'z*{} + sqrt(kT*(1 - z*z)/mass)*gaussian'.format(self.velocity, self.mass)
         if self.force is not None:
             expression += ' + force*(1 - z)/(mass*friction)'
@@ -479,7 +479,7 @@ class GenericBoostPropagator(Propagator):
         if velocity != 'v':
             self.perDofVariables[velocity] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         expression = '{} + ({}*dt)*F/M'.format(self.velocity, fraction)
         expression += '; F = {}'.format(self.force)
         expression += '; M = {}'.format(self.mass)
@@ -515,7 +515,7 @@ class GenericScalingPropagator(Propagator):
         elif not perDof:
             self.globalVariables[velocity] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         expression = '{}*exp(-({}*dt)*{})'.format(self.velocity, fraction, self.damping)
         if self.perDof:
             integrator.addComputePerDof(self.velocity, expression)
@@ -604,25 +604,26 @@ class RespaPropagator(Propagator):
         for (i, n) in enumerate(self.loops):
             if n > 1:
                 self.globalVariables['n{}RESPA'.format(i)] = 0
+        self.force = ['f{}'.format(group) for group in range(self.N)]
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
-        self._addSubsteps(integrator, len(self.loops)-1, fraction)
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        self._addSubsteps(integrator, self.N-1, fraction)
 
-    def _internalSplitting(self, integrator, group, fraction, shell):
+    def _internalSplitting(self, integrator, timescale, fraction, shell):
         shell and shell.addSteps(integrator, 0.5*fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, str(group))
-        self._addSubsteps(integrator, group-1, fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, str(group))
+        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
+        self._addSubsteps(integrator, timescale-1, fraction)
+        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         shell and shell.addSteps(integrator, 0.5*fraction)
 
-    def _addSubsteps(self, integrator, group, fraction):
-        if group >= 0:
-            n = self.loops[group]
+    def _addSubsteps(self, integrator, timescale, fraction):
+        if timescale >= 0:
+            n = self.loops[timescale]
             if n > 1:
-                counter = 'n{}RESPA'.format(group)
+                counter = 'n{}RESPA'.format(timescale)
                 integrator.addComputeGlobal(counter, '0')
                 integrator.beginWhileBlock('{} < {}'.format(counter, n))
-            self._internalSplitting(integrator, group, fraction/n, self.shell.get(group, None))
+            self._internalSplitting(integrator, timescale, fraction/n, self.shell.get(timescale, None))
             if n > 1:
                 integrator.addComputeGlobal(counter, '{} + 1'.format(counter))
                 integrator.endBlock()
@@ -635,9 +636,9 @@ class RespaPropagator(Propagator):
 
 
 class BlitzRespaPropagator(RespaPropagator):
-    def _internalSplitting(self, integrator, group, fraction, shell):
-        self.boost.addSteps(integrator, fraction, str(group))
-        self._addSubsteps(integrator, group-1, fraction)
+    def _internalSplitting(self, integrator, timescale, fraction, shell):
+        self.boost.addSteps(integrator, fraction, self.force[timescale])
+        self._addSubsteps(integrator, timescale-1, fraction)
 
 
 class VelocityVerletPropagator(Propagator):
@@ -658,7 +659,7 @@ class VelocityVerletPropagator(Propagator):
         super().__init__()
         self.perDofVariables['x0'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         Dt = '; Dt=%s*dt' % fraction
         integrator.addComputePerDof('v', 'v+0.5*Dt*f/m' + Dt)
         integrator.addComputePerDof('x0', 'x')
@@ -709,7 +710,7 @@ class VelocityRescalingPropagator(Propagator):
         self.globalVariables['U'] = 0
         self.globalVariables['ready'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         a = (self.dof - 2 + self.dof % 2)/2
         d = a - 1/3
         c = 1/math.sqrt(9*d)
@@ -771,7 +772,7 @@ class NoseHooverPropagator(Propagator):
         self.globalVariables['p_eta'] = 0
         self.globalVariables['n_NH'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         n = self.nloops
         subfrac = fraction/n
         integrator.addComputeGlobal('p_eta', 'p_eta + ({}*dt)*(mvv - LkT)'.format(0.5*subfrac))
@@ -847,7 +848,7 @@ class NoseHooverLangevinPropagator(Propagator):
         self.globalVariables['vscaling'] = 0
         self.globalVariables['p_NHL'] = 0
 
-    def addSteps(self, integrator, fraction=1.0, forceGroup=''):
+    def addSteps(self, integrator, fraction=1.0, force='f'):
         R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
         N = self.degreesOfFreedom
