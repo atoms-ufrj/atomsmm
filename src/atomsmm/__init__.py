@@ -4,6 +4,7 @@ from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401
 from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
+from .forces import SoftcoreForce  # noqa: F401
 from .forces import SoftcoreLennardJonesForce  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
 from .integrators import NewMethodIntegrator  # noqa: F401
@@ -39,6 +40,7 @@ __forces__ = [
     'NonbondedExceptionsForce',
     'NearNonbondedForce',
     'FarNonbondedForce',
+    'SoftcoreForce',
     'SoftcoreLennardJonesForce',
     ]  # noqa E123
 

@@ -574,3 +574,34 @@ class SoftcoreLennardJonesForce(_AtomsMM_CompoundForce):
         potential = '4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);' + LorentzBerthelot()
         force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
         super().__init__(force)
+
+
+class SoftcoreForce(_AtomsMM_CompoundForce):
+    """
+    A softened version of the Lennard-Jones+Coulomb potential.
+
+    .. math::
+        & V(r) = V_\\mathrm{vdw}(r) + V_\\mathrm{coul}(r)
+        & V_\\mathrm{vdw}(r)=4\\lambda_\\mathrm{vdw}\\epsilon\\left(\\frac{1}{s^2} - \\frac{1}{s}\\right) \\\\
+        & s = \\left(\\frac{r}{\\sigma}\\right)^6 + \\frac{1}{2}(1-\\lambda_\\mathrm{vdw}) \\\\
+        & \\sigma=\\frac{\\sigma_1+\\sigma_2}{2} \\\\
+        & \\epsilon=\\sqrt{\\epsilon_1\\epsilon_2}
+        & V_\\mathrm{coul}(r)=\\lambda_\\mathrm{coul}\\frac{q_1 q_2}{4\\pi\\epsilon_0}\\frac{1}{r}
+
+    Parameters
+    ----------
+        cutoff_distance : Number or unit.Quantity
+            The distance at which the nonbonded interaction vanishes.
+        switch_distance : Number or unit.Quantity
+            The distance at which the switching function begins to smooth the approach of the
+            nonbonded interaction towards zero.
+
+    """
+    def __init__(self, cutoff_distance, switch_distance=None):
+        globalParams = dict(Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
+                            lambda_vdw=1.0, lambda_coul=1.0)
+        potential = '4*lambda_vdw*epsilon*(1-x)/x^2 + Kc*lambda_coul*chargeprod/r;'
+        potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw);'
+        potential += LorentzBerthelot()
+        force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
+        super().__init__(force)
