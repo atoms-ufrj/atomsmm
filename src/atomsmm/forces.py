@@ -228,6 +228,7 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         else:
             self.setUseSwitchingFunction(True)
             self.setSwitchingDistance(switch_distance)
+        self.importUseDispersionCorrection = True
 
     def importFrom(self, force):
         """
@@ -263,6 +264,8 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
                    builtin.NoCutoff: custom.NoCutoff,
                    builtin.PME: custom.CutoffPeriodic}
         self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
+        if self.importUseDispersionCorrection:
+            self.setUseLongRangeCorrection(force.getUseDispersionCorrection())
         return self
 
     def getGlobalParameters(self):
@@ -510,6 +513,7 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
         expression += 'u=(r-rs0)/(rc0-rs0);'
         expression += LorentzBerthelot()
         super().__init__(expression, cutoff_distance, None, **globalParams)
+        self.importUseDispersionCorrection = False
 
 
 class FarNonbondedForce(_AtomsMM_CompoundForce):
@@ -569,9 +573,11 @@ class SoftcoreLennardJonesForce(_AtomsMM_CompoundForce):
             nonbonded interaction towards zero.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None):
-        globalParams = {'lambda': 1.0}
-        potential = '4*lambda*epsilon*(1-x)/x^2; x = (r/sigma)^6 + 0.5*(1-lambda);' + LorentzBerthelot()
+    def __init__(self, cutoff_distance, switch_distance=None, lambda_name='lambda'):
+        globalParams = {lambda_name: 1.0}
+        potential = '4*{}*epsilon*(1-x)/x^2;'.format(lambda_name)
+        potential += 'x = (r/sigma)^6 + 0.5*(1-{});'.format(lambda_name)
+        potential += LorentzBerthelot()
         force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
         super().__init__(force)
 
