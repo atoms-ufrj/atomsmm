@@ -20,18 +20,11 @@ import atomsmm
 
 class _AtomsMM_System(openmm.System):
     def __init__(self, system, copyForces=True):
-        super().__init__()
-        self.setDefaultPeriodicBoxVectors(*system.getDefaultPeriodicBoxVectors())
-        for index in range(system.getNumParticles()):
-            self.addParticle(system.getParticleMass(index))
-        for index in range(system.getNumParticles()):
-            if system.isVirtualSite(index):
-                self.setVirtualSite(index, system.getVirtualSite())
-        for index in range(system.getNumConstraints()):
-            self.addConstraint(*system.getConstraintParameters(index))
-        if copyForces:
-            for force in system.getForces():
-                self.addForce(copy.deepcopy(force))
+        new_system = copy.deepcopy(system)
+        if not copyForces:
+            for index in reversed(range(new_system.getNumForces())):
+                new_system.removeForce(index)
+        self.__dict__ = new_system.__dict__
 
 
 class RESPASystem(_AtomsMM_System):
