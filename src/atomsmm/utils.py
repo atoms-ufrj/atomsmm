@@ -103,7 +103,7 @@ def hijackForce(system, index):
     return force
 
 
-def splitPotentialEnergy(system, topology, positions):
+def splitPotentialEnergy(system, topology, positions, **globals):
     """
     Computes the potential energy of a system, with possible splitting into contributions of all
     Force_ objects attached to the system.
@@ -118,6 +118,10 @@ def splitPotentialEnergy(system, topology, positions):
             The topological information about a system.
         positions : list(tuple)
             A list of 3D vectors containing the positions of all atoms.
+
+    Keyword Args
+    ------------
+        Values for global context variables.
 
     Returns
     -------
@@ -138,6 +142,8 @@ def splitPotentialEnergy(system, topology, positions):
     integrator = openmm.VerletIntegrator(0.0)
     simulation = openmm.app.Simulation(topology, syscopy, integrator, platform)
     simulation.context.setPositions(positions)
+    for parameter, value in globals.items():
+        simulation.context.setParameter(parameter, value)
     terms = dict()
     energy = dict()
     mask = []

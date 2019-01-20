@@ -11,8 +11,8 @@
 
 import copy
 import itertools
-import numpy as np
 
+import numpy as np
 from simtk import openmm
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
