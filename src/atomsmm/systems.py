@@ -52,12 +52,13 @@ class RESPASystem(_AtomsMM_System):
             applied to a potential that is already null at the cutoff due to a previous shift.
             If it is `'force-switch'`, then the potential is modified so that the switching
             function is applied to the forces rather than the potential energy.
-        fastExceptions: bool, optional, default=False
-            Whether nonbonded exceptions must be considered to belong to the group of fastest forces.
+        fastExceptions : bool, optional, default=True
+            Whether nonbonded exceptions must be considered to belong to the group of fastest
+            forces.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
-        fastExceptions = kwargs.get('fastExceptions', False)
+        fastExceptions = kwargs.get('fastExceptions', True)
         super().__init__(system)
 
         for force in self.getForces():
@@ -65,12 +66,11 @@ class RESPASystem(_AtomsMM_System):
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
 
-                if fastExceptions:
-                    exceptions = atomsmm.NonbondedExceptionsForce()
-                    exceptions.extractFrom(force)
-                    if exceptions.getNumBonds() > 0:
-                        exceptions.setForceGroup(0)
-                        self.addForce(exceptions)
+                exceptions = atomsmm.NonbondedExceptionsForce()
+                exceptions.extractFrom(force)
+                if exceptions.getNumBonds() > 0:
+                    exceptions.setForceGroup(0 if fastExceptions else 2)
+                    self.addForce(exceptions)
 
                 adjustment = kwargs.pop('adjustment', 'force-switch')
                 innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
@@ -101,38 +101,34 @@ class SolvationSystem(_AtomsMM_System):
             The original system from which to generate the SolvationSystem.
         solute_atoms : list
             A list containing the indexes of all solute atoms.
+        forceGroup : int, optional, default=0
+            The force group to which the included SoftcoreLennardJonesForce instance will belong.
 
     """
-    def __init__(self, system, solute_atoms, annihilate=False):
+    def __init__(self, system, solute_atoms, forceGroup=0):
         super().__init__(system)
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
 
+        # Treat all solute-solute interactions as exceptions:
+        existing_exceptions = []
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+            existing_exceptions.append(set([i, j]))
+        for i, j in itertools.combinations(solute_atoms, 2):
+            if set([i, j]) not in existing_exceptions:
+                q1, sig1, eps1 = nonbonded.getParticleParameters(i)
+                q2, sig2, eps2 = nonbonded.getParticleParameters(j)
+                nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
+
         # Include softcore Lennard-Jones interactions:
         rcut = nonbonded.getCutoffDistance()
-        if nonbonded.getUseSwitchingFunction():
-            rswitch = nonbonded.getSwitchingDistance()
-        else:
-            rswitch = None
+        rswitch = nonbonded.getSwitchingDistance() if nonbonded.getUseSwitchingFunction() else None
         softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, 'lambda_vdw')
         softcore.importFrom(nonbonded)
-        all_atoms = set(range(nonbonded.getNumParticles()))
-        if annihilate:
-            softcore.addInteractionGroup(solute_atoms, all_atoms)
-        else:
-            softcore.addInteractionGroup(solute_atoms, all_atoms - solute_atoms)
+        solvent_atoms = set(range(nonbonded.getNumParticles())) - solute_atoms
+        softcore.addInteractionGroup(solute_atoms, solvent_atoms)
+        softcore.setForceGroup(forceGroup)
         softcore.addTo(self)
-
-        if not annihilate:
-            # Treat all solute-solute interactions as exceptions:
-            existing_exceptions = []
-            for index in range(nonbonded.getNumExceptions()):
-                i, j, _, _, _ = nonbonded.getExceptionParameters(index)
-                existing_exceptions.append(set([i, j]))
-            for i, j in itertools.combinations(solute_atoms, 2):
-                if set([i, j]) not in existing_exceptions:
-                    q1, sig1, eps1 = nonbonded.getParticleParameters(i)
-                    q2, sig2, eps2 = nonbonded.getParticleParameters(j)
-                    nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
 
         # Turn off solute van der Waals interactions & scale solute charges w/ lambda_coul:
         nonbonded.addGlobalParameter('lambda_coul', 1.0)
