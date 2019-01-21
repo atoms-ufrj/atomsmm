@@ -359,7 +359,8 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     simulation.context.setParameter(name, value)
                 energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
                 values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
-
+            for name, value in original.items():
+                simulation.context.setParameter(name, value)
         return values
 
 
