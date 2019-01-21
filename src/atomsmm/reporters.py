@@ -248,25 +248,31 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                                          self._atomicPressure and self._kT is None,
                                          self._molecularKineticEnergy])
 
+    def _add(self, lst, item):
+        if self._backSteps == 0:
+            lst.append(item)
+        else:
+            lst.insert(self._backSteps, item)
+
     def _constructHeaders(self):
         headers = super()._constructHeaders()
         if self._coulombEnergy:
-            headers.insert(self._backSteps, 'Coulomb Energy (kJ/mole)')
+            self._add(headers, 'Coulomb Energy (kJ/mole)')
         if self._atomicVirial:
-            headers.insert(self._backSteps, 'Atomic Virial (kJ/mole)')
+            self._add(headers, 'Atomic Virial (kJ/mole)')
         if self._nonbondedVirial:
-            headers.insert(self._backSteps, 'Nonbonded Virial (kJ/mole)')
+            self._add(headers, 'Nonbonded Virial (kJ/mole)')
         if self._atomicPressure:
-            headers.insert(self._backSteps, 'Atomic Pressure (atm)')
+            self._add(headers, 'Atomic Pressure (atm)')
         if self._molecularVirial:
-            headers.insert(self._backSteps, 'Molecular Virial (kJ/mole)')
+            self._add(headers, 'Molecular Virial (kJ/mole)')
         if self._molecularPressure:
-            headers.insert(self._backSteps, 'Molecular Pressure (atm)')
+            self._add(headers, 'Molecular Pressure (atm)')
         if self._molecularKineticEnergy:
-            headers.insert(self._backSteps, 'Molecular Kinetic Energy (kJ/mole)')
+            self._add(headers, 'Molecular Kinetic Energy (kJ/mole)')
         if self._globalParameterStates is not None:
             for index in self._globalParameterStates.index:
-                headers.insert(self._backSteps, 'Energy[{}] (kJ/mole)'.format(index))
+                self._add(headers, 'Energy[{}] (kJ/mole)'.format(index))
         return headers
 
     def _localContext(self, simulation):
@@ -306,14 +312,14 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 vfactor = 1/(3*volume*unit.AVOGADRO_CONSTANT_NA)
 
             if self._coulombEnergy:
-                values.insert(self._backSteps, coulombVirial)
+                self._add(values, coulombVirial)
 
             if self._atomicVirial:
-                values.insert(self._backSteps, atomicVirial)
+                self._add(values, atomicVirial)
 
             if self._nonbondedVirial:
                 nonbondedVirial = dispersionVirial + coulombVirial
-                values.insert(self._backSteps, nonbondedVirial)
+                self._add(values, nonbondedVirial)
 
             if self._atomicPressure:
                 if self._kT is None:
@@ -321,7 +327,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 else:
                     dNkT = 3*context.getSystem().getNumParticles()*self._kT
                 pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
-                values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+                self._add(values, pressure.value_in_unit(unit.atmospheres))
 
             if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
                 cmPositions = self._mols.massFrac.dot(positions)
@@ -342,13 +348,13 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 resultantForces = self._mols.selection.dot(forces)
                 molecularVirial += np.sum(cmPositions*resultantForces)
                 if self._molecularVirial:
-                    values.insert(self._backSteps, molecularVirial)
+                    self._add(values, molecularVirial)
                 if self._molecularPressure:
                     dNkT = molKinEng if self._kT is None else 3*self._mols.nmols*self._kT
                     pressure = (dNkT + molecularVirial*unit.kilojoules_per_mole)*vfactor
-                    values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
+                    self._add(values, pressure.value_in_unit(unit.atmospheres))
                 if self._molecularKineticEnergy:
-                    values.insert(self._backSteps, molKinEng.value_in_unit(unit.kilojoules_per_mole))
+                    self._add(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
 
         if self._globalParameterStates is not None:
             original = dict()
@@ -358,7 +364,7 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                 for name, value in row.items():
                     simulation.context.setParameter(name, value)
                 energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-                values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
+                self._add(values, energy.value_in_unit(unit.kilojoules_per_mole))
             for name, value in original.items():
                 simulation.context.setParameter(name, value)
         return values
