@@ -373,6 +373,9 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
         & S(r)=[1+\\theta(r-r_\\mathrm{switch})u^3(15u-6u^2-10)] \\\\
         & u=\\frac{r^n-r_\\mathrm{switch}^n}{r_\\mathrm{cut}^n-r_\\mathrm{switch}^n}
 
+    .. warning::
+        Long-range dispersion correction is not employed.
+
     In the equations above, :math:`\\theta(x)` is the Heaviside step function. Note that the
     switching function employed here, with `u` being a quadratic function of `r`, is slightly
     different from the one normally used in OpenMM, in which `u` is a linear function of `r`.
@@ -404,6 +407,7 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
                          switch_distance if degree == 1 else None,
                          Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
                          alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
+        self.importUseDispersionCorrection = False
 
 
 class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
