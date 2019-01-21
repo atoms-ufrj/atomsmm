@@ -178,9 +178,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         total mass of molecule `i`, and :math:`v_{\\mathrm{cm}, i}` is the center-of-mass velocity
         of molecule `i`.
 
-    8. Allow specification of heat-bath temperature (keyword: `bathTemperature`).
+    8. Report potential energies at multiple states (keyword: `globalParameterStates`):
 
-        This can be used in the computation of atomic and/or molecular pressures.
+        Computes and reports the potential energy of the system at a number of provided global
+        parameter states.
 
     9. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
@@ -203,9 +204,15 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             Whether to write the internal molecular pressure to the file.
         molecularKineticEnergy : bool, optional, default=False
             Whether to write the molecular center-of-mass kinetic energy to the file.
+        globalParameterStates : pandas.DataFrame_, optional, default=None
+            A DataFrame containing context global parameters (column names) and sets of values
+            thereof. If it is provided, then the potential energy will be reported for every state
+            these parameters define.
         computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
             A system designed to compute the internal virial. This is mandatory if keyword `virial`
             or `pressure` is set to `True`.
+        bathTemperature : unit.Quantity, optional, default=None
+            The temperature of the heat bath, used to compute atomic and molecular pressures.
         extraFile : str or file, optional, default=None
             Extra file to write to, specified as a file name or a file object.
 
@@ -218,25 +225,28 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
         self._molecularVirial = kwargs.pop('molecularVirial', False)
         self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
+        self._globalParameterStates = kwargs.pop('globalParameterStates', None)
         self._computer = kwargs.pop('computer', None)
         temp = kwargs.pop('bathTemperature', None)
         self._kT = None if temp is None else unit.MOLAR_GAS_CONSTANT_R*temp
-        self._active = any([self._coulombEnergy,
-                            self._atomicVirial,
-                            self._nonbondedVirial,
-                            self._atomicPressure,
-                            self._molecularVirial,
-                            self._molecularPressure,
-                            self._molecularKineticEnergy])
+        self._computing = any([self._coulombEnergy,
+                               self._atomicVirial,
+                               self._nonbondedVirial,
+                               self._atomicPressure,
+                               self._molecularVirial,
+                               self._molecularPressure,
+                               self._molecularKineticEnergy])
         super().__init__(file, reportInterval, **kwargs)
-        if self._active:
-            if not isinstance(self._computer, ComputingSystem):
-                raise InputError('keyword \'computer\' requires a ComputingSystem instance')
+        self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
+        if self._computing:
+            if self._computer is not None and not isinstance(self._computer, ComputingSystem):
+                raise InputError('keyword "computer" requires a ComputingSystem instance')
             self._requiresInitialization = True
-            self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
             self._needsPositions = True
             self._needsForces = self._molecularVirial
-            self._needsVelocities = (self._molecularPressure and self._kT is None) or self._molecularKineticEnergy
+            self._needsVelocities = any([self._molecularPressure and self._kT is None,
+                                         self._atomicPressure and self._kT is None,
+                                         self._molecularKineticEnergy])
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
@@ -254,6 +264,9 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
             headers.insert(self._backSteps, 'Molecular Pressure (atm)')
         if self._molecularKineticEnergy:
             headers.insert(self._backSteps, 'Molecular Kinetic Energy (kJ/mole)')
+        if self._globalParameterStates is not None:
+            for index in self._globalParameterStates.index:
+                headers.insert(self._backSteps, 'Energy[{}] (kJ/mole)'.format(index))
         return headers
 
     def _localContext(self, simulation):
@@ -266,10 +279,10 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._active:
+        if self._computing:
             if self._requiresInitialization:
                 self._computeContext = self._localContext(simulation)
-                if self._molecularVirial or self._molecularPressure:
+                if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
                     self._mols = _MoleculeTotalizer(simulation)
                 self._requiresInitialization = False
 
@@ -336,6 +349,16 @@ class ExtendedStateDataReporter(_AtomsMM_Reporter):
                     values.insert(self._backSteps, pressure.value_in_unit(unit.atmospheres))
                 if self._molecularKineticEnergy:
                     values.insert(self._backSteps, molKinEng.value_in_unit(unit.kilojoules_per_mole))
+
+        if self._globalParameterStates is not None:
+            original = dict()
+            for name in self._globalParameterStates.columns:
+                original[name] = simulation.context.getParameter(name)
+            for index, row in self._globalParameterStates.iterrows():
+                for name, value in row.items():
+                    simulation.context.setParameter(name, value)
+                energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
+                values.insert(self._backSteps, energy.value_in_unit(unit.kilojoules_per_mole))
 
         return values
 
