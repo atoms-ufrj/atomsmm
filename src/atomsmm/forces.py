@@ -599,7 +599,7 @@ class FarNonbondedForce(_AtomsMM_CompoundForce):
         super().__init__([total, discount])
 
 
-class SoftcoreLennardJonesForce(_AtomsMM_CompoundForce):
+class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
     """
     A softened version of the Lennard-Jones potential.
 
@@ -623,8 +623,7 @@ class SoftcoreLennardJonesForce(_AtomsMM_CompoundForce):
         potential = '4*{}*epsilon*(1-x)/x^2;'.format(lambda_name)
         potential += 'x = (r/sigma)^6 + 0.5*(1-{});'.format(lambda_name)
         potential += LorentzBerthelot()
-        force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
-        super().__init__(force)
+        super().__init__(potential, cutoff_distance, switch_distance, **globalParams)
 
 
 class SoftcoreForce(_AtomsMM_CompoundForce):

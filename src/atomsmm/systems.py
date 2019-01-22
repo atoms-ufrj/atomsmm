@@ -134,7 +134,7 @@ class SolvationSystem(_AtomsMM_System):
         solvent_atoms = set(range(nonbonded.getNumParticles())) - solute_atoms
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
         softcore.setForceGroup(forceGroup)
-        softcore.addTo(self)
+        self.addForce(softcore)
 
         # Turn off solute van der Waals interactions & scale solute charges w/ lambda_coul:
         nonbonded.addGlobalParameter('lambda_coul', 1.0)
