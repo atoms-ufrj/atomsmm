@@ -300,7 +300,7 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
         for (name, value) in globalParams.items():
             self.addGlobalParameter(name, value)
 
-    def importFrom(self, force):
+    def importFrom(self, force, extract=False):
         """
         Import all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object.
 
@@ -308,6 +308,8 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
         ----------
             force : openmm.NonbondedForce
                 The force from which the exceptions will be imported.
+            extract : bool, optional, default=False
+                Whether the imported exceptions should be removed from force.
 
         Returns
         -------
@@ -322,6 +324,8 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
                     self.addBond(i, j, [chargeprod, sigma, epsilon])
                 else:
                     self.addBond(i, j, [sigma, epsilon])
+                if extract:
+                    force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
         return self
 
     def extractFrom(self, force):
@@ -410,7 +414,39 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
         self.importUseDispersionCorrection = False
 
 
-class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
+class NearForce(object):
+    def _globalParams(self, cutoff_distance, switch_distance):
+        return {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
+                'rc0': cutoff_distance,
+                'rs0': switch_distance}
+
+    def _expression(self, cutoff_distance, switch_distance, adjustment):
+        if adjustment is None:
+            expression = 'S*(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r);'
+            expression += 'S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);'
+        elif adjustment == 'shift':
+            expression = 'S*(4*epsilon*((sigma/r)^12-(sigma/r)^6-((sigma/rc0)^12-(sigma/rc0)^6)) + Kc*chargeprod*(1/r-1/rc0));'
+            expression += 'S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);'
+        elif adjustment == 'force-switch':
+            potential = '4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r'
+            shift = '4*epsilon*(f12c*(sigma/rc0)^12-f6c*(sigma/rc0)^6) + Kc*chargeprod*f1c/rc0'
+            expression = '{}-({});'.format(potential, shift)
+            expression += 'f12=1+step(r-rs0)*((6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7);'
+            expression += 'f6=1+step(r-rs0)*((6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5);'
+            expression += 'f1=1+step(r-rs0)*(5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2);'
+            expression += 'R=u/b+1;'  # R=r/rs0
+            b = switch_distance/(cutoff_distance-switch_distance)
+            expression += 'b={};'.format(b)
+            expression += 'f12c={};'.format((1+b)**3*(b**6+3*b**5+(30/7)*b**4+(25/7)*b**3+(25/14)*b**2+(1/2)*b+2/33)/b**9)
+            expression += 'f6c={};'.format((1+b)**3/b**3)
+            expression += 'f1c={};'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12))
+        else:
+            raise InputError('unknown adjustment option')
+        expression += 'u=(r-rs0)/(rc0-rs0);'
+        return expression
+
+
+class NearNonbondedForce(_AtomsMM_CustomNonbondedForce, NearForce):
     """
     This is a smoothed version of the Lennard-Jones + Coulomb potential
 
@@ -490,34 +526,39 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce):
 
     """
     def __init__(self, cutoff_distance, switch_distance, adjustment=None):
-        globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
-                        'rc0': cutoff_distance,
-                        'rs0': switch_distance}
-        if adjustment is None:
-            expression = 'S*(4*epsilon*((sigma/r)^12-(sigma/r)^6) + Kc*chargeprod/r);'
-            expression += 'S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);'
-        elif adjustment == 'shift':
-            expression = 'S*(4*epsilon*((sigma/r)^12-(sigma/r)^6-((sigma/rc0)^12-(sigma/rc0)^6)) + Kc*chargeprod*(1/r-1/rc0));'
-            expression += 'S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10);'
-        elif adjustment == 'force-switch':
-            potential = '4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + Kc*chargeprod*f1/r'
-            shift = '4*epsilon*(f12c*(sigma/rc0)^12-f6c*(sigma/rc0)^6) + Kc*chargeprod*f1c/rc0'
-            expression = '{}-({});'.format(potential, shift)
-            expression += 'f12=1+step(r-rs0)*((6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7);'
-            expression += 'f6=1+step(r-rs0)*((6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5);'
-            expression += 'f1=1+step(r-rs0)*(5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2);'
-            expression += 'R=u/b+1;'  # R=r/rs0
-            b = switch_distance/(cutoff_distance-switch_distance)
-            expression += 'b={};'.format(b)
-            expression += 'f12c={};'.format((1+b)**3*(b**6+3*b**5+(30/7)*b**4+(25/7)*b**3+(25/14)*b**2+(1/2)*b+2/33)/b**9)
-            expression += 'f6c={};'.format((1+b)**3/b**3)
-            expression += 'f1c={};'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12))
-        else:
-            raise InputError('unknown adjustment option')
-        expression += 'u=(r-rs0)/(rc0-rs0);'
+        globalParams = self._globalParams(cutoff_distance, switch_distance)
+        expression = self._expression(cutoff_distance, switch_distance, adjustment)
         expression += LorentzBerthelot()
         super().__init__(expression, cutoff_distance, None, **globalParams)
         self.importUseDispersionCorrection = False
+
+
+class DiscountNonbondedForce(_AtomsMM_CustomNonbondedForce, NearForce):
+    def __init__(self, cutoff_distance, switch_distance, actual_cutoff, adjustment=None):
+        globalParams = self._globalParams(cutoff_distance, switch_distance)
+        potential = self._expression(cutoff_distance, switch_distance, adjustment).split(';')
+        potential[0] = '-step(rc0-r)*({})'.format(potential[0])
+        potential = ';'.join(potential) + LorentzBerthelot()
+        super().__init__(potential, actual_cutoff, None, **globalParams)
+        self.importUseDispersionCorrection = False
+
+
+class NearExceptionForce(_AtomsMM_CustomBondForce, NearForce):
+    def __init__(self, cutoff_distance, switch_distance, adjustment=None):
+        globalParams = self._globalParams(cutoff_distance, switch_distance)
+        potential = self._expression(cutoff_distance, switch_distance, adjustment).split(';')
+        potential[0] = 'step(rc0-r)*({})'.format(potential[0])
+        potential = ';'.join(potential)
+        super().__init__(potential, **globalParams)
+
+
+class DiscountExceptionForce(_AtomsMM_CustomBondForce, NearForce):
+    def __init__(self, cutoff_distance, switch_distance, adjustment=None):
+        globalParams = self._globalParams(cutoff_distance, switch_distance)
+        potential = self._expression(cutoff_distance, switch_distance, adjustment).split(';')
+        potential[0] = '-step(rc0-r)*({})'.format(potential[0])
+        potential = ';'.join(potential)
+        super().__init__(potential, **globalParams)
 
 
 class FarNonbondedForce(_AtomsMM_CompoundForce):

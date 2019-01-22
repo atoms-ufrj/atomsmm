@@ -54,39 +54,45 @@ class RESPASystem(_AtomsMM_System):
             function is applied to the forces rather than the potential energy.
         fastExceptions : bool, optional, default=True
             Whether nonbonded exceptions must be considered to belong to the group of fastest
-            forces.
+            forces. If `False`, then they will be split into intermediate and slowest forces.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
+        adjustment = kwargs.pop('adjustment', 'force-switch')
         fastExceptions = kwargs.get('fastExceptions', True)
         super().__init__(system)
-
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
 
-                exceptions = atomsmm.NonbondedExceptionsForce()
-                exceptions.extractFrom(force)
-                if exceptions.getNumBonds() > 0:
-                    exceptions.setForceGroup(0 if fastExceptions else 2)
-                    self.addForce(exceptions)
-
-                adjustment = kwargs.pop('adjustment', 'force-switch')
-                innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
+                innerForce = atomsmm.forces.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
                 innerForce.importFrom(force)
                 innerForce.setForceGroup(1)
                 self.addForce(innerForce)
 
-                potential = innerForce.getEnergyFunction().split(';')
-                potential[0] = '-step(rc0-r)*({})'.format(potential[0])
-                potential = ';'.join(potential)
-                cutoff = force.getCutoffDistance()
-                globals = innerForce.getGlobalParameters()
-                discount = atomsmm.forces._AtomsMM_CustomNonbondedForce(potential, cutoff, None, **globals)
+                rcut = force.getCutoffDistance()
+                discount = atomsmm.forces.DiscountNonbondedForce(rcutIn, rswitchIn, rcut, adjustment)
                 discount.importFrom(force)
                 discount.setForceGroup(2)
                 self.addForce(discount)
+
+                if fastExceptions:
+                    exceptions = atomsmm.forces.NonbondedExceptionsForce()
+                    exceptions.importFrom(force, extract=True)
+                    if exceptions.getNumBonds() > 0:
+                        exceptions.setForceGroup(0)
+                        self.addForce(exceptions)
+                else:
+                    exceptions = atomsmm.forces.NearExceptionForce(rcutIn, rswitchIn, adjustment)
+                    exceptions.importFrom(force)
+                    if exceptions.getNumBonds() > 0:
+                        exceptions.setForceGroup(1)
+                        self.addForce(exceptions)
+                        discount = atomsmm.forces.DiscountExceptionForce(rcutIn, rswitchIn, adjustment)
+                        discount.importFrom(force)
+                        discount.setForceGroup(2)
+                        self.addForce(discount)
             else:
                 force.setForceGroup(0)
 
