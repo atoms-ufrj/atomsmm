@@ -109,11 +109,18 @@ class SolvationSystem(_AtomsMM_System):
             A list containing the indexes of all solute atoms.
         forceGroup : int, optional, default=0
             The force group to which the included SoftcoreLennardJonesForce instance will belong.
+        rcutIn : Number or unit.Quantity, optional, default=None
+            The distance at which the near nonbonded interactions vanish. Must be used only if
+            integration will be done with a multiple time scale algorithm.
+        rswitchIn : Number or unit.Quantity, optional, default=None
+            The distance at which the switching function begins to smooth the approach of the
+            near nonbonded interaction towards zero. Must be used only if integration will be done
+            with a multiple time scale algorithm.
 
     """
-    def __init__(self, system, solute_atoms, forceGroup=0):
-        super().__init__(system)
-        nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
+    def __init__(self, system, solute_atoms, forceGroup=0, rcutIn=None, rswitchIn=None):
+        solution = copy.deepcopy(system)
+        nonbonded = solution.getForce(atomsmm.findNonbondedForce(solution))
 
         # Treat all solute-solute interactions as exceptions:
         existing_exceptions = []
@@ -134,7 +141,7 @@ class SolvationSystem(_AtomsMM_System):
         solvent_atoms = set(range(nonbonded.getNumParticles())) - solute_atoms
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
         softcore.setForceGroup(forceGroup)
-        self.addForce(softcore)
+        solution.addForce(softcore)
 
         # Turn off solute van der Waals interactions & scale solute charges w/ lambda_coul:
         nonbonded.addGlobalParameter('lambda_coul', 1.0)
@@ -143,6 +150,14 @@ class SolvationSystem(_AtomsMM_System):
             nonbonded.setParticleParameters(i, 0.0, 1.0, 0.0)
             if q/q.unit != 0.0:
                 nonbonded.addParticleParameterOffset('lambda_coul', i, q, 0.0, 0.0)
+
+        if rcutIn is not None and rswitchIn is not None:
+            index = solution.getNumForces() - 1
+            respa_system = atomsmm.RESPASystem(solution, rcutIn, rswitchIn, fastExceptions=False)
+            respa_system.getForce(index).setForceGroup(1)
+            super().__init__(respa_system)
+        else:
+            super().__init__(solution)
 
 
 class ComputingSystem(_AtomsMM_System):

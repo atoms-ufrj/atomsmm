@@ -623,10 +623,10 @@ class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
         potential = '4*{}*epsilon*(1-x)/x^2;'.format(lambda_name)
         potential += 'x = (r/sigma)^6 + 0.5*(1-{});'.format(lambda_name)
         potential += LorentzBerthelot()
-        super().__init__(potential, cutoff_distance, switch_distance, **globalParams)
+        super().__init__(potential, cutoff_distance, switch_distance, usesCharges=False, **globalParams)
 
 
-class SoftcoreForce(_AtomsMM_CompoundForce):
+class SoftcoreForce(_AtomsMM_CustomNonbondedForce):
     """
     A softened version of the Lennard-Jones+Coulomb potential.
 
@@ -648,10 +648,9 @@ class SoftcoreForce(_AtomsMM_CompoundForce):
 
     """
     def __init__(self, cutoff_distance, switch_distance=None):
-        globalParams = dict(Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
-                            lambda_vdw=1.0, lambda_coul=1.0)
+        globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
+                        'lambda_vdw': 1.0, 'lambda_coul': 1.0}
         potential = '4*lambda_vdw*epsilon*(1-x)/x^2 + Kc*lambda_coul*chargeprod/r;'
         potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw);'
         potential += LorentzBerthelot()
-        force = _AtomsMM_CustomNonbondedForce(potential, cutoff_distance, switch_distance, **globalParams)
-        super().__init__(force)
+        super().__init__(potential, cutoff_distance, switch_distance, **globalParams)
