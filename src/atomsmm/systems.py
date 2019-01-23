@@ -63,43 +63,54 @@ class RESPASystem(_AtomsMM_System):
         super().__init__(system)
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
+                # Every nonbonded force is placed in the longest time scale (group 2):
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
 
-                innerForce = atomsmm.forces.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
-                innerForce.importFrom(force)
+                # For each nonbonded force, a short-ranged version is created and allocated in the
+                # intermediary time scale (group 1):
+                innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
+                innerForce.importFrom(force)  # Non-exclusion exceptions become exclusions here
                 innerForce.setForceGroup(1)
                 self.addForce(innerForce)
 
-                rcut = force.getCutoffDistance()
-                discount = atomsmm.forces.DiscountNonbondedForce(rcutIn, rswitchIn, rcut, adjustment)
-                discount.importFrom(force)
-                discount.setForceGroup(2)
-                self.addForce(discount)
+                # The same short-ranged version is subtracted from the slowest forces (group 2):
+                negative = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment,
+                                                      subtract=True,
+                                                      actual_cutoff=force.getCutoffDistance())
+                negative.importFrom(force)  # Non-exclusion exceptions become exclusions here
+                negative.setForceGroup(2)
+                self.addForce(negative)
 
                 if fastExceptions:
-                    exceptions = atomsmm.forces.NonbondedExceptionsForce()
+                    # Non-exclusion exceptions (if any) are extracted from the nonbonded force and
+                    # placed in the shortest time scale:
+                    exceptions = atomsmm.NonbondedExceptionsForce()
                     exceptions.importFrom(force, extract=True)
                     if exceptions.getNumBonds() > 0:
                         exceptions.setForceGroup(0)
                         self.addForce(exceptions)
                 else:
-                    exceptions = atomsmm.forces.NearExceptionForce(rcutIn, rswitchIn, adjustment)
+                    # A short-ranged version of each non-exclusion exception (if any) is added to
+                    # the intermediary time scale and subtracted from the slowest one:
+                    exceptions = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment)
                     exceptions.importFrom(force)
                     if exceptions.getNumBonds() > 0:
                         exceptions.setForceGroup(1)
                         self.addForce(exceptions)
-                        discount = atomsmm.forces.DiscountExceptionForce(rcutIn, rswitchIn, adjustment)
-                        discount.importFrom(force)
-                        discount.setForceGroup(2)
-                        self.addForce(discount)
+                        negative = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment,
+                                                              subtract=True)
+                        negative.importFrom(force)
+                        negative.setForceGroup(2)
+                        self.addForce(negative)
             else:
+                # All other forces are allocated in the shortest time scale (group 0):
                 force.setForceGroup(0)
 
 
 class SolvationSystem(_AtomsMM_System):
     """
-    An OpenMM System_ prepared for solvation free-energy calculation.
+    An OpenMM System_ prepared for solvation free-energy calculations.
 
     Parameters
     ----------
@@ -109,10 +120,10 @@ class SolvationSystem(_AtomsMM_System):
             A list containing the indexes of all solute atoms.
         forceGroup : int, optional, default=0
             The force group to which the included SoftcoreLennardJonesForce instance will belong.
-        rcutIn : Number or unit.Quantity, optional, default=None
+        rcutIn : unit.Quantity, optional, default=None
             The distance at which the near nonbonded interactions vanish. Must be used only if
             integration will be done with a multiple time scale algorithm.
-        rswitchIn : Number or unit.Quantity, optional, default=None
+        rswitchIn : unit.Quantity, optional, default=None
             The distance at which the switching function begins to smooth the approach of the
             near nonbonded interaction towards zero. Must be used only if integration will be done
             with a multiple time scale algorithm.

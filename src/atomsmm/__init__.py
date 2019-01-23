@@ -2,6 +2,7 @@ __version__ = '0.1.0'
 
 from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401
+from .forces import NearExceptionForce  # noqa: F401
 from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
 from .forces import SoftcoreForce  # noqa: F401
@@ -39,6 +40,7 @@ from .utils import splitPotentialEnergy  # noqa: F401
 __forces__ = [
     'DampedSmoothedForce',
     'NonbondedExceptionsForce',
+    'NearExceptionForce',
     'NearNonbondedForce',
     'FarNonbondedForce',
     'SoftcoreForce',
