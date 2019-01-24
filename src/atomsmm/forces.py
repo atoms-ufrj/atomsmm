@@ -617,10 +617,10 @@ class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
             nonbonded interaction towards zero.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None, lambda_name='lambda'):
-        globalParams = {lambda_name: 1.0}
-        potential = '4*{}*epsilon*(1-x)/x^2;'.format(lambda_name)
-        potential += 'x = (r/sigma)^6 + 0.5*(1-{});'.format(lambda_name)
+    def __init__(self, cutoff_distance, switch_distance=None, coupling_parameter='lambda'):
+        globalParams = {coupling_parameter: 1.0}
+        potential = '4*{}*epsilon*(1-x)/x^2;'.format(coupling_parameter)
+        potential += 'x = (r/sigma)^6 + 0.5*(1-{});'.format(coupling_parameter)
         potential += LorentzBerthelot()
         super().__init__(potential, cutoff_distance, switch_distance, usesCharges=False, **globalParams)
 

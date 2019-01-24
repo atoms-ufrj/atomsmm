@@ -116,10 +116,8 @@ class SolvationSystem(_AtomsMM_System):
     ----------
         system : openmm.System
             The original system from which to generate the SolvationSystem.
-        solute_atoms : list
-            A list containing the indexes of all solute atoms.
-        forceGroup : int, optional, default=0
-            The force group to which the included SoftcoreLennardJonesForce instance will belong.
+        solute_atoms : set
+            A set containing the indexes of all solute atoms.
         rcutIn : unit.Quantity, optional, default=None
             The distance at which the near nonbonded interactions vanish. Must be used only if
             integration will be done with a multiple time scale algorithm.
@@ -129,29 +127,33 @@ class SolvationSystem(_AtomsMM_System):
             with a multiple time scale algorithm.
 
     """
-    def __init__(self, system, solute_atoms, forceGroup=0, rcutIn=None, rswitchIn=None):
+    def __init__(self, system, solute_atoms, rcutIn=None, rswitchIn=None):
         solution = copy.deepcopy(system)
         nonbonded = solution.getForce(atomsmm.findNonbondedForce(solution))
+        RESPA = (rcutIn is not None) and (rswitchIn is not None)
 
-        # Treat all solute-solute interactions as exceptions:
-        existing_exceptions = []
+        # Store all solute-solute interactions as exceptions:
+        exceptions = []
+        existing_pairs = []
         for index in range(nonbonded.getNumExceptions()):
-            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
-            existing_exceptions.append(set([i, j]))
+            i, j, qiqj, sig, eps = nonbonded.getExceptionParameters(index)
+            pair = set([i, j])
+            if pair.issubset(solute_atoms):
+                exceptions.append((i, j, qiqj, sig, eps))
+                existing_pairs.append(pair)
         for i, j in itertools.combinations(solute_atoms, 2):
-            if set([i, j]) not in existing_exceptions:
+            if set([i, j]) not in existing_pairs:
                 q1, sig1, eps1 = nonbonded.getParticleParameters(i)
                 q2, sig2, eps2 = nonbonded.getParticleParameters(j)
-                nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
+                exceptions.append((i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2)))
 
-        # Include softcore Lennard-Jones interactions:
+        # Include softcore Lennard-Jones for solute-solvent interactions:
         rcut = nonbonded.getCutoffDistance()
         rswitch = nonbonded.getSwitchingDistance() if nonbonded.getUseSwitchingFunction() else None
-        softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, 'lambda_vdw')
+        softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, coupling_parameter='lambda_vdw')
         softcore.importFrom(nonbonded)
         solvent_atoms = set(range(nonbonded.getNumParticles())) - solute_atoms
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
-        softcore.setForceGroup(forceGroup)
         solution.addForce(softcore)
 
         # Turn off solute van der Waals interactions & scale solute charges w/ lambda_coul:
@@ -160,9 +162,13 @@ class SolvationSystem(_AtomsMM_System):
             q, sig, eps = nonbonded.getParticleParameters(i)
             nonbonded.setParticleParameters(i, 0.0, 1.0, 0.0)
             if q/q.unit != 0.0:
-                nonbonded.addParticleParameterOffset('lambda_coul', i, q, 0.0, 0.0)
+                nonbonded.addParticleParameterOffset('lambda_coul', i, q, 1.0, 0.0)
 
-        if rcutIn is not None and rswitchIn is not None:
+        # Include stored exceptions:
+        for parameters in exceptions:
+            nonbonded.addException(*parameters, replace=True)
+
+        if RESPA:
             index = solution.getNumForces() - 1
             respa_system = atomsmm.RESPASystem(solution, rcutIn, rswitchIn, fastExceptions=False)
             respa_system.getForce(index).setForceGroup(1)
