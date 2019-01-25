@@ -424,7 +424,7 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
         L = kwargs.pop('L', 1)
-        self._massive = kwargs.pop('massive', False)
+        self._massive = kwargs.pop('massive', True)
         newF = propagators.NewMethodPropagator(temperature, timeScale, L, forceDependent=True)
         newN = propagators.NewMethodPropagator(temperature, timeScale, L, forceDependent=False)
         mass = 'Q_eta' if self._massive else 'NDOF*Q_eta'

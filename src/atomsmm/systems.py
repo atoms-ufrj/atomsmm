@@ -75,8 +75,7 @@ class RESPASystem(_AtomsMM_System):
                 self.addForce(innerForce)
 
                 # The same short-ranged version is subtracted from the slowest forces (group 2):
-                negative = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment,
-                                                      subtract=True,
+                negative = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment, subtract=True,
                                                       actual_cutoff=force.getCutoffDistance())
                 negative.importFrom(force)  # Non-exclusion exceptions become exclusions here
                 negative.setForceGroup(2)
@@ -98,8 +97,7 @@ class RESPASystem(_AtomsMM_System):
                     if exceptions.getNumBonds() > 0:
                         exceptions.setForceGroup(1)
                         self.addForce(exceptions)
-                        negative = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment,
-                                                              subtract=True)
+                        negative = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment, subtract=True)
                         negative.importFrom(force)
                         negative.setForceGroup(2)
                         self.addForce(negative)
@@ -116,7 +114,7 @@ class SolvationSystem(_AtomsMM_System):
     ----------
         system : openmm.System
             The original system from which to generate the SolvationSystem.
-        solute_atoms : set
+        solute_atoms : set(int)
             A set containing the indexes of all solute atoms.
         rcutIn : unit.Quantity, optional, default=None
             The distance at which the near nonbonded interactions vanish. Must be used only if
@@ -130,22 +128,18 @@ class SolvationSystem(_AtomsMM_System):
     def __init__(self, system, solute_atoms, rcutIn=None, rswitchIn=None):
         solution = copy.deepcopy(system)
         nonbonded = solution.getForce(atomsmm.findNonbondedForce(solution))
-        RESPA = (rcutIn is not None) and (rswitchIn is not None)
 
-        # Store all solute-solute interactions as exceptions:
-        exceptions = []
-        existing_pairs = []
+        # Turn all solute-solute interactions into exceptions:
+        existing_exceptions = []
         for index in range(nonbonded.getNumExceptions()):
-            i, j, qiqj, sig, eps = nonbonded.getExceptionParameters(index)
-            pair = set([i, j])
-            if pair.issubset(solute_atoms):
-                exceptions.append((i, j, qiqj, sig, eps))
-                existing_pairs.append(pair)
+            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+            if set([i, j]).issubset(solute_atoms):
+                existing_exceptions.append(set([i, j]))
         for i, j in itertools.combinations(solute_atoms, 2):
-            if set([i, j]) not in existing_pairs:
+            if set([i, j]) not in existing_exceptions:
                 q1, sig1, eps1 = nonbonded.getParticleParameters(i)
                 q2, sig2, eps2 = nonbonded.getParticleParameters(j)
-                exceptions.append((i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2)))
+                nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
 
         # Include softcore Lennard-Jones for solute-solvent interactions:
         rcut = nonbonded.getCutoffDistance()
@@ -164,11 +158,7 @@ class SolvationSystem(_AtomsMM_System):
             if q/q.unit != 0.0:
                 nonbonded.addParticleParameterOffset('lambda_coul', i, q, 1.0, 0.0)
 
-        # Include stored exceptions:
-        for parameters in exceptions:
-            nonbonded.addException(*parameters, replace=True)
-
-        if RESPA:
+        if rcutIn is not None and rswitchIn is not None:
             index = solution.getNumForces() - 1
             respa_system = atomsmm.RESPASystem(solution, rcutIn, rswitchIn, fastExceptions=False)
             respa_system.getForce(index).setForceGroup(1)
