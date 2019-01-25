@@ -72,18 +72,63 @@ class _AtomsMM_Reporter():
     """
     Base class for reporters.
 
-    Keyword Args
-    ------------
-        extraFile : str or file, optional, default=None
-            Extra file to write to, specified as a file name or a file object.
-
     """
     def __init__(self, file, reportInterval, **kwargs):
-        extra = kwargs.pop('extraFile', None)
-        if extra is None:
-            super().__init__(file, reportInterval, **kwargs)
+        self._reportInterval = reportInterval
+        self._requiresInitialization = True
+        self._needsPositions = False
+        self._needsVelocities = False
+        self._needsForces = False
+        self._needEnergy = False
+        extraFile = kwargs.pop('extraFile', None)
+        if extraFile is None:
+            self._out = open(file, 'w') if isinstance(file, str) else file
         else:
-            super().__init__(_MultiStream([file, extra]), reportInterval, **kwargs)
+            self._out = _MultiStream([file, extraFile])
+
+    def _initialize(self, simulation, state):
+        pass
+
+    def _generateReport(self, simulation, state):
+        pass
+
+    def describeNextReport(self, simulation):
+        """
+        Get information about the next report this object will generate.
+
+        Parameters
+        ----------
+            simulation : Simulation
+                The Simulation to generate a report for
+
+        Returns
+        -------
+            tuple
+                A five element tuple. The first element is the number of steps
+                until the next report. The remaining elements specify whether
+                that report will require positions, velocities, forces, and
+                energies respectively.
+
+        """
+        steps = self._reportInterval - simulation.currentStep%self._reportInterval
+        return (steps, self._needsPositions, self._needsVelocities, self._needsForces, self._needEnergy)
+
+    def report(self, simulation, state):
+        """
+        Generate a report.
+
+        Parameters
+        ----------
+            simulation : Simulation
+                The Simulation to generate a report for
+            state : State
+                The current state of the simulation
+
+        """
+        if self._requiresInitialization:
+            self._initialize(simulation, state)
+            self._requiresInitialization = False
+        self._generateReport(simulation, state)
 
 
 class ExtendedStateDataReporter(app.StateDataReporter):
@@ -373,14 +418,12 @@ class CenterOfMassReporter(_AtomsMM_Reporter):
     """
     def __init__(self, file, reportInterval, **kwargs):
         super().__init__(file, reportInterval, **kwargs)
-        self._nextModel = 0
         self._needsPositions = True
 
-    def report(self, simulation, state):
-        if self._nextModel == 0:
-            self._mols = _MoleculeTotalizer(simulation)
-            self._nextModel += 1
+    def _initialize(self, simulation, state):
+        self._mols = _MoleculeTotalizer(simulation)
 
+    def _generateReport(self, simulation, state):
         positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
         cmPositions = self._mols.massFrac.dot(positions)
         print(self._mols.nmols, file=self._out)
