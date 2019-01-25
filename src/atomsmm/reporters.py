@@ -428,3 +428,56 @@ class CenterOfMassReporter(_AtomsMM_Reporter):
         cmPositions = self._mols.massFrac.dot(positions)
         print(self._mols.nmols, file=self._out)
         pd.DataFrame(index=self._mols.residues, data=cmPositions).to_csv(self._out, sep='\t')
+
+
+class CustomIntegratorReporter(_AtomsMM_Reporter):
+    """
+    Outputs global and per-DoF variables of a CustomIntegrator instance.
+
+    Keyword Args
+    ------------
+        describeOnly : bool, optional, default=True
+            Whether to output only descriptive statistics that summarize the activated per-Dof
+            variables.
+
+    """
+    def __init__(self, file, reportInterval, **kwargs):
+        super().__init__(file, reportInterval, **kwargs)
+        self._describeOnly = kwargs.pop('describeOnly', True)
+        self._variables = []
+        for key, value in kwargs.items():
+            if value is True:
+                self._variables.append(key)
+        if not self._variables:
+            raise InputError("No global or perDof variables have been passed")
+
+    def _initialize(self, simulation, state):
+        integrator = self._integrator = simulation.integrator
+        if not isinstance(integrator, openmm.CustomIntegrator):
+            raise Exception("simulation.integrator is not a CustomIntegrator")
+        self._globals = {}
+        for index in range(integrator.getNumGlobalVariables()):
+            variable = integrator.getGlobalVariableName(index)
+            if variable in self._variables:
+                self._globals[variable] = index
+        self._perDof = {}
+        for index in range(integrator.getNumPerDofVariables()):
+            variable = integrator.getPerDofVariableName(index)
+            if variable in self._variables:
+                self._perDof[variable] = index
+        if set(self._variables) != set(self._globals) | set(self._perDof):
+            raise InputError("Unknown variables have been passed")
+
+    def _generateReport(self, simulation, state):
+        for variable, index in self._globals.items():
+            value = self._integrator.getGlobalVariable(index)
+            print('{}\n{}'.format(variable, value), file=self._out)
+
+        for variable, index in self._perDof.items():
+            values = self._integrator.getPerDofVariable(index)
+            titles = ['{}.{}'.format(variable, dir) for dir in ['x', 'y', 'z']]
+            df = pd.DataFrame(data=np.array(values), columns=titles)
+            if self._describeOnly:
+                print(df.describe(), file=self._out)
+            else:
+                df.to_csv(self._out, sep='\t')
