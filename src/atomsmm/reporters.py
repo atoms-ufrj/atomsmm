@@ -110,7 +110,7 @@ class _AtomsMM_Reporter():
                 energies respectively.
 
         """
-        steps = self._reportInterval - simulation.currentStep%self._reportInterval
+        steps = self._reportInterval - simulation.currentStep % self._reportInterval
         return (steps, self._needsPositions, self._needsVelocities, self._needsForces, self._needEnergy)
 
     def report(self, simulation, state):

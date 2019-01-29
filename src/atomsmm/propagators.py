@@ -373,6 +373,7 @@ class NewMethodPropagator(Propagator):
         super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
         self.globalVariables['LkT'] = L*kT
+        self.globalVariables['vlim'] = 30.0
         self.perDofVariables['vc'] = math.sqrt(L/(L+1))
         self.perDofVariables['norm'] = 1
         self.forceDependent = forceDependent
@@ -385,6 +386,8 @@ class NewMethodPropagator(Propagator):
             expression = 'vs*exp(-({}*dt)*v_eta)'.format(fraction)
         expression += '; vs = v/vmax'
         expression += '; vmax = sqrt(LkT/m)'
+        expression = 'select(step(vm-vlim),vlim,select(step(vm+vlim),vm,-vlim)); vm={}'.format(expression)
+        # expression = 'max(-vlim,min(vm,vlim)); vlim=30; vm={}'.expression
         integrator.addComputePerDof('v', expression)
         integrator.addComputePerDof('norm', 'sqrt(v^2 + vc^2)')
         integrator.addComputePerDof('v', 'sqrt(LkT/m)*v/norm')
