@@ -129,26 +129,26 @@ class SolvationSystem(_AtomsMM_System):
         rcut = nonbonded.getCutoffDistance()
         rswitch = nonbonded.getSwitchingDistance() if nonbonded.getUseSwitchingFunction() else None
         solventAtoms = set(range(nonbonded.getNumParticles())) - soluteAtoms
-        periodic = nonbonded.usesPeriodicBoundaryConditions()
+        # periodic = nonbonded.usesPeriodicBoundaryConditions()
 
         # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
         softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, parameter='lambda_vdw')
         softcore.importFrom(nonbonded)
         softcore.addInteractionGroup(solventAtoms, soluteAtoms)
 
-        # A custom bond force for holding solute-solute, full van der Waals interactions:
-        vdw_potential = '4*epsilon*x*(x-1); x=(sigma/r)^6'
-        solute_vdw = openmm.CustomBondForce(vdw_potential)
-        solute_vdw.addPerBondParameter('sigma')
-        solute_vdw.addPerBondParameter('epsilon')
-        solute_vdw.setUsesPeriodicBoundaryConditions(periodic)
+        # A custom bond force for holding solute-solute, full Lennard-Jones interactions:
+        lennard_jones = openmm.CustomBondForce('4*epsilon*x*(x-1); x=(sigma/r)^6')
+        lennard_jones.addPerBondParameter('sigma')
+        lennard_jones.addPerBondParameter('epsilon')
+        # lennard_jones.setUsesPeriodicBoundaryConditions(periodic)
 
-        # A custom bond force for holding solute-solute, recoupling Coulomb interactions:
-        coul_potential = '(1-lambda_coul)*Kc*chargeprod/r; Kc=138.935456'
-        solute_coul = openmm.CustomBondForce(coul_potential)
-        solute_coul.addPerBondParameter('chargeprod')
-        solute_coul.addGlobalParameter('lambda_coul', 1.0)
-        solute_coul.setUsesPeriodicBoundaryConditions(periodic)
+        # Custom bond forces for holding solute-solute, recoupling Coulomb interactions:
+        coul_atom_atom = openmm.CustomBondForce('(1-lambda_coul)^2*Kc*chargeprod/r; Kc=138.935456')
+        coul_exception = openmm.CustomBondForce('(1-lambda_coul)*Kc*chargeprod/r; Kc=138.935456')
+        for force in [coul_atom_atom, coul_exception]:
+            force.addPerBondParameter('chargeprod')
+            force.addGlobalParameter('lambda_coul', 1.0)
+            # force.setUsesPeriodicBoundaryConditions(periodic)
 
         # Remove non-exclusion exceptions from the nonbonded force, add them to the new forces:
         existing_exceptions = []
@@ -161,9 +161,9 @@ class SolvationSystem(_AtomsMM_System):
                 nonbonded.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
                 if chargeprod/chargeprod.unit != 0.0:
                     nonbonded.addExceptionParameterOffset('lambda_coul', index, chargeprod, 0.0, 0.0)
-                    solute_coul.addBond(i, j, [chargeprod])
+                    coul_exception.addBond(i, j, [chargeprod])
                 if epsilon/epsilon.unit != 0.0:
-                    solute_vdw.addBond(i, j, [sigma, epsilon])
+                    lennard_jones.addBond(i, j, [sigma, epsilon])
 
         # Add all other nonbonded solute-solute interactions to the new forces:
         for i, j in itertools.combinations(soluteAtoms, 2):
@@ -171,9 +171,9 @@ class SolvationSystem(_AtomsMM_System):
                 q1, sig1, eps1 = nonbonded.getParticleParameters(i)
                 q2, sig2, eps2 = nonbonded.getParticleParameters(j)
                 if q1/q1.unit != 0.0 and q2/q2.unit != 0.0:
-                    solute_coul.addBond(i, j, [q1*q2])
+                    coul_atom_atom.addBond(i, j, [q1*q2])
                 if eps1/eps1.unit != 0.0 and eps2/eps2.unit != 0.0:
-                    solute_vdw.addBond(i, j, [(sig1 + sig2)/2, np.sqrt(eps1*eps2)])
+                    lennard_jones.addBond(i, j, [(sig1 + sig2)/2, np.sqrt(eps1*eps2)])
 
         # Delete van der Waals parameters and scale charges of solute atoms:
         for index in soluteAtoms:
@@ -183,7 +183,7 @@ class SolvationSystem(_AtomsMM_System):
                 nonbonded.addParticleParameterOffset('lambda_coul', index, charge, 0.0, 0.0)
 
         # Add the new forces to the system:
-        for force in [softcore, solute_vdw, solute_coul]:
+        for force in [softcore, lennard_jones, coul_atom_atom, coul_exception]:
             force.setForceGroup(forceGroup)
             self.addForce(force)
 
