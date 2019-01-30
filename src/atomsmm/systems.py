@@ -37,15 +37,15 @@ class RESPASystem(_AtomsMM_System):
     ----------
         system : openmm.System
             The original system from which to generate the RESPASystem.
-        rcutIn : Number or unit.Quantity
-            The distance at which the near nonbonded interactions vanish.
-        rswitchIn : Number or unit.Quantity
-            The distance at which the switching function begins to smooth the approach of the
-            near nonbonded interaction towards zero.
+        rcutIn : unit.Quantity
+            The distance at which the short-range nonbonded interactions will completely vanish.
+        rswitchIn : unit.Quantity
+            The distance at which the short-range nonbonded interactions will start vanishing by
+            application of a switching function.
 
     Keyword Args
     ------------
-        adjustment : str, optional, default=None
+        adjustment : str, optional, default='force-switch'
             A keyword for modifying the near nonbonded potential energy function. If it is `None`,
             then the switching function is applied directly to the original potential. Other options
             are `'shift'` and `'force-switch'`. If it is `'shift'`, then the switching function is
@@ -119,22 +119,32 @@ class SolvationSystem(_AtomsMM_System):
             The original system from which to generate the SolvationSystem.
         soluteAtoms : set(int)
             A set containing the indexes of all solute atoms.
+        respaInfo : dict(str:unit.Quantity), optional, default=None
+            Parameters for splitting the forces into force groups aiming at multiple time-scale
+            integration with a RESPA scheme. If this is `None`, then no splitting will be done.
+            Otherwise, a dictionary with mandatory keywords 'rcutIn' and 'rswitchIn' and optional
+            keyword 'adjustment' must be passed. These are explained in :class:`RESPASystem`.
         forceGroup : int, optional, default=0
             The force group in which to include the new solute-solute and solute-solvent forces.
 
     """
-    def __init__(self, system, soluteAtoms, forceGroup=0):
+    def __init__(self, system, soluteAtoms, respaInfo=None, forceGroup=0):
         super().__init__(system)
+        respa = respaInfo is not None
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
         rcut = nonbonded.getCutoffDistance()
         rswitch = nonbonded.getSwitchingDistance() if nonbonded.getUseSwitchingFunction() else None
-        solventAtoms = set(range(nonbonded.getNumParticles())) - soluteAtoms
+        allAtoms = set(range(nonbonded.getNumParticles()))
+        solventAtoms = allAtoms - soluteAtoms
         # periodic = nonbonded.usesPeriodicBoundaryConditions()
+        if respa:
+            nonbonded.setForceGroup(2)
+            nonbonded.setReciprocalSpaceForceGroup(2)
 
         # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
         softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, parameter='lambda_vdw')
         softcore.importFrom(nonbonded)
-        softcore.addInteractionGroup(solventAtoms, soluteAtoms)
+        softcore.addInteractionGroup(soluteAtoms, solventAtoms)
 
         # A custom bond force for holding solute-solute, full Lennard-Jones interactions:
         lennard_jones = openmm.CustomBondForce('4*epsilon*x*(x-1); x=(sigma/r)^6')
@@ -184,8 +194,59 @@ class SolvationSystem(_AtomsMM_System):
 
         # Add the new forces to the system:
         for force in [softcore, lennard_jones, coul_atom_atom, coul_exception]:
-            force.setForceGroup(forceGroup)
+            force.setForceGroup(1 if respa else 0)
             self.addForce(force)
+
+        # Add short-ranged nonbonded force if respa info has been passed:
+        if respa:
+            rcutIn = respaInfo['rcutIn']
+            rswitchIn = respaInfo['rswitchIn']
+            adjustment = respaInfo.get('adjustment', 'force-switch')
+
+            nearForce = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
+            minusNearForce = copy.deepcopy(nearForce)
+            minusNearForce[0] = '-step(rc0-r)*({})'.format(nearForce[0])
+            lj_mixing = ['sigma=(sigma1+sigma2)/2', 'epsilon=sqrt(epsilon1*epsilon2)']
+
+            solvent_mixing = lj_mixing + ['chargeprod=charge1*charge2']
+
+            solvent_inner = openmm.CustomNonbondedForce(';'.join(nearForce + solvent_mixing))
+            solvent_inner.setCutoffDistance(rcutIn)
+            solvent_inner.setForceGroup(1)
+
+            solvent_negative = openmm.CustomNonbondedForce(';'.join(minusNearForce + solvent_mixing))
+            solvent_negative.setCutoffDistance(rcut)
+            solvent_negative.setForceGroup(2)
+
+            for force in [solvent_inner, solvent_negative]:
+                for parameter in ['charge', 'sigma', 'epsilon']:
+                    force.addPerParticleParameter(parameter)
+                force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+                for i in range(nonbonded.getNumParticles()):
+                    force.addParticle(nonbonded.getParticleParameters(i))
+                for index in range(nonbonded.getNumExceptions()):
+                    i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+                    force.addExclusion(i, j)
+                force.addInteractionGroup(solventAtoms, solventAtoms)
+                self.addForce(force)
+
+            solvent_inner_exceptions = openmm.CustomBondForce(';'.join(nearForce))
+            solvent_inner_exceptions.setForceGroup(1)
+
+            solvent_negative_exceptions = openmm.CustomBondForce(';'.join(minusNearForce))
+            solvent_negative_exceptions.setForceGroup(2)
+
+            for force in [solvent_inner_exceptions, solvent_negative_exceptions]:
+                for parameter in ['chargeprod', 'sigma', 'epsilon']:
+                    force.addPerBondParameter(parameter)
+                for index in range(nonbonded.getNumExceptions()):
+                    i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
+                    if set([i, j]).issubset(solventAtoms):
+                        nonbonded.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+                        if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
+                            force.addBond(i, j, [chargeprod, sigma, epsilon])
+                if force.getNumBonds() > 0:
+                    self.addForce(force)
 
 
 class ComputingSystem(_AtomsMM_System):
