@@ -452,6 +452,7 @@ def nearForceExpressions(cutoff_distance, switch_distance, adjustment):
     expressions.append('Kc=138.935456')
     return expressions
 
+
 class NearForce(object):
     def _globalParams(self, cutoff_distance, switch_distance):
         return {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,

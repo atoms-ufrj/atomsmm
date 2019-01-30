@@ -157,8 +157,7 @@ class SolvationSystem(_AtomsMM_System):
         self.addForce(exceptions)
 
         # Custom bond forces for holding solute-solute recoupling interactions:
-        # recoupling = openmm.CustomBondForce('(1-lambda_coul)^2*Kc*chargeprod/r; Kc=138.935456')
-        recoupling = openmm.CustomBondForce('(1-lambda_coul)*Kc*chargeprod/r; Kc=138.935456') # TEMPORARY
+        recoupling = openmm.CustomBondForce('(1-lambda_coul)^2*Kc*chargeprod/r; Kc=138.935456')
         recoupling.addPerBondParameter('chargeprod')
         recoupling.addGlobalParameter('lambda_coul', 1.0)
         self.addForce(recoupling)
