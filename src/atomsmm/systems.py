@@ -126,11 +126,9 @@ class SolvationSystem(_AtomsMM_System):
             integration with a RESPA scheme. If this is `None`, then no splitting will be done.
             Otherwise, a dictionary with mandatory keywords 'rcutIn' and 'rswitchIn' and optional
             keyword 'adjustment' must be passed. These are explained in :class:`RESPASystem`.
-        forceGroup : int, optional, default=0
-            The force group in which to include the new solute-solute and solute-solvent forces.
 
     """
-    def __init__(self, system, soluteAtoms, respaInfo=None, forceGroup=0):
+    def __init__(self, system, soluteAtoms, respaInfo=None):
         super().__init__(system)
 
         # Separate the nonbonded force from other pre-existing forces:
