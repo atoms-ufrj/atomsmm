@@ -102,7 +102,7 @@ class RESPASystem(openmm.System):
             self.addForce(force)
 
 
-class SolvationSystem(_AtomsMM_System):
+class SolvationSystem(openmm.System):
     """
     An OpenMM System_ prepared for solvation free-energy calculations.
 
@@ -122,11 +122,11 @@ class SolvationSystem(_AtomsMM_System):
 
     """
     def __init__(self, system, solute_atoms, respa_info=None):
-        solution = copy.deepcopy(system)
+        self.this = copy.deepcopy(system).this
 
         # Separate the nonbonded force from other pre-existing forces:
         other_forces = []
-        for force in solution.getForces():
+        for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 nonbonded = force
             else:
@@ -142,7 +142,7 @@ class SolvationSystem(_AtomsMM_System):
         softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, parameter='lambda_vdw')
         softcore.importFrom(nonbonded)
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
-        solution.addForce(softcore)
+        self.addForce(softcore)
 
         # All solute-solute interactions are treated as nonbonded exceptions:
         exception_pairs = []
@@ -179,8 +179,21 @@ class SolvationSystem(_AtomsMM_System):
             rcutIn = respa_info['rcutIn']
             rswitchIn = respa_info['rswitchIn']
             adjustment = respa_info.get('adjustment', 'force-switch')
+            fastExceptions = respa_info.get('fastExceptions', True)
 
-            respa_system = RESPASystem(solution, rcutIn, rswitchIn, adjustment=adjustment, keepGroups=True, fastExceptions=False)
+            ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
+            near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
+            minus_near_potential = copy.deepcopy(near_potential)
+            minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
+            lb_mix = atomsmm.utils.LorentzBerthelot().split(';')
+
+            self._addCustomNonbondedForce(near_potential + lb_mix, rcutIn, 1, nonbonded)
+            self._addCustomNonbondedForce(minus_near_potential + lb_mix, rcut, 2, nonbonded)
+            if fastExceptions:
+                self._addCustomBondForce(ljc_potential, 0, nonbonded, extract=True)
+            else:
+                self._addCustomBondForce(near_potential, 1, nonbonded)
+                self._addCustomBondForce(minus_near_potential, 1, nonbonded)
 
             if charges:
                 def add_force(expressions, group):
@@ -200,7 +213,7 @@ class SolvationSystem(_AtomsMM_System):
                     for index in range(nonbonded.getNumExceptions()):
                         i, j, _, _, _ = nonbonded.getExceptionParameters(index)
                         force.addExclusion(i, j)
-                    respa_system.addForce(force)
+                    self.addForce(force)
 
                 nearForce = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
                 minusNearForce = copy.deepcopy(nearForce)
@@ -209,9 +222,21 @@ class SolvationSystem(_AtomsMM_System):
                 add_force(nearForce + mixing_rule, 1)
                 add_force(minusNearForce + mixing_rule, 2)
 
-            super().__init__(respa_system)
-        else:
-            super().__init__(solution)
+    def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
+        energy = ';'.join(expressions)
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None)
+        force.importUseDispersionCorrection = False
+        force.importFrom(nonbonded)
+        force.setForceGroup(group)
+        self.addForce(force)
+
+    def _addCustomBondForce(self, expressions, group, nonbonded, extract=False):
+        energy = ';'.join(expressions)
+        force = atomsmm.forces._AtomsMM_CustomBondForce(energy)
+        force.importFrom(nonbonded, extract)
+        if force.getNumBonds() > 0:
+            force.setForceGroup(group)
+            self.addForce(force)
 
 
 class ComputingSystem(_AtomsMM_System):
