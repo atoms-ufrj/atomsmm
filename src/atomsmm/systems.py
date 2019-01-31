@@ -213,8 +213,8 @@ class SolvationSystem(_AtomsMM_System):
                 minusNearForce = copy.deepcopy(nearForce)
                 minusNearForce[0] = '-step(rc0-r)*({})'.format(nearForce[0])
                 mixing_rule = ['sigma=1', 'epsilon=0', 'chargeprod=lambda_coul*charge1*charge2']
-                add_force(nearForce + mixing_rule, 1, lambda_coul=1.0)
-                add_force(minusNearForce + mixing_rule, 2, lambda_coul=1.0)
+                add_force(nearForce + mixing_rule, 1)
+                add_force(minusNearForce + mixing_rule, 2)
 
             super().__init__(respa_system)
         else:
