@@ -254,11 +254,11 @@ class ComputingSystem(_AtomsMM_System):
                 expression += '; epsilon=sqrt(epsilon1*epsilon2)'
                 rcut = force.getCutoffDistance()
                 rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
-                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch, charged=False)
+                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch)
                 virial.importFrom(nonbonded)
                 virial.setForceGroup(dispersionGroup)
                 self.addForce(virial)
-                exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression, charged=False)
+                exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression)
                 for index in range(nonbonded.getNumExceptions()):
                     i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
                     if epsilon/epsilon.unit != 0.0:
