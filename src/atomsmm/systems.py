@@ -214,11 +214,10 @@ class SolvationSystem(_AtomsMM_System):
                 self.addForce(force)
 
             nearForce = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
-            nearForce += ['sigma=(sigma1+sigma2)/2', 'epsilon=sqrt(epsilon1*epsilon2)']
             minusNearForce = copy.deepcopy(nearForce)
             minusNearForce[0] = '-step(rc0-r)*({})'.format(nearForce[0])
-            solvent_mixing = ['chargeprod=charge1*charge2']
-            solute_mixing = ['chargeprod=lambda_coul^2*charge1*charge2']
+            solvent_mixing = atomsmm.utils.LorentzBerthelot().split(';')
+            solute_mixing = ['sigma=1', 'epsilon=0', 'chargeprod=lambda_coul^2*charge1*charge2']
             add_force(nearForce + solvent_mixing, 1, solventAtoms, solventAtoms)
             add_force(minusNearForce + solvent_mixing, 2, solventAtoms, solventAtoms)
             add_force(nearForce + solute_mixing, 1, soluteAtoms, allAtoms, lambda_coul=1.0)
