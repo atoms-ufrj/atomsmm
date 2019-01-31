@@ -26,7 +26,7 @@ class _AtomsMM_System(openmm.System):
         if not copyForces:
             for index in reversed(range(new_system.getNumForces())):
                 new_system.removeForce(index)
-        self.__dict__ = new_system.__dict__
+        self.this = new_system.this
 
 
 class RESPASystem(_AtomsMM_System):
