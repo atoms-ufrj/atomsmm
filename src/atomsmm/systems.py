@@ -22,14 +22,13 @@ import atomsmm
 
 class _AtomsMM_System(openmm.System):
     def __init__(self, system, copyForces=True):
-        new_system = copy.deepcopy(system)
+        self.this = copy.deepcopy(system).this
         if not copyForces:
-            for index in reversed(range(new_system.getNumForces())):
-                new_system.removeForce(index)
-        self.this = new_system.this
+            for index in reversed(range(self.getNumForces())):
+                self.removeForce(index)
 
 
-class RESPASystem(_AtomsMM_System):
+class RESPASystem(openmm.System):
     """
     An OpenMM System_ prepared for Multiple Time-Scale Integration with RESPA.
 
@@ -60,53 +59,47 @@ class RESPASystem(_AtomsMM_System):
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
+        self.this = copy.deepcopy(system).this
         adjustment = kwargs.pop('adjustment', 'force-switch')
         fastExceptions = kwargs.get('fastExceptions', True)
         keepGroups = kwargs.get('keepGroups', False)
-        super().__init__(system)
+
+        ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
+        near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
+        minus_near_potential = copy.deepcopy(near_potential)
+        minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
+        lb_mix = atomsmm.utils.LorentzBerthelot().split(';')
+
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
-                # Every nonbonded force is placed in the longest time scale (group 2):
+                rcut = force.getCutoffDistance()
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
-
-                # For each nonbonded force, a short-ranged version is created and allocated in the
-                # intermediary time scale (group 1):
-                innerForce = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment)
-                innerForce.importFrom(force)  # Non-exclusion exceptions become exclusions here
-                innerForce.setForceGroup(1)
-                self.addForce(innerForce)
-
-                # The same short-ranged version is subtracted from the slowest forces (group 2):
-                negative = atomsmm.NearNonbondedForce(rcutIn, rswitchIn, adjustment, subtract=True,
-                                                      actual_cutoff=force.getCutoffDistance())
-                negative.importFrom(force)  # Non-exclusion exceptions become exclusions here
-                negative.setForceGroup(2)
-                self.addForce(negative)
-
+                self._addCustomNonbondedForce(near_potential + lb_mix, rcutIn, 1, force)
+                self._addCustomNonbondedForce(minus_near_potential + lb_mix, rcut, 2, force)
                 if fastExceptions:
-                    # Non-exclusion exceptions (if any) are extracted from the nonbonded force and
-                    # placed in the shortest time scale:
-                    exceptions = atomsmm.NonbondedExceptionsForce()
-                    exceptions.importFrom(force, extract=True)
-                    if exceptions.getNumBonds() > 0:
-                        exceptions.setForceGroup(0)
-                        self.addForce(exceptions)
+                    self._addCustomBondForce(ljc_potential, 0, force, extract=True)
                 else:
-                    # A short-ranged version of each non-exclusion exception (if any) is added to
-                    # the intermediary time scale and subtracted from the slowest one:
-                    exceptions = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment)
-                    exceptions.importFrom(force)
-                    if exceptions.getNumBonds() > 0:
-                        exceptions.setForceGroup(1)
-                        self.addForce(exceptions)
-                        negative = atomsmm.NearExceptionForce(rcutIn, rswitchIn, adjustment, subtract=True)
-                        negative.importFrom(force)
-                        negative.setForceGroup(2)
-                        self.addForce(negative)
+                    self._addCustomBondForce(near_potential, 1, force)
+                    self._addCustomBondForce(minus_near_potential, 1, force)
             elif not keepGroups:
-                # All other forces are allocated in the shortest time scale (group 0):
                 force.setForceGroup(0)
+
+    def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
+        energy = ';'.join(expressions)
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None)
+        force.importUseDispersionCorrection = False
+        force.importFrom(nonbonded)
+        force.setForceGroup(group)
+        self.addForce(force)
+
+    def _addCustomBondForce(self, expressions, group, nonbonded, extract=False):
+        energy = ';'.join(expressions)
+        force = atomsmm.forces._AtomsMM_CustomBondForce(energy)
+        force.importFrom(nonbonded, extract)
+        if force.getNumBonds() > 0:
+            force.setForceGroup(group)
+            self.addForce(force)
 
 
 class SolvationSystem(_AtomsMM_System):
@@ -187,7 +180,7 @@ class SolvationSystem(_AtomsMM_System):
             rswitchIn = respa_info['rswitchIn']
             adjustment = respa_info.get('adjustment', 'force-switch')
 
-            respa_system = RESPASystem(solution, rcutIn, rswitchIn, adjustment=adjustment, keepGroups=True)
+            respa_system = RESPASystem(solution, rcutIn, rswitchIn, adjustment=adjustment, keepGroups=True, fastExceptions=False)
 
             if charges:
                 def add_force(expressions, group):
