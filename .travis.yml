@@ -10,9 +10,9 @@ env:
     - TOXENV=docs
 matrix:
   include:
-    - python: '2.7'
-      env:
-        - TOXENV=py27,coveralls,codecov
+    # - python: '2.7'
+    #   env:
+    #     - TOXENV=py27,coveralls,codecov
     - python: '3.6'
       env:
         - TOXENV=py36,coveralls,codecov
