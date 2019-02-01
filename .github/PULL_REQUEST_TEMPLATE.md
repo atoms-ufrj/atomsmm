@@ -6,7 +6,8 @@
 
 ### Description
 
-_Briefly describe the new features, enhancements, or bugfixes included in this pull request. If this addresses an open issue, please mention the issue number, e.g. `fixes #35`_
+_Briefly describe the new features, enhancements, or bugfixes included in this pull request.
+If this addresses an open issue, please mention the issue number, e.g. `fixes #35`_
 
 ## Author(s)
 
@@ -14,11 +15,13 @@ _Please state name and affiliation of the author(s)_
 
 ## Backward Compatibility
 
-_Please state whether any changes break backward compatibility and, if so, explain what has been changed and why_
+_Please state whether any changes break backward compatibility and, if so, explain what has been
+changed and why_
 
 ## Implementation Notes
 
-_Provide any relevant details about how the changes are implemented, how correctness was verified, how other features are affected, etc_
+_Provide any relevant details about how the changes are implemented, how correctness was verified,
+how other features are affected, etc_
 
 ## Task-Completion Checklist
 
@@ -29,4 +32,6 @@ _Provide any relevant details about how the changes are implemented, how correct
 
 ## Further Information, Files, and Links
 
-_Please add any relevant information here, including images, data files, links to external sites, bibliographic references, etc_
+_Please add any relevant information here, including images, data files, links to external sites,
+bibliographic references, etc_
+  
