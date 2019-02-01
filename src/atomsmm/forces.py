@@ -200,25 +200,35 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
     Parameters
     ----------
         energy : str
-            An algebraic expression giving the interaction energy between two particles as a
-            function of their distance `r`, as well as any per-particle and global parameters.
-        cutoff_distance : Number or unit.Quantity
-            The cutoff distance being used for nonbonded interactions.
-        switch_distance :  Number or unit.Quantity, optional, default=None
-            The distance at which the switching function begins to reduce the interaction. If this
-            is None, then no switching will be done.
-        parameters : list(str), optional, default=['charge', 'sigma', 'epsilon']
-            A list of nonbonded force parameters that depend on the individual particles.
-        **kwargs
-            Keyword arguments defining names and values of global nonbonded force parameters.
+            An algebraic expression for the interaction energy between two particles as a function
+            of their distance `r`, as well as per-particle and global parameters.
+        cutoff_distance : unit.Quantity
+            The cutoff distance to be used for nonbonded interactions. If this is `None`, then the
+            cutoff distance will be imported from an NonbondedForce_ object when the method
+            :func:`~_AtomsMM_CustomNonbondedForce.importFrom` is used.
+        switch_distance : unit.Quantity, optional, default=None
+            In the range from the switch distance to the cutoff distance, a 5th degree spline is
+            multiplied by the potential energy in order to make it smoothly decay to zero. If this
+            is `None`, then such multiplication will not take place.
+        use_dispersion_correction : bool, optional, default=None
+            Whether to apply long-range dispersion correction during force and energy calculations.
+            If this is `None`, then the decision will be made when using the method
+            :func:`~_AtomsMM_CustomNonbondedForce.importFrom`, based on the status of the passed
+            NonbondedForce_.
+
+    Keyword Args
+    ----------
+        parameters : unit.Quantity
+            Default values for all global parameters present in `energy` must be passed as keyword
+            arguments.
 
     """
-    def __init__(self, energy, cutoff_distance, switch_distance=None, **globalParams):
+    def __init__(self, energy, cutoff_distance=None, switch_distance=None,
+                 use_dispersion_correction=None, **global_parameters):
         super().__init__(energy)
-        self.addPerParticleParameter('charge')
-        self.addPerParticleParameter('sigma')
-        self.addPerParticleParameter('epsilon')
-        for (name, value) in globalParams.items():
+        for parameter in ['charge', 'sigma', 'epsilon']:
+            self.addPerParticleParameter(parameter)
+        for (name, value) in global_parameters.items():
             self.addGlobalParameter(name, value)
         self.setCutoffDistance(cutoff_distance)
         if switch_distance is None:
@@ -226,9 +236,11 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         else:
             self.setUseSwitchingFunction(True)
             self.setSwitchingDistance(switch_distance)
-        self.importUseDispersionCorrection = True
+        self.importUseDispersionCorrection = use_dispersion_correction is None
+        if not self.importUseDispersionCorrection:
+            self.setUseLongRangeCorrection(use_dispersion_correction)
 
-    def importFrom(self, force):
+    def importFrom(self, nonbonded):
         """
         Import all particles and exceptions from a passed OpenMM NonbondedForce_ object while
         transforming all non-exclusion exceptions into exclusion ones.
@@ -241,7 +253,7 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         Returns
         -------
             :class:`_AtomsMM_CustomNonbondedForce`
-                The object is returned for chaining purposes.
+                The object itself is returned for chaining purposes.
 
         """
         builtin = openmm.NonbondedForce
@@ -251,15 +263,14 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
                    builtin.Ewald: custom.CutoffPeriodic,
                    builtin.NoCutoff: custom.NoCutoff,
                    builtin.PME: custom.CutoffPeriodic}
-        self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
+        self.setNonbondedMethod(mapping[nonbonded.getNonbondedMethod()])
         if self.importUseDispersionCorrection:
-            self.setUseLongRangeCorrection(force.getUseDispersionCorrection())
-
-        for index in range(force.getNumParticles()):
-            charge, sigma, epsilon = force.getParticleParameters(index)
+            self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+        for index in range(nonbonded.getNumParticles()):
+            charge, sigma, epsilon = nonbonded.getParticleParameters(index)
             self.addParticle([charge, sigma, epsilon])
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
             self.addExclusion(i, j)
         return self
 

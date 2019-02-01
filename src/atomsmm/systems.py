@@ -87,8 +87,7 @@ class RESPASystem(openmm.System):
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
-        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None)
-        force.importUseDispersionCorrection = False
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None, False)
         force.importFrom(nonbonded)
         force.setForceGroup(group)
         self.addForce(force)
@@ -224,8 +223,7 @@ class SolvationSystem(openmm.System):
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
-        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None)
-        force.importUseDispersionCorrection = False
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None, False)
         force.importFrom(nonbonded)
         force.setForceGroup(group)
         self.addForce(force)
