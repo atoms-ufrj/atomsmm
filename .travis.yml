@@ -39,6 +39,7 @@ install:
   - virtualenv --version
   - easy_install --version
   - pip --version
+  - pip install tox-conda
   - tox --version
 script:
   - tox -v
