@@ -87,7 +87,9 @@ class RESPASystem(openmm.System):
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
-        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None, False)
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut,
+                                                             use_switching_function=False,
+                                                             use_dispersion_correction=False)
         force.importFrom(nonbonded)
         force.setForceGroup(group)
         self.addForce(force)
@@ -223,7 +225,9 @@ class SolvationSystem(openmm.System):
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
-        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut, None, False)
+        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut,
+                                                             use_switching_function=False,
+                                                             use_dispersion_correction=False)
         force.importFrom(nonbonded)
         force.setForceGroup(group)
         self.addForce(force)
@@ -277,7 +281,7 @@ class ComputingSystem(_AtomsMM_System):
                 expression += '; epsilon=sqrt(epsilon1*epsilon2)'
                 rcut = force.getCutoffDistance()
                 rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
-                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, rswitch)
+                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, True, rswitch)
                 virial.importFrom(nonbonded)
                 virial.setForceGroup(dispersionGroup)
                 self.addForce(virial)
