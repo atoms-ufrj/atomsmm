@@ -21,7 +21,6 @@ from simtk import unit
 from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
 from atomsmm.utils import LennardJones
-from atomsmm.utils import LorentzBerthelot
 
 
 class _AtomsMM_Force:
@@ -275,12 +274,45 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
             self.setSwitchingDistance(nonbonded.getSwitchingDistance())
         if self.importUseDispersionCorrection:
             self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        for index in range(nonbonded.getNumParticles()):
-            charge, sigma, epsilon = nonbonded.getParticleParameters(index)
-            self.addParticle([charge, sigma, epsilon])
+        default_value = dict()
+        for index in range(nonbonded.getNumGlobalParameters()):
+            name = nonbonded.getGlobalParameterName(index)
+            default_value[name] = nonbonded.getGlobalParameterDefaultValue(index)
+        offset_parameters = set()
+        for index in range(nonbonded.getNumParticleParameterOffsets()):
+            parameter, _, _, _, _ = nonbonded.getParticleParameterOffset(index)
+            if parameter not in offset_parameters:
+                offset_parameters.add(parameter)
+                self.addGlobalParameter(parameter, default_value[parameter])
+                for property in ['charge', 'sigma', 'epsilon']:
+                    self.addPerParticleParameter('{}_{}'.format(property, parameter))
+        for i in range(nonbonded.getNumParticles()):
+            charge, sigma, epsilon = nonbonded.getParticleParameters(i)
+            self.addParticle([charge, sigma, epsilon] + [0.0]*3*len(offset_parameters))
         for index in range(nonbonded.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
             self.addExclusion(i, j)
+        expr1 = dict(charge='charge1', sigma='sigma1', epsilon='epsilon1')
+        expr2 = dict(charge='charge2', sigma='sigma2', epsilon='epsilon2')
+        position = dict()
+        for k, parameter in enumerate(offset_parameters):
+            position[parameter] = k + 1
+            for property in ['charge', 'sigma', 'epsilon']:
+                scale = '{}_{}'.format(property, parameter)
+                expr1[property] += '+{}*{}1'.format(parameter, scale)
+                expr2[property] += '+{}*{}2'.format(parameter, scale)
+        energy = self.getEnergyFunction()
+        energy += '; chargeprod = ({})*({})'.format(expr1['charge'], expr2['charge'])
+        energy += '; sigma = 0.5*({}+{})'.format(expr1['sigma'], expr2['sigma'])
+        energy += '; epsilon = sqrt(({})*({}))'.format(expr1['epsilon'], expr2['epsilon'])
+        self.setEnergyFunction(energy)
+        for index in range(nonbonded.getNumParticleParameterOffsets()):
+            parameter, i, charge, sigma, epsilon = nonbonded.getParticleParameterOffset(index)
+            values = list(self.getParticleParameters(i))
+            start = 3*position[parameter]
+            values[start:start+3] = [charge, sigma, epsilon]
+            self.setParticleParameters(i, values)
+        print(energy)
         return self
 
     def getGlobalParameters(self):
@@ -413,12 +445,11 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
         if switch_distance/switch_distance.unit < 0.0 or switch_distance >= cutoff_distance:
             raise InputError('Switching distance must satisfy 0 <= r_switch < r_cutoff')
         if degree == 1:
-            energy = '{} + erfc(alpha*r)*{};'.format(LennardJones('r'), Coulomb('r'))
+            energy = '{} + erfc(alpha*r)*{}'.format(LennardJones('r'), Coulomb('r'))
         else:
             energy = 'S*({} + erfc(alpha*r)*{});'.format(LennardJones('r'), Coulomb('r'))
             energy += 'S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);'
-            energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={};'.format(degree)
-        energy += LorentzBerthelot()
+            energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={}'.format(degree)
         super().__init__(
             energy=energy,
             cutoff_distance=cutoff_distance,
@@ -597,7 +628,6 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce, NearForce):
             expressions[0] = 'step(rc0-r)*({})'.format(expressions[0])
         if subtract:
             expressions[0] = '-({})'.format(expressions[0])
-        expressions += [LorentzBerthelot()]
         super().__init__(
             energy='; '.join(expressions),
             cutoff_distance=rcut,
@@ -683,9 +713,7 @@ class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
     def __init__(self, cutoff_distance, switch_distance=None, parameter='lambda'):
         globalParams = {parameter: 1.0}
         potential = '4*{}*epsilon*x*(x-1);'.format(parameter)
-        potential += 'x = 1/((r/sigma)^6 + 0.5*(1-{}));'.format(parameter)
-        potential += 'sigma=0.5*(sigma1+sigma2);'
-        potential += 'epsilon=sqrt(epsilon1*epsilon2);'
+        potential += 'x = 1/((r/sigma)^6 + 0.5*(1-{}))'.format(parameter)
         super().__init__(
             energy=potential,
             cutoff_distance=cutoff_distance,
@@ -720,8 +748,7 @@ class SoftcoreForce(_AtomsMM_CustomNonbondedForce):
         globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
                         'lambda_vdw': 1.0, 'lambda_coul': 1.0}
         potential = '4*lambda_vdw*epsilon*(1-x)/x^2 + Kc*lambda_coul*chargeprod/r;'
-        potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw);'
-        potential += LorentzBerthelot()
+        potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw)'
         super().__init__(
             energy=potential,
             cutoff_distance=cutoff_distance,

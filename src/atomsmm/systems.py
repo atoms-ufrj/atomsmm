@@ -68,15 +68,14 @@ class RESPASystem(openmm.System):
         near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
         minus_near_potential = copy.deepcopy(near_potential)
         minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
-        lb_mix = atomsmm.utils.LorentzBerthelot().split(';')
 
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 rcut = force.getCutoffDistance()
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
-                self._addCustomNonbondedForce(near_potential + lb_mix, rcutIn, 1, force)
-                self._addCustomNonbondedForce(minus_near_potential + lb_mix, rcut, 2, force)
+                self._addCustomNonbondedForce(near_potential, rcutIn, 1, force)
+                self._addCustomNonbondedForce(minus_near_potential, rcut, 2, force)
                 if fastExceptions:
                     self._addCustomBondForce(ljc_potential, 0, force, extract=True)
                 else:
@@ -186,10 +185,9 @@ class SolvationSystem(openmm.System):
             near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
             minus_near_potential = copy.deepcopy(near_potential)
             minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
-            lb_mix = atomsmm.utils.LorentzBerthelot().split(';')
 
-            self._addCustomNonbondedForce(near_potential + lb_mix, rcutIn, 1, nonbonded)
-            self._addCustomNonbondedForce(minus_near_potential + lb_mix, rcut, 2, nonbonded)
+            self._addCustomNonbondedForce(near_potential, rcutIn, 1, nonbonded)
+            self._addCustomNonbondedForce(minus_near_potential, rcut, 2, nonbonded)
             if fastExceptions:
                 self._addCustomBondForce(ljc_potential, 0, nonbonded, extract=True)
             else:
