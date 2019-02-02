@@ -7,6 +7,7 @@
 
 """
 
+from collections import OrderedDict
 from copy import deepcopy
 
 from simtk import openmm
@@ -18,21 +19,6 @@ kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
 class InputError(Exception):
     def __init__(self, msg):
         super(InputError, self).__init__('\033[1;31m' + msg + '\033[0m')
-
-
-def LennardJones(r):
-    return '4*epsilon*((sigma/%s)^12 - (sigma/%s)^6)' % (r, r)
-
-
-def Coulomb(r):
-    return 'Kc*chargeprod/%s' % r
-
-
-def LorentzBerthelot():
-    mixingRule = 'chargeprod = charge1*charge2;'
-    mixingRule += 'sigma = 0.5*(sigma1+sigma2);'
-    mixingRule += 'epsilon = sqrt(epsilon1*epsilon2)'
-    return mixingRule
 
 
 def countDegreesOfFreedom(system):
@@ -101,6 +87,32 @@ def hijackForce(system, index):
     force = deepcopy(system.getForce(index))
     system.removeForce(index)
     return force
+
+
+def globalParameters(force):
+    default_value = dict()
+    for index in range(force.getNumGlobalParameters()):
+        name = force.getGlobalParameterName(index)
+        default_value[name] = force.getGlobalParameterDefaultValue(index)
+    return default_value
+
+
+def particleOffsetParameters(force):
+    default_value = globalParameters(force)
+    offset_parameters = set()
+    for index in range(force.getNumParticleParameterOffsets()):
+        parameter, _, _, _, _ = force.getParticleParameterOffset(index)
+        offset_parameters.add(parameter)
+    return OrderedDict((name, default_value[name]) for name in offset_parameters)
+
+
+def exceptionOffsetParameters(force):
+    default_value = globalParameters(force)
+    offset_parameters = set()
+    for index in range(force.getNumExceptionParameterOffsets()):
+        parameter, _, _, _, _ = force.getExceptionParameterOffset(index)
+        offset_parameters.add(parameter)
+    return OrderedDict((name, default_value[name]) for name in offset_parameters)
 
 
 def splitPotentialEnergy(system, topology, positions, **globals):

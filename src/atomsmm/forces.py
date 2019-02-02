@@ -18,10 +18,7 @@ import math
 from simtk import openmm
 from simtk import unit
 
-from atomsmm.utils import Coulomb
-from atomsmm.utils import InputError
-from atomsmm.utils import LennardJones
-from atomsmm.utils import LorentzBerthelot
+import atomsmm
 
 
 class _AtomsMM_Force:
@@ -200,48 +197,80 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
     Parameters
     ----------
         energy : str
-            An algebraic expression giving the interaction energy between two particles as a
-            function of their distance `r`, as well as any per-particle and global parameters.
-        cutoff_distance : Number or unit.Quantity
-            The cutoff distance being used for nonbonded interactions.
-        switch_distance :  Number or unit.Quantity, optional, default=None
-            The distance at which the switching function begins to reduce the interaction. If this
-            is None, then no switching will be done.
-        parameters : list(str), optional, default=['charge', 'sigma', 'epsilon']
-            A list of nonbonded force parameters that depend on the individual particles.
-        **kwargs
-            Keyword arguments defining names and values of global nonbonded force parameters.
+            An algebraic expression for the interaction energy between two particles as a function
+            of their distance `r`, as well as per-particle and global parameters.
+        cutoff_distance : unit.Quantity
+            The cutoff distance to be used for nonbonded interactions. If this is `None`, then the
+            cutoff distance will be imported from an NonbondedForce_ object when the method
+            :func:`~_AtomsMM_CustomNonbondedForce.importFrom` is used.
+        switch_distance : unit.Quantity, optional, default=None
+            In the range from the switch distance to the cutoff distance, a 5th degree spline is
+            multiplied by the potential energy in order to make it smoothly decay to zero. If this
+            is `None`, then such multiplication will not take place.
+        use_dispersion_correction : bool, optional, default=None
+            Whether to apply long-range dispersion correction during force and energy calculations.
+            If this is `None`, then the decision will be made when using the method
+            :func:`~_AtomsMM_CustomNonbondedForce.importFrom`, based on the status of the passed
+            NonbondedForce_.
+
+    Keyword Args
+    ----------
+        parameters : unit.Quantity
+            Default values for all global parameters present in `energy` must be passed as keyword
+            arguments.
 
     """
-    def __init__(self, energy, cutoff_distance, switch_distance=None, **globalParams):
+    def __init__(self, energy, cutoff_distance=None, use_switching_function=None,
+                 switch_distance=None, use_dispersion_correction=None, **global_parameters):
         super().__init__(energy)
-        self.addPerParticleParameter('charge')
-        self.addPerParticleParameter('sigma')
-        self.addPerParticleParameter('epsilon')
-        for (name, value) in globalParams.items():
+        self.importCutoffDistance = cutoff_distance is None
+        self.importUseSwitchingFunction = use_switching_function is None
+        self.importSwitchDistance = switch_distance is None
+        self.importUseDispersionCorrection = use_dispersion_correction is None
+        for name, value in global_parameters.items():
             self.addGlobalParameter(name, value)
-        self.setCutoffDistance(cutoff_distance)
-        if switch_distance is None:
-            self.setUseSwitchingFunction(False)
-        else:
-            self.setUseSwitchingFunction(True)
+        for parameter in ['charge', 'sigma', 'epsilon']:
+            self.addPerParticleParameter(parameter)
+        if not self.importCutoffDistance:
+            self.setCutoffDistance(cutoff_distance)
+        if not self.importUseSwitchingFunction:
+            self.setUseSwitchingFunction(use_switching_function)
+        if not self.importSwitchDistance:
             self.setSwitchingDistance(switch_distance)
-        self.importUseDispersionCorrection = True
+        if not self.importUseDispersionCorrection:
+            self.setUseLongRangeCorrection(use_dispersion_correction)
 
-    def importFrom(self, force):
+    def __repr__(self):
+        terms = [s.strip(' \t') for s in self.getEnergyFunction().split(';')]
+        return '\n'.join(terms)
+
+    def mixingRules(self, offset_parameters):
+        expr1 = dict(charge='charge1', sigma='sigma1', epsilon='epsilon1')
+        expr2 = dict(charge='charge2', sigma='sigma2', epsilon='epsilon2')
+        for parameter in offset_parameters:
+            for property in ['charge', 'sigma', 'epsilon']:
+                scale = '{}Scale_{}'.format(property, parameter)
+                expr1[property] += '+{}*{}1'.format(parameter, scale)
+                expr2[property] += '+{}*{}2'.format(parameter, scale)
+        mixing_rules = ';chargeprod = ({})*({})'.format(expr1['charge'], expr2['charge'])
+        mixing_rules += ';sigma = 0.5*({}+{})'.format(expr1['sigma'], expr2['sigma'])
+        mixing_rules += ';epsilon = sqrt(({})*({}))'.format(expr1['epsilon'], expr2['epsilon'])
+        return mixing_rules
+
+    def importFrom(self, nonbonded):
         """
-        Import all particles and exceptions from a passed OpenMM NonbondedForce_ object while
-        transforming all non-exclusion exceptions into exclusion ones.
+        Import features from a passed NonbondedForce_ object, including all particles and
+        exceptions. All non-exclusion exceptions are turned into exclusion ones.
 
         Parameters
         ----------
-            force : openmm.NonbondedForce
-                The force from which the particles and exclusions will be imported.
+            nonbonded : openmm.NonbondedForce
+                The force from which to import features.
 
         Returns
         -------
             :class:`_AtomsMM_CustomNonbondedForce`
-                The object is returned for chaining purposes.
+                The object itself is returned for chaining purposes.
 
         """
         builtin = openmm.NonbondedForce
@@ -251,15 +280,35 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
                    builtin.Ewald: custom.CutoffPeriodic,
                    builtin.NoCutoff: custom.NoCutoff,
                    builtin.PME: custom.CutoffPeriodic}
-        self.setNonbondedMethod(mapping[force.getNonbondedMethod()])
+        self.setNonbondedMethod(mapping[nonbonded.getNonbondedMethod()])
+        if self.importCutoffDistance:
+            self.setCutoffDistance(nonbonded.getCutoffDistance())
+        if self.importUseSwitchingFunction:
+            self.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+        if self.importSwitchDistance:
+            self.setSwitchingDistance(nonbonded.getSwitchingDistance())
         if self.importUseDispersionCorrection:
-            self.setUseLongRangeCorrection(force.getUseDispersionCorrection())
-
-        for index in range(force.getNumParticles()):
-            charge, sigma, epsilon = force.getParticleParameters(index)
-            self.addParticle([charge, sigma, epsilon])
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+            self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+        offset_parameters = atomsmm.utils.particleOffsetParameters(nonbonded)
+        self.setEnergyFunction(self.getEnergyFunction() + self.mixingRules(offset_parameters))
+        for parameter, value in offset_parameters.items():
+            self.addGlobalParameter(parameter, value)
+            for property in ['charge', 'sigma', 'epsilon']:
+                self.addPerParticleParameter('{}Scale_{}'.format(property, parameter))
+        extra = [0.0]*3*len(offset_parameters)
+        for i in range(nonbonded.getNumParticles()):
+            originals = nonbonded.getParticleParameters(i)
+            self.addParticle(originals + extra)
+        position = dict((name, k+1) for k, name in enumerate(offset_parameters))
+        for index in range(nonbonded.getNumParticleParameterOffsets()):
+            parameter, particleIndex, chargeScale, sigmaScale, epsilonScale = nonbonded.getParticleParameterOffset(index)
+            stored = self.getParticleParameters(particleIndex)
+            values = list(stored)
+            start = 3*position[parameter]
+            values[start:start+3] = [chargeScale, sigmaScale, epsilonScale]
+            self.setParticleParameters(particleIndex, values)
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
             self.addExclusion(i, j)
         return self
 
@@ -287,14 +336,21 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
     """
     def __init__(self, energy, **globalParams):
         super().__init__(energy)
-        self.addPerBondParameter('chargeprod')
-        self.addPerBondParameter('sigma')
-        self.addPerBondParameter('epsilon')
-        for (name, value) in globalParams.items():
+        for name, value in globalParams.items():
             self.addGlobalParameter(name, value)
-        self.setUsesPeriodicBoundaryConditions(True)
 
-    def importFrom(self, force, extract=False):
+    def offsetRules(self, offset_parameters):
+        expr = dict(chargeprod='chargeprod0', sigma='sigma0', epsilon='epsilon0')
+        for parameter in offset_parameters:
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                scale = '{}Scale_{}'.format(property, parameter)
+                expr[property] += '+{}*{}'.format(parameter, scale)
+        offset_rules = ';chargeprod = {}'.format(expr['chargeprod'])
+        offset_rules += ';sigma = {}'.format(expr['sigma'])
+        offset_rules += ';epsilon = {}'.format(expr['epsilon'])
+        return offset_rules
+
+    def importFrom(self, nonbonded, extract=False):
         """
         Import all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object.
 
@@ -311,36 +367,33 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
                 The object is returned for chaining purposes.
 
         """
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                self.addBond(i, j, [chargeprod, sigma, epsilon])
-                if extract:
-                    force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
-        self.setUsesPeriodicBoundaryConditions(force.usesPeriodicBoundaryConditions())
-        return self
-
-    def extractFrom(self, force):
-        """
-        Extract all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object
-        and transform them into exclusion ones.
-
-        Parameters
-        ----------
-            force : openmm.NonbondedForce
-                The force from which the exceptions will be imported.
-
-        Returns
-        -------
-            :class:`Force`
-                The object is returned for chaining purposes.
-
-        """
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                self.addBond(i, j, [chargeprod, sigma, epsilon])
-                force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+        self.setUsesPeriodicBoundaryConditions(nonbonded.usesPeriodicBoundaryConditions())
+        offset_parameters = atomsmm.utils.exceptionOffsetParameters(nonbonded)
+        if offset_parameters:
+            self.setEnergyFunction(self.getEnergyFunction() + self.offsetRules(offset_parameters))
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                self.addPerBondParameter('{}0'.format(property))
+            for parameter, value in offset_parameters.items():
+                self.addGlobalParameter(parameter, value)
+                for property in ['chargeprod', 'sigma', 'epsilon']:
+                    self.addPerBondParameter('{}Scale_{}'.format(property, parameter))
+        else:
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                self.addPerBondParameter(property)
+        extra = [0.0]*3*len(offset_parameters)
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
+            self.addBond(i, j, [chargeprod, sigma, epsilon] + extra)
+            if extract:
+                nonbonded.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+        position = dict((name, k+1) for k, name in enumerate(offset_parameters))
+        for index in range(nonbonded.getNumExceptionParameterOffsets()):
+            parameter, bondIndex, chargeprodScale, sigmaScaleScale, epsilonScale = nonbonded.getExceptionParameterOffset(index)
+            i, j, stored = self.getBondParameters(bondIndex)
+            values = list(stored)
+            start = 3*position[parameter]
+            values[start:start+3] = [chargeprodScale, sigmaScaleScale, epsilonScale]
+            self.setBondParameters(bondIndex, i, j, values)
         return self
 
 
@@ -391,19 +444,26 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
     """
     def __init__(self, alpha, cutoff_distance, switch_distance, degree=1):
         if switch_distance/switch_distance.unit < 0.0 or switch_distance >= cutoff_distance:
-            raise InputError('Switching distance must satisfy 0 <= r_switch < r_cutoff')
+            raise atomsmm.utils.InputError('Switching distance must satisfy 0 <= r_switch < r_cutoff')
+        LennardJones = '4*epsilon*((sigma/r)^12 - (sigma/r)^6)'
+        Coulomb = 'Kc*chargeprod/r'
         if degree == 1:
-            energy = '{} + erfc(alpha*r)*{};'.format(LennardJones('r'), Coulomb('r'))
+            energy = '{} + erfc(alpha*r)*{}'.format(LennardJones, Coulomb)
         else:
-            energy = 'S*({} + erfc(alpha*r)*{});'.format(LennardJones('r'), Coulomb('r'))
+            energy = 'S*({} + erfc(alpha*r)*{});'.format(LennardJones, Coulomb)
             energy += 'S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);'
-            energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={};'.format(degree)
-        energy += LorentzBerthelot()
-        super().__init__(energy, cutoff_distance,
-                         switch_distance if degree == 1 else None,
-                         Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
-                         alpha=alpha, rswitch=switch_distance, rcut=cutoff_distance)
-        self.importUseDispersionCorrection = False
+            energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={}'.format(degree)
+        super().__init__(
+            energy=energy,
+            cutoff_distance=cutoff_distance,
+            use_switching_function=(degree == 1),
+            switch_distance=(switch_distance if degree == 1 else None),
+            use_dispersion_correction=False,
+            Kc=138.935456*unit.kilojoules_per_mole/unit.nanometer,
+            alpha=alpha,
+            rswitch=switch_distance,
+            rcut=cutoff_distance,
+        )
 
 
 def nearForceExpressions(cutoff_distance, switch_distance, adjustment):
@@ -432,7 +492,7 @@ def nearForceExpressions(cutoff_distance, switch_distance, adjustment):
         expressions.append('f6c={}'.format((1+b)**3/b**3))
         expressions.append('f1c={}'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12)))
     else:
-        raise InputError('unknown adjustment option')
+        raise atomsmm.utils.InputError('unknown adjustment option')
     expressions.append('u=(r-rs0)/(rc0-rs0)')
     expressions.append('rs0={}'.format(switch_distance.value_in_unit(unit.nanometers)))
     expressions.append('rc0={}'.format(cutoff_distance.value_in_unit(unit.nanometers)))
@@ -472,7 +532,7 @@ class NearForce(object):
             expressions.append('f6c={}'.format((1+b)**3/b**3))
             expressions.append('f1c={}'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12)))
         else:
-            raise InputError('unknown adjustment option')
+            raise atomsmm.utils.InputError('unknown adjustment option')
         expressions.append('u=(r-rs0)/(rc0-rs0)')
         return expressions
 
@@ -571,9 +631,13 @@ class NearNonbondedForce(_AtomsMM_CustomNonbondedForce, NearForce):
             expressions[0] = 'step(rc0-r)*({})'.format(expressions[0])
         if subtract:
             expressions[0] = '-({})'.format(expressions[0])
-        expressions += [LorentzBerthelot()]
-        super().__init__('; '.join(expressions), rcut, None, **globalParams)
-        self.importUseDispersionCorrection = False
+        super().__init__(
+            energy='; '.join(expressions),
+            cutoff_distance=rcut,
+            use_switching_function=False,
+            use_dispersion_correction=False,
+            **globalParams,
+        )
 
 
 class NearExceptionForce(_AtomsMM_CustomBondForce, NearForce):
@@ -615,11 +679,17 @@ class FarNonbondedForce(_AtomsMM_CompoundForce):
     """
     def __init__(self, preceding, cutoff_distance, switch_distance=None):
         if not isinstance(preceding, NearNonbondedForce):
-            raise InputError('argument \'preceding\' must be of class NearNonbondedForce')
+            raise atomsmm.utils.InputError('argument \'preceding\' must be of class NearNonbondedForce')
         potential = preceding.getEnergyFunction().split(';')
         potential[0] = '-step(rc0-r)*({})'.format(potential[0])
         expression = ';'.join(potential)
-        discount = _AtomsMM_CustomNonbondedForce(expression, cutoff_distance, None, **preceding.getGlobalParameters())
+        discount = _AtomsMM_CustomNonbondedForce(
+            energy=expression,
+            cutoff_distance=cutoff_distance,
+            use_switching_function=False,
+            use_dispersion_correction=False,
+            **preceding.getGlobalParameters(),
+        )
         total = _AtomsMM_NonbondedForce(cutoff_distance, switch_distance)
         super().__init__([total, discount])
 
@@ -646,10 +716,14 @@ class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
     def __init__(self, cutoff_distance, switch_distance=None, parameter='lambda'):
         globalParams = {parameter: 1.0}
         potential = '4*{}*epsilon*x*(x-1);'.format(parameter)
-        potential += 'x = 1/((r/sigma)^6 + 0.5*(1-{}));'.format(parameter)
-        potential += 'sigma=0.5*(sigma1+sigma2);'
-        potential += 'epsilon=sqrt(epsilon1*epsilon2);'
-        super().__init__(potential, cutoff_distance, switch_distance, **globalParams)
+        potential += 'x = 1/((r/sigma)^6 + 0.5*(1-{}))'.format(parameter)
+        super().__init__(
+            energy=potential,
+            cutoff_distance=cutoff_distance,
+            use_switching_function=True,
+            switch_distance=switch_distance,
+            **globalParams,
+        )
 
 
 class SoftcoreForce(_AtomsMM_CustomNonbondedForce):
@@ -677,6 +751,11 @@ class SoftcoreForce(_AtomsMM_CustomNonbondedForce):
         globalParams = {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
                         'lambda_vdw': 1.0, 'lambda_coul': 1.0}
         potential = '4*lambda_vdw*epsilon*(1-x)/x^2 + Kc*lambda_coul*chargeprod/r;'
-        potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw);'
-        potential += LorentzBerthelot()
-        super().__init__(potential, cutoff_distance, switch_distance, **globalParams)
+        potential += 'x = (r/sigma)^6 + 0.5*(1-lambda_vdw)'
+        super().__init__(
+            energy=potential,
+            cutoff_distance=cutoff_distance,
+            use_switching_function=True,
+            switch_distance=switch_distance,
+            **globalParams,
+        )
