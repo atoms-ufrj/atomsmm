@@ -242,6 +242,10 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         if not self.importUseDispersionCorrection:
             self.setUseLongRangeCorrection(use_dispersion_correction)
 
+    def __repr__(self):
+        terms = [s.strip(' \t') for s in self.getEnergyFunction().split(';')]
+        return '\n'.join(terms)
+
     def importFrom(self, nonbonded):
         """
         Import features from a passed NonbondedForce_ object, including all particles and
@@ -312,7 +316,6 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
             start = 3*position[parameter]
             values[start:start+3] = [charge, sigma, epsilon]
             self.setParticleParameters(i, values)
-        print(energy)
         return self
 
     def getGlobalParameters(self):
