@@ -112,11 +112,20 @@ def globalParameters(force):
     return default_value
 
 
-def offsetParameters(force):
+def particleOffsetParameters(force):
     default_value = globalParameters(force)
     offset_parameters = set()
     for index in range(force.getNumParticleParameterOffsets()):
         parameter, _, _, _, _ = force.getParticleParameterOffset(index)
+        offset_parameters.add(parameter)
+    return OrderedDict((name, default_value[name]) for name in offset_parameters)
+
+
+def exceptionOffsetParameters(force):
+    default_value = globalParameters(force)
+    offset_parameters = set()
+    for index in range(force.getNumExceptionParameterOffsets()):
+        parameter, _, _, _, _ = force.getExceptionParameterOffset(index)
         offset_parameters.add(parameter)
     return OrderedDict((name, default_value[name]) for name in offset_parameters)
 

@@ -21,8 +21,8 @@ from simtk import unit
 from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
 from atomsmm.utils import LennardJones
-from atomsmm.utils import offsetParameters
 
+import atomsmm
 
 class _AtomsMM_Force:
     """
@@ -252,14 +252,13 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         expr2 = dict(charge='charge2', sigma='sigma2', epsilon='epsilon2')
         for parameter in offset_parameters:
             for property in ['charge', 'sigma', 'epsilon']:
-                scale = '{}_{}'.format(property, parameter)
+                scale = '{}Scale_{}'.format(property, parameter)
                 expr1[property] += '+{}*{}1'.format(parameter, scale)
                 expr2[property] += '+{}*{}2'.format(parameter, scale)
         mixing_rules = ';chargeprod = ({})*({})'.format(expr1['charge'], expr2['charge'])
         mixing_rules += ';sigma = 0.5*({}+{})'.format(expr1['sigma'], expr2['sigma'])
         mixing_rules += ';epsilon = sqrt(({})*({}))'.format(expr1['epsilon'], expr2['epsilon'])
         return mixing_rules
-
 
     def importFrom(self, nonbonded):
         """
@@ -293,22 +292,24 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
             self.setSwitchingDistance(nonbonded.getSwitchingDistance())
         if self.importUseDispersionCorrection:
             self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        offset_parameters = offsetParameters(nonbonded)
+        offset_parameters = atomsmm.utils.particleOffsetParameters(nonbonded)
         self.setEnergyFunction(self.getEnergyFunction() + self.mixingRules(offset_parameters))
         for parameter, value in offset_parameters.items():
             self.addGlobalParameter(parameter, value)
             for property in ['charge', 'sigma', 'epsilon']:
-                self.addPerParticleParameter('{}_{}'.format(property, parameter))
+                self.addPerParticleParameter('{}Scale_{}'.format(property, parameter))
+        extra = [0.0]*3*len(offset_parameters)
         for i in range(nonbonded.getNumParticles()):
             originals = nonbonded.getParticleParameters(i)
-            self.addParticle(originals + [0.0]*3*len(offset_parameters))
+            self.addParticle(originals + extra)
         position = dict((name, k+1) for k, name in enumerate(offset_parameters))
         for index in range(nonbonded.getNumParticleParameterOffsets()):
-            parameter, i, charge, sigma, epsilon = nonbonded.getParticleParameterOffset(index)
-            values = list(self.getParticleParameters(i))
+            parameter, particleIndex, chargeScale, sigmaScale, epsilonScale = nonbonded.getParticleParameterOffset(index)
+            stored = self.getParticleParameters(particleIndex)
+            values = list(stored)
             start = 3*position[parameter]
-            values[start:start+3] = [charge, sigma, epsilon]
-            self.setParticleParameters(i, values)
+            values[start:start+3] = [chargeScale, sigmaScale, epsilonScale]
+            self.setParticleParameters(particleIndex, values)
         for index in range(nonbonded.getNumExceptions()):
             i, j, _, _, _ = nonbonded.getExceptionParameters(index)
             self.addExclusion(i, j)
@@ -338,14 +339,21 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
     """
     def __init__(self, energy, **globalParams):
         super().__init__(energy)
-        self.addPerBondParameter('chargeprod')
-        self.addPerBondParameter('sigma')
-        self.addPerBondParameter('epsilon')
-        for (name, value) in globalParams.items():
+        for name, value in globalParams.items():
             self.addGlobalParameter(name, value)
-        self.setUsesPeriodicBoundaryConditions(True)
 
-    def importFrom(self, force, extract=False):
+    def offsetRules(self, offset_parameters):
+        expr = dict(chargeprod='chargeprod0', sigma='sigma0', epsilon='epsilon0')
+        for parameter in offset_parameters:
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                scale = '{}Scale_{}'.format(property, parameter)
+                expr[property] += '+{}*{}'.format(parameter, scale)
+        offset_rules = ';chargeprod = {}'.format(expr['chargeprod'])
+        offset_rules += ';sigma = {}'.format(expr['sigma'])
+        offset_rules += ';epsilon = {}'.format(expr['epsilon'])
+        return offset_rules
+
+    def importFrom(self, nonbonded, extract=False):
         """
         Import all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object.
 
@@ -362,36 +370,33 @@ class _AtomsMM_CustomBondForce(openmm.CustomBondForce, _AtomsMM_Force):
                 The object is returned for chaining purposes.
 
         """
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                self.addBond(i, j, [chargeprod, sigma, epsilon])
-                if extract:
-                    force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
-        self.setUsesPeriodicBoundaryConditions(force.usesPeriodicBoundaryConditions())
-        return self
-
-    def extractFrom(self, force):
-        """
-        Extract all non-exclusion exceptions from the a passed OpenMM NonbondedForce_ object
-        and transform them into exclusion ones.
-
-        Parameters
-        ----------
-            force : openmm.NonbondedForce
-                The force from which the exceptions will be imported.
-
-        Returns
-        -------
-            :class:`Force`
-                The object is returned for chaining purposes.
-
-        """
-        for index in range(force.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-            if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                self.addBond(i, j, [chargeprod, sigma, epsilon])
-                force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+        self.setUsesPeriodicBoundaryConditions(nonbonded.usesPeriodicBoundaryConditions())
+        offset_parameters = atomsmm.utils.exceptionOffsetParameters(nonbonded)
+        if offset_parameters:
+            self.setEnergyFunction(self.getEnergyFunction() + self.offsetRules(offset_parameters))
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                self.addPerBondParameter('{}0'.format(property))
+            for parameter, value in offset_parameters.items():
+                self.addGlobalParameter(parameter, value)
+                for property in ['chargeprod', 'sigma', 'epsilon']:
+                    self.addPerBondParameter('{}Scale_{}'.format(property, parameter))
+        else:
+            for property in ['chargeprod', 'sigma', 'epsilon']:
+                self.addPerBondParameter(property)
+        extra = [0.0]*3*len(offset_parameters)
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
+            self.addBond(i, j, [chargeprod, sigma, epsilon] + extra)
+            if extract:
+                nonbonded.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+        position = dict((name, k+1) for k, name in enumerate(offset_parameters))
+        for index in range(nonbonded.getNumExceptionParameterOffsets()):
+            parameter, bondIndex, chargeprodScale, sigmaScaleScale, epsilonScale = nonbonded.getExceptionParameterOffset(index)
+            i, j, stored = self.getBondParameters(bondIndex)
+            values = list(stored)
+            start = 3*position[parameter]
+            values[start:start+3] = [chargeprodScale, sigmaScaleScale, epsilonScale]
+            self.setBondParameters(bondIndex, i, j, values)
         return self
 
 
