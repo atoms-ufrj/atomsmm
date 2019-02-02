@@ -7,6 +7,7 @@
 
 """
 
+from collections import OrderedDict
 from copy import deepcopy
 
 from simtk import openmm
@@ -109,6 +110,15 @@ def globalParameters(force):
         name = force.getGlobalParameterName(index)
         default_value[name] = force.getGlobalParameterDefaultValue(index)
     return default_value
+
+
+def offsetParameters(force):
+    default_value = globalParameters(force)
+    offset_parameters = set()
+    for index in range(force.getNumParticleParameterOffsets()):
+        parameter, _, _, _, _ = force.getParticleParameterOffset(index)
+        offset_parameters.add(parameter)
+    return OrderedDict((name, default_value[name]) for name in offset_parameters)
 
 
 def splitPotentialEnergy(system, topology, positions, **globals):

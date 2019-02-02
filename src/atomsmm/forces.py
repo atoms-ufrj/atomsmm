@@ -21,7 +21,7 @@ from simtk import unit
 from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
 from atomsmm.utils import LennardJones
-from atomsmm.utils import globalParameters
+from atomsmm.utils import offsetParameters
 
 
 class _AtomsMM_Force:
@@ -247,6 +247,20 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         terms = [s.strip(' \t') for s in self.getEnergyFunction().split(';')]
         return '\n'.join(terms)
 
+    def mixingRules(self, offset_parameters):
+        expr1 = dict(charge='charge1', sigma='sigma1', epsilon='epsilon1')
+        expr2 = dict(charge='charge2', sigma='sigma2', epsilon='epsilon2')
+        for parameter in offset_parameters:
+            for property in ['charge', 'sigma', 'epsilon']:
+                scale = '{}_{}'.format(property, parameter)
+                expr1[property] += '+{}*{}1'.format(parameter, scale)
+                expr2[property] += '+{}*{}2'.format(parameter, scale)
+        mixing_rules = ';chargeprod = ({})*({})'.format(expr1['charge'], expr2['charge'])
+        mixing_rules += ';sigma = 0.5*({}+{})'.format(expr1['sigma'], expr2['sigma'])
+        mixing_rules += ';epsilon = sqrt(({})*({}))'.format(expr1['epsilon'], expr2['epsilon'])
+        return mixing_rules
+
+
     def importFrom(self, nonbonded):
         """
         Import features from a passed NonbondedForce_ object, including all particles and
@@ -279,41 +293,25 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
             self.setSwitchingDistance(nonbonded.getSwitchingDistance())
         if self.importUseDispersionCorrection:
             self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        default_value = globalParameters(nonbonded)
-        offset_parameters = set()
-        for index in range(nonbonded.getNumParticleParameterOffsets()):
-            parameter, _, _, _, _ = nonbonded.getParticleParameterOffset(index)
-            if parameter not in offset_parameters:
-                offset_parameters.add(parameter)
-                self.addGlobalParameter(parameter, default_value[parameter])
-                for property in ['charge', 'sigma', 'epsilon']:
-                    self.addPerParticleParameter('{}_{}'.format(property, parameter))
-        for i in range(nonbonded.getNumParticles()):
-            charge, sigma, epsilon = nonbonded.getParticleParameters(i)
-            self.addParticle([charge, sigma, epsilon] + [0.0]*3*len(offset_parameters))
-        for index in range(nonbonded.getNumExceptions()):
-            i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
-            self.addExclusion(i, j)
-        expr1 = dict(charge='charge1', sigma='sigma1', epsilon='epsilon1')
-        expr2 = dict(charge='charge2', sigma='sigma2', epsilon='epsilon2')
-        position = dict()
-        for k, parameter in enumerate(offset_parameters):
-            position[parameter] = k + 1
+        offset_parameters = offsetParameters(nonbonded)
+        self.setEnergyFunction(self.getEnergyFunction() + self.mixingRules(offset_parameters))
+        for parameter, value in offset_parameters.items():
+            self.addGlobalParameter(parameter, value)
             for property in ['charge', 'sigma', 'epsilon']:
-                scale = '{}_{}'.format(property, parameter)
-                expr1[property] += '+{}*{}1'.format(parameter, scale)
-                expr2[property] += '+{}*{}2'.format(parameter, scale)
-        energy = self.getEnergyFunction()
-        energy += '; chargeprod = ({})*({})'.format(expr1['charge'], expr2['charge'])
-        energy += '; sigma = 0.5*({}+{})'.format(expr1['sigma'], expr2['sigma'])
-        energy += '; epsilon = sqrt(({})*({}))'.format(expr1['epsilon'], expr2['epsilon'])
-        self.setEnergyFunction(energy)
+                self.addPerParticleParameter('{}_{}'.format(property, parameter))
+        for i in range(nonbonded.getNumParticles()):
+            originals = nonbonded.getParticleParameters(i)
+            self.addParticle(originals + [0.0]*3*len(offset_parameters))
+        position = dict((name, k+1) for k, name in enumerate(offset_parameters))
         for index in range(nonbonded.getNumParticleParameterOffsets()):
             parameter, i, charge, sigma, epsilon = nonbonded.getParticleParameterOffset(index)
             values = list(self.getParticleParameters(i))
             start = 3*position[parameter]
             values[start:start+3] = [charge, sigma, epsilon]
             self.setParticleParameters(i, values)
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+            self.addExclusion(i, j)
         return self
 
     def getGlobalParameters(self):
