@@ -103,6 +103,14 @@ def hijackForce(system, index):
     return force
 
 
+def globalParameters(force):
+    default_value = dict()
+    for index in range(force.getNumGlobalParameters()):
+        name = force.getGlobalParameterName(index)
+        default_value[name] = force.getGlobalParameterDefaultValue(index)
+    return default_value
+
+
 def splitPotentialEnergy(system, topology, positions, **globals):
     """
     Computes the potential energy of a system, with possible splitting into contributions of all

@@ -21,6 +21,7 @@ from simtk import unit
 from atomsmm.utils import Coulomb
 from atomsmm.utils import InputError
 from atomsmm.utils import LennardJones
+from atomsmm.utils import globalParameters
 
 
 class _AtomsMM_Force:
@@ -229,7 +230,7 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
         self.importUseSwitchingFunction = use_switching_function is None
         self.importSwitchDistance = switch_distance is None
         self.importUseDispersionCorrection = use_dispersion_correction is None
-        for (name, value) in global_parameters.items():
+        for name, value in global_parameters.items():
             self.addGlobalParameter(name, value)
         for parameter in ['charge', 'sigma', 'epsilon']:
             self.addPerParticleParameter(parameter)
@@ -278,10 +279,7 @@ class _AtomsMM_CustomNonbondedForce(openmm.CustomNonbondedForce, _AtomsMM_Force)
             self.setSwitchingDistance(nonbonded.getSwitchingDistance())
         if self.importUseDispersionCorrection:
             self.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        default_value = dict()
-        for index in range(nonbonded.getNumGlobalParameters()):
-            name = nonbonded.getGlobalParameterName(index)
-            default_value[name] = nonbonded.getGlobalParameterDefaultValue(index)
+        default_value = globalParameters(nonbonded)
         offset_parameters = set()
         for index in range(nonbonded.getNumParticleParameterOffsets()):
             parameter, _, _, _, _ = nonbonded.getParticleParameterOffset(index)
