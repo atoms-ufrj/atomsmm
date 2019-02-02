@@ -42,29 +42,6 @@ def test_SolvationSystem():
         assert value/value.unit == pytest.approx(potential[term])
 
 
-def test_SolvationSystem_with_RESPA():
-    system, positions, topology, solute = readSystem('hydroxyethylaminoanthraquinone-in-water')
-    respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
-    solvation_system = atomsmm.SolvationSystem(system, solute, respa_info)
-    state = dict(lambda_vdw=0.5, lambda_coul=0.5)
-    components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
-    potential = dict()
-    potential['HarmonicBondForce'] = 1815.1848188179738
-    potential['HarmonicAngleForce'] = 1111.5544374007236
-    potential['PeriodicTorsionForce'] = 1.5998609986459567
-    potential['Real-Space'] = 58161.10011792888
-    potential['Reciprocal-Space'] = -76436.3982762784
-    potential['CustomNonbondedForce'] = -64.67189605331785
-    potential['CustomNonbondedForce(1)'] = -17294.836032921234
-    potential['CustomNonbondedForce(2)'] = 17294.836032921194
-    potential['CustomBondForce'] = 112.25315524350334
-    potential['CustomNonbondedForce(3)'] = -129.9219647048243
-    potential['CustomNonbondedForce(4)'] = 129.9219647048243
-    potential['Total'] = -15299.377781942032
-    for term, value in components.items():
-        assert value/value.unit == pytest.approx(potential[term])
-
-
 def test_RESPASystem():
     system, positions, topology, solute = readSystem('hydroxyethylaminoanthraquinone-in-water')
     respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
