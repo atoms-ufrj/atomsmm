@@ -18,11 +18,8 @@ import math
 from simtk import openmm
 from simtk import unit
 
-from atomsmm.utils import Coulomb
-from atomsmm.utils import InputError
-from atomsmm.utils import LennardJones
-
 import atomsmm
+
 
 class _AtomsMM_Force:
     """
@@ -447,11 +444,13 @@ class DampedSmoothedForce(_AtomsMM_CustomNonbondedForce):
     """
     def __init__(self, alpha, cutoff_distance, switch_distance, degree=1):
         if switch_distance/switch_distance.unit < 0.0 or switch_distance >= cutoff_distance:
-            raise InputError('Switching distance must satisfy 0 <= r_switch < r_cutoff')
+            raise atomsmm.utils.InputError('Switching distance must satisfy 0 <= r_switch < r_cutoff')
+        LennardJones = '4*epsilon*((sigma/r)^12 - (sigma/r)^6)'
+        Coulomb = 'Kc*chargeprod/r'
         if degree == 1:
-            energy = '{} + erfc(alpha*r)*{}'.format(LennardJones('r'), Coulomb('r'))
+            energy = '{} + erfc(alpha*r)*{}'.format(LennardJones, Coulomb)
         else:
-            energy = 'S*({} + erfc(alpha*r)*{});'.format(LennardJones('r'), Coulomb('r'))
+            energy = 'S*({} + erfc(alpha*r)*{});'.format(LennardJones, Coulomb)
             energy += 'S = 1 + step(r - rswitch)*u^3*(15*u - 6*u^2 - 10);'
             energy += 'u = (r^d - rswitch^d)/(rcut^d - rswitch^d); d={}'.format(degree)
         super().__init__(
@@ -493,7 +492,7 @@ def nearForceExpressions(cutoff_distance, switch_distance, adjustment):
         expressions.append('f6c={}'.format((1+b)**3/b**3))
         expressions.append('f1c={}'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12)))
     else:
-        raise InputError('unknown adjustment option')
+        raise atomsmm.utils.InputError('unknown adjustment option')
     expressions.append('u=(r-rs0)/(rc0-rs0)')
     expressions.append('rs0={}'.format(switch_distance.value_in_unit(unit.nanometers)))
     expressions.append('rc0={}'.format(cutoff_distance.value_in_unit(unit.nanometers)))
@@ -533,7 +532,7 @@ class NearForce(object):
             expressions.append('f6c={}'.format((1+b)**3/b**3))
             expressions.append('f1c={}'.format((30*(1+b))*(b**2*(1+b)**2*math.log(1/b+1)-b**3-(3/2)*b**2-(1/3)*b+1/12)))
         else:
-            raise InputError('unknown adjustment option')
+            raise atomsmm.utils.InputError('unknown adjustment option')
         expressions.append('u=(r-rs0)/(rc0-rs0)')
         return expressions
 
@@ -680,7 +679,7 @@ class FarNonbondedForce(_AtomsMM_CompoundForce):
     """
     def __init__(self, preceding, cutoff_distance, switch_distance=None):
         if not isinstance(preceding, NearNonbondedForce):
-            raise InputError('argument \'preceding\' must be of class NearNonbondedForce')
+            raise atomsmm.utils.InputError('argument \'preceding\' must be of class NearNonbondedForce')
         potential = preceding.getEnergyFunction().split(';')
         potential[0] = '-step(rc0-r)*({})'.format(potential[0])
         expression = ';'.join(potential)

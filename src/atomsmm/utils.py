@@ -21,21 +21,6 @@ class InputError(Exception):
         super(InputError, self).__init__('\033[1;31m' + msg + '\033[0m')
 
 
-def LennardJones(r):
-    return '4*epsilon*((sigma/%s)^12 - (sigma/%s)^6)' % (r, r)
-
-
-def Coulomb(r):
-    return 'Kc*chargeprod/%s' % r
-
-
-def LorentzBerthelot():
-    mixingRule = 'chargeprod = charge1*charge2;'
-    mixingRule += 'sigma = 0.5*(sigma1+sigma2);'
-    mixingRule += 'epsilon = sqrt(epsilon1*epsilon2)'
-    return mixingRule
-
-
 def countDegreesOfFreedom(system):
     """
     Counts the number of degrees of freedom in a system, given by:
