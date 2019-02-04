@@ -109,9 +109,12 @@ class SolvationSystem(openmm.System):
             A set containing the indexes of all solute atoms.
         softcore_group : int, optional, default=0
             The force group to be assigned to the solute-solvent softcore interactions.
+        split_exceptions : bool, optional, default=False
+            Whether preexisting exceptions should be separated from the nonbonded force before new
+            exceptions are created.
 
     """
-    def __init__(self, system, solute_atoms, softcore_group=0):
+    def __init__(self, system, solute_atoms, softcore_group=0, split_exceptions=False):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
         rcut = nonbonded.getCutoffDistance()
@@ -125,6 +128,14 @@ class SolvationSystem(openmm.System):
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
         softcore.setForceGroup(softcore_group)
         self.addForce(softcore)
+
+        # If requested, extract preexisting non-exclusion exceptions:
+        if split_exceptions:
+            ljc_potential = '4*epsilon*x*(x-1) + Kc*chargeprod/r; x=(sigma/r)^6; Kc=138.935456'
+            exceptions = atomsmm.forces._AtomsMM_CustomBondForce(ljc_potential)
+            exceptions.importFrom(nonbonded, extract=True)
+            if exceptions.getNumBonds() > 0:
+                self.addForce(exceptions)
 
         # All solute-solute interactions are treated as nonbonded exceptions:
         exception_pairs = []
