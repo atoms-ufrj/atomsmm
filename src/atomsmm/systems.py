@@ -117,17 +117,8 @@ class SolvationSystem(openmm.System):
     def __init__(self, system, solute_atoms, softcore_group=0, split_exceptions=False):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
-        rcut = nonbonded.getCutoffDistance()
-        rswitch = nonbonded.getSwitchingDistance() if nonbonded.getUseSwitchingFunction() else None
         all_atoms = set(range(nonbonded.getNumParticles()))
         solvent_atoms = all_atoms - solute_atoms
-
-        # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
-        softcore = atomsmm.SoftcoreLennardJonesForce(rcut, rswitch, parameter='lambda_vdw')
-        softcore.importFrom(nonbonded)
-        softcore.addInteractionGroup(solute_atoms, solvent_atoms)
-        softcore.setForceGroup(softcore_group)
-        self.addForce(softcore)
 
         # If requested, extract preexisting non-exclusion exceptions:
         if split_exceptions:
@@ -136,6 +127,13 @@ class SolvationSystem(openmm.System):
             exceptions.importFrom(nonbonded, extract=True)
             if exceptions.getNumBonds() > 0:
                 self.addForce(exceptions)
+
+        # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
+        softcore = atomsmm.SoftcoreLennardJonesForce(parameter='lambda_vdw')
+        softcore.importFrom(nonbonded)
+        softcore.addInteractionGroup(solute_atoms, solvent_atoms)
+        softcore.setForceGroup(softcore_group)
+        self.addForce(softcore)
 
         # All solute-solute interactions are treated as nonbonded exceptions:
         exception_pairs = []
@@ -148,6 +146,7 @@ class SolvationSystem(openmm.System):
                 q1, sig1, eps1 = nonbonded.getParticleParameters(i)
                 q2, sig2, eps2 = nonbonded.getParticleParameters(j)
                 nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
+                softcore.addExclusion(i, j)  # Needed for matching exception number
 
         # Turn off intrasolute Lennard-Jones interactions and scale solute charges by lambda_coul:
         charges = dict()

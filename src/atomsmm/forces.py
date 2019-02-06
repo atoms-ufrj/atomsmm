@@ -713,15 +713,17 @@ class SoftcoreLennardJonesForce(_AtomsMM_CustomNonbondedForce):
             nonbonded interaction towards zero.
 
     """
-    def __init__(self, cutoff_distance, switch_distance=None, parameter='lambda'):
+    def __init__(self, cutoff_distance=None, use_switching_function=None,
+                 switch_distance=None, use_dispersion_correction=None, parameter='lambda'):
         globalParams = {parameter: 1.0}
         potential = '4*{}*epsilon*x*(x-1);'.format(parameter)
         potential += 'x = 1/((r/sigma)^6 + 0.5*(1-{}))'.format(parameter)
         super().__init__(
             energy=potential,
             cutoff_distance=cutoff_distance,
-            use_switching_function=True,
+            use_switching_function=use_switching_function,
             switch_distance=switch_distance,
+            use_dispersion_correction=use_dispersion_correction,
             **globalParams,
         )
 
