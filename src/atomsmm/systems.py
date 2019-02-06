@@ -129,7 +129,8 @@ class SolvationSystem(openmm.System):
                 self.addForce(exceptions)
 
         # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
-        softcore = atomsmm.SoftcoreLennardJonesForce(parameter='lambda_vdw')
+        ljs_potential = '4*lambda_vdw*epsilon*(1-x)/x^2; x=(r/sigma)^6+0.5*(1-lambda_vdw)'
+        softcore = atomsmm.forces._AtomsMM_CustomNonbondedForce(ljs_potential, lambda_vdw=1)
         softcore.importFrom(nonbonded)
         softcore.addInteractionGroup(solute_atoms, solvent_atoms)
         softcore.setForceGroup(softcore_group)
