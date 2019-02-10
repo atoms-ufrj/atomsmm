@@ -398,13 +398,17 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             original = dict()
             for name in self._globalParameterStates.columns:
                 original[name] = simulation.context.getParameter(name)
+            latest = original.copy()
             for index, row in self._globalParameterStates.iterrows():
                 for name, value in row.items():
-                    simulation.context.setParameter(name, value)
+                    if value != latest[name]:
+                        simulation.context.setParameter(name, value)
+                        latest[name] = value
                 energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
                 self._addItem(values, energy.value_in_unit(unit.kilojoules_per_mole))
             for name, value in original.items():
-                simulation.context.setParameter(name, value)
+                if value != latest[name]:
+                    simulation.context.setParameter(name, value)
         return values
 
 
