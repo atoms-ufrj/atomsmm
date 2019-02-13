@@ -512,24 +512,48 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
 
     """
     def __init__(self, file, reportInterval, states, temperature, **kwargs):
-        self._reports_per_exchange = kwargs.pop('reportsPerExchange', 1)
-        super().__init__(file, reportInterval, **kwargs)
         self._parameter_states = states.copy()
         self._nstates = len(states.index)
+        self._reports_per_exchange = kwargs.pop('reportsPerExchange', 1)
+        super().__init__(file, reportInterval, **kwargs)
         if 'weight' in states:
             self._weights = self._parameter_states.pop('weight').values
+            finite = np.where(np.isfinite(self._weights))[0]
+            self._first_state = finite[0]
+            self._last_state = finite[-1]
         else:
             self._weights = np.zeros(self._nstates)
+            self._first_state = 0
+            self._last_state = self._nstates - 1
         kT = (unit.MOLAR_GAS_CONSTANT_R*temperature).value_in_unit(unit.kilojoules_per_mole)
         self._minus_beta = -1.0/kT
-        self._downhill = True
         self._nreports = 0
+        self._overall_visits = np.zeros(self._nstates, dtype=int)
+        self._downhill_visits = np.zeros(self._nstates, dtype=int)
+        self._downhill = False
+        self._counting_started = False
+        self._regime_change = []
 
     def _initialize(self, simulation, state):
         headers = ['step', 'state', 'downhill']
         for index in self._parameter_states.index:
             headers.append('Energy[{}] (kJ/mole)'.format(index))
         print(*headers, sep=self._separator, file=self._out)
+
+    def _record_visit(self, state):
+        if self._downhill:
+            if state == self._first_state:
+                self._downhill = False
+                self._regime_change.append(self._nreports)
+        elif state == self._last_state:
+            self._downhill = True
+            self._regime_change.append(self._nreports)
+        if self._counting_started:
+            self._overall_visits[state] += 1
+            if self._downhill:
+                self._downhill_visits[state] += 1
+        else:
+            self._counting_started = self._downhill is True
 
     def _generateReport(self, simulation, state):
         energies = np.zeros(self._nstates)
@@ -546,16 +570,55 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
             energies[i] = energy.value_in_unit(unit.kilojoules_per_mole)
         self._nreports += 1
         if self._nreports % self._reports_per_exchange == 0:
-            exponents = self._minus_beta*(energies - np.max(energies)) + self._weights
+            exponents = self._minus_beta*energies + self._weights
             probabilities = np.exp(exponents - np.amax(exponents))
-            probabilities /= sum(probabilities)
+            probabilities /= np.sum(probabilities)
             state = np.random.choice(self._nstates, p=probabilities)
             for name, value in self._parameter_states.iloc[state].items():
                 if value != latest[name]:
                     simulation.context.setParameter(name, value)
-            if self._downhill:
-                self._downhill = state < self._nstates - 1
-            else:
-                self._downhill = state > 0
+            self._record_visit(state)
         print(simulation.currentStep, state, int(self._downhill), *energies,
               sep=self._separator, file=self._out)
+
+    def state_sampling_analysis(self, xvar=None, to_file=True):
+        """
+        Build histograms of states visited during the overall process as well as during downhill
+        walks.
+
+        Returns
+        -------
+            pandas.DataFrame_
+
+        """
+        df = pd.DataFrame(self._parameter_states)
+        df['overall'] = self._overall_visits/np.sum(self._overall_visits)
+        df['downhill'] = self._downhill_visits/np.sum(self._overall_visits)
+        df = df[self._overall_visits > 0]
+        df['f'] = df['downhill']/df['overall']
+        if self._counting_started and xvar is not None:
+            x = df[xvar].values
+            f = df['f'].values
+            n = len(x)
+            optimal_pdf = np.sqrt(np.diff(f)/np.diff(x))      # Stepwise optimal PDF
+            area = optimal_pdf*np.diff(x)                     # Integral in each interval
+            optimal_cdf = np.cumsum(area)/np.sum(area)
+            optimal_x = np.interp(np.linspace(0, 1, n), np.insert(optimal_cdf, 0, 0), x)
+            df['optimal {}'.format(xvar)] = optimal_x
+        if to_file:
+            print('# {0} State Sampling Analysis {0}'.format('-'*30), file=self._out)
+            print('# ' + df.__repr__().replace('\n', '\n# '), file=self._out)
+        return df
+
+    def walking_time_analysis(self, to_file=True):
+        times = np.diff(np.array(self._regime_change))
+        downhill = self._reportInterval*times[0::2]
+        uphill = self._reportInterval*times[1::2]
+        df = pd.DataFrame(index=['mean time', 'total time'],
+                          columns=['downhill', 'uphill'],
+                          data=[[downhill.mean(), uphill.mean()],
+                                [downhill.sum(), uphill.sum()]])
+        if to_file:
+            print('# {0} Walking Time Analysis {0}'.format('-'*5), file=self._out)
+            print('# ' + df.__repr__().replace('\n', '\n# '), file=self._out)
+        return df
