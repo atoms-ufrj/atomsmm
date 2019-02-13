@@ -85,6 +85,7 @@ class _AtomsMM_Reporter():
             self._out = open(file, 'w') if isinstance(file, str) else file
         else:
             self._out = _MultiStream([file, extraFile])
+        self._separator = kwargs.pop('separator', ',')
 
     def _initialize(self, simulation, state):
         pass
@@ -500,10 +501,18 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
             to every state as an importance sampling weight. Otherwise, all states will have
             identical weights. States which are supposed to only have their energies reported, with
             no actual visits, can have their weights set up to `-inf`.
+        temperature : unit.Quantity
+            The system temperature.
+
+    Keyword Args
+    ------------
+        reportsPerExchange : int, optional, default=1
+            The number of reports between attempts to exchange the global parameter state, that is,
+            the exchange interval measured in units of report intervals.
 
     """
     def __init__(self, file, reportInterval, states, temperature, **kwargs):
-        self._separator = kwargs.pop('separator', ',')
+        self._reports_per_exchange = kwargs.pop('reportsPerExchange', 1)
         super().__init__(file, reportInterval, **kwargs)
         self._parameter_states = states.copy()
         self._nstates = len(states.index)
@@ -514,6 +523,7 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         kT = (unit.MOLAR_GAS_CONSTANT_R*temperature).value_in_unit(unit.kilojoules_per_mole)
         self._minus_beta = -1.0/kT
         self._downhill = True
+        self._nreports = 0
 
     def _initialize(self, simulation, state):
         headers = ['step', 'state', 'downhill']
@@ -534,16 +544,18 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                     latest[name] = value
             energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
             energies[i] = energy.value_in_unit(unit.kilojoules_per_mole)
-        exponents = self._minus_beta*(energies - np.max(energies)) + self._weights
-        probabilities = np.exp(exponents - np.amax(exponents))
-        probabilities /= sum(probabilities)
-        state = np.random.choice(self._nstates, p=probabilities)
-        for name, value in self._parameter_states.iloc[state].items():
-            if value != latest[name]:
-                simulation.context.setParameter(name, value)
-        if self._downhill:
-            self._downhill = state < self._nstates - 1
-        else:
-            self._downhill = state > 0
+        self._nreports += 1
+        if self._nreports % self._reports_per_exchange == 0:
+            exponents = self._minus_beta*(energies - np.max(energies)) + self._weights
+            probabilities = np.exp(exponents - np.amax(exponents))
+            probabilities /= sum(probabilities)
+            state = np.random.choice(self._nstates, p=probabilities)
+            for name, value in self._parameter_states.iloc[state].items():
+                if value != latest[name]:
+                    simulation.context.setParameter(name, value)
+            if self._downhill:
+                self._downhill = state < self._nstates - 1
+            else:
+                self._downhill = state > 0
         print(simulation.currentStep, state, int(self._downhill), *energies,
               sep=self._separator, file=self._out)
