@@ -485,3 +485,65 @@ class CustomIntegratorReporter(_AtomsMM_Reporter):
                 print(df.describe(), file=self._out)
             else:
                 df.to_csv(self._out, sep='\t')
+
+
+class ExpandedEnsembleReporter(_AtomsMM_Reporter):
+    """
+    Performs an Expanded Ensemble simulation and reports the energies of multiple states.
+
+    Parameters
+    ----------
+        states : pandas.DataFrame_
+            A DataFrame containing context global parameters (column names) and sets of values
+            thereof. The potential energy will be reported for every state these parameters define.
+            If one of the variables is named as `weight`, then its set of values will be assigned
+            to every state as an importance sampling weight. Otherwise, all states will have
+            identical weights. States which are supposed to only have their energies reported, with
+            no actual visits, can have their weights set up to `-inf`.
+
+    """
+    def __init__(self, file, reportInterval, states, temperature, **kwargs):
+        self._separator = kwargs.pop('separator', ',')
+        super().__init__(file, reportInterval, **kwargs)
+        self._parameter_states = states.copy()
+        self._nstates = len(states.index)
+        if 'weight' in states:
+            self._weights = self._parameter_states.pop('weight').values
+        else:
+            self._weights = np.zeros(self._nstates)
+        kT = (unit.MOLAR_GAS_CONSTANT_R*temperature).value_in_unit(unit.kilojoules_per_mole)
+        self._minus_beta = -1.0/kT
+        self._downhill = True
+
+    def _initialize(self, simulation, state):
+        headers = ['step', 'state', 'downhill']
+        for index in self._parameter_states.index:
+            headers.append('Energy[{}] (kJ/mole)'.format(index))
+        print(*headers, sep=self._separator, file=self._out)
+
+    def _generateReport(self, simulation, state):
+        energies = np.zeros(self._nstates)
+        original = dict()
+        for name in self._parameter_states.columns:
+            original[name] = simulation.context.getParameter(name)
+        latest = original.copy()
+        for i, (index, row) in enumerate(self._parameter_states.iterrows()):
+            for name, value in row.items():
+                if value != latest[name]:
+                    simulation.context.setParameter(name, value)
+                    latest[name] = value
+            energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
+            energies[i] = energy.value_in_unit(unit.kilojoules_per_mole)
+        exponents = self._minus_beta*(energies - np.max(energies)) + self._weights
+        probabilities = np.exp(exponents - np.amax(exponents))
+        probabilities /= sum(probabilities)
+        state = np.random.choice(self._nstates, p=probabilities)
+        for name, value in self._parameter_states.iloc[state].items():
+            if value != latest[name]:
+                simulation.context.setParameter(name, value)
+        if self._downhill:
+            self._downhill = state < self._nstates - 1
+        else:
+            self._downhill = state > 0
+        print(simulation.currentStep, state, int(self._downhill), *energies,
+              sep=self._separator, file=self._out)
