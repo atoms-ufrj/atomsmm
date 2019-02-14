@@ -616,7 +616,8 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
             frame['weight (opt)'] = np.interp(optimal_x, x, free_energy)
         if to_file:
             print('# {0} State Sampling Analysis {0}'.format('-'*40), file=self._out)
-            print('# ' + frame.__repr__().replace('\n', '\n# '), file=self._out)
+            with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+                print('# ' + frame.__repr__().replace('\n', '\n# '), file=self._out)
         return frame
 
     def walking_time_analysis(self, to_file=True):
