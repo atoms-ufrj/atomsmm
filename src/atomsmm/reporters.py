@@ -536,7 +536,7 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         self._regime_change = []
 
     def _initialize(self, simulation, state):
-        headers = ['step', 'state', 'downhill']
+        headers = ['step', 'state']
         for index in self._parameter_states.index:
             headers.append('Energy[{}] (kJ/mole)'.format(index))
         print(*headers, sep=self._separator, file=self._out)
@@ -580,8 +580,7 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                 if value != latest[name]:
                     simulation.context.setParameter(name, value)
             self._register_visit(state)
-        print(simulation.currentStep, state, int(self._downhill), *energies,
-              sep=self._separator, file=self._out)
+        print(simulation.currentStep, state, *energies, sep=self._separator, file=self._out)
 
     def _isochronal_delta(self, f, n):
         N = len(f)
@@ -600,7 +599,8 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
 
     def read_csv(self, file, **kwargs):
         comment = kwargs.pop('comment', '#')
-        df = pd.read_csv(file, comment=comment, **kwargs)
+        separator = kwargs.pop('sep', self._separator)
+        df = pd.read_csv(file, comment=comment, sep=separator, **kwargs)
         energies = np.zeros(self._nstates)
         for index, row in df.iterrows():
             state = int(row['state'])
