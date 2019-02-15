@@ -614,7 +614,7 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
             if self._nreports % self._reports_per_exchange == 0:
                 self._register_visit(state)
 
-    def state_sampling_analysis(self, staging_variable=None, to_file=True):
+    def state_sampling_analysis(self, staging_variable=None, to_file=True, isochronal_n=2):
         """
         Build histograms of states visited during the overall process as well as during downhill
         walks.
@@ -631,15 +631,15 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         weight = self._weights[mask]
         frame['weight'] = weight
         frame['histogram'] = histogram/np.sum(histogram)
-        frame['downhill fraction'] = downhill_fraction
+        frame['downhill_fraction'] = downhill_fraction
         if self._counting_started:
-            free_energy = weight - np.log(self._probability_accumulators[mask]/self._nreports)
-            free_energy -= free_energy[0]
-            delta = self._isochronal_delta(downhill_fraction, 2)
-            opt_weight = free_energy + np.log(delta/delta[0])
-            frame['free energy'] = free_energy
-            frame['histogram (isochronal)'] = delta
-            frame['weight (isochronal)'] = opt_weight
+            probability = self._probability_accumulators[mask]/self._nreports
+            free_energy = weight - np.log(probability)
+            delta = self._isochronal_delta(downhill_fraction, isochronal_n)
+            isochronal_weight = weight + 0.5*np.log(delta/probability)
+            frame['free_energy'] = free_energy - free_energy[0]
+            frame['isochronal_histogram'] = np.sqrt(delta*probability)
+            frame['isochronal_weight'] = isochronal_weight - isochronal_weight[0]
             if staging_variable is not None:
                 x = frame[staging_variable].values
                 f = downhill_fraction
@@ -648,12 +648,12 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                 area = optimal_pdf*np.diff(x)                     # Integral in each interval
                 optimal_cdf = np.cumsum(area)/np.sum(area)        # Piecewise linear optimal CDF
                 optimal_x = np.interp(np.linspace(0, 1, n), np.insert(optimal_cdf, 0, 0), x)
-                frame['{} (stating)'.format(staging_variable)] = optimal_x
-                frame['weight (staging)'] = np.interp(optimal_x, x, free_energy)
+                frame['staging_{}'.format(staging_variable)] = optimal_x
+                frame['staging_weight'] = np.interp(optimal_x, x, free_energy)
         if to_file:
             print('# {0} State Sampling Analysis {0}'.format('-'*40), file=self._out)
             with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-                print('# ' + frame.__repr__().replace('\n', '\n# '), file=self._out)
+                print('# ' + frame.to_string(index=False).replace('\n', '\n# '), file=self._out)
         return frame
 
     def walking_time_analysis(self, to_file=True):
@@ -667,5 +667,5 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                           dtype='object')
         if to_file:
             print('# {0} Walking Time Analysis {0}'.format('-'*10), file=self._out)
-            print('# ' + df.__repr__().replace('\n', '\n# '), file=self._out)
+            print('# ' + df.to_string(index=False).replace('\n', '\n# '), file=self._out)
         return df
