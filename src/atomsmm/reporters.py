@@ -598,6 +598,22 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         delta[ind] = delta
         return delta
 
+    def read_csv(self, file, **kwargs):
+        comment = kwargs.pop('comment', '#')
+        df = pd.read_csv(file, comment=comment, **kwargs)
+        energies = np.zeros(self._nstates)
+        for index, row in df.iterrows():
+            state = int(row['state'])
+            for i in self._parameter_states.index:
+                energies[i] = row['Energy[{}] (kJ/mole)'.format(i)]
+            self._nreports += 1
+            exponents = self._weights - self._beta*energies
+            probabilities = np.exp(exponents - np.amax(exponents))
+            probabilities /= np.sum(probabilities)
+            self._probability_accumulators += probabilities
+            if self._nreports % self._reports_per_exchange == 0:
+                self._register_visit(state)
+
     def state_sampling_analysis(self, staging_variable=None, to_file=True):
         """
         Build histograms of states visited during the overall process as well as during downhill
