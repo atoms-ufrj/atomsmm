@@ -583,7 +583,22 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         print(simulation.currentStep, state, int(self._downhill), *energies,
               sep=self._separator, file=self._out)
 
-    def state_sampling_analysis(self, xvar=None, to_file=True):
+    def _isochronal_delta(self, f, n):
+        N = len(f)
+        b = 3/(n*(n+1)*(2*n+1))
+        seq = np.arange(1, n+1)
+        a = (b/2)*np.array([n*(n+1)-k*(k-1) for k in seq])
+        ind = np.argsort(f)
+        fa = f[ind]
+        delta = np.empty(N)
+        delta[0] = -fa[0]/2 + np.sum(a*fa[1:n+1])
+        for i in range(1, N-1):
+            delta[i] = b*np.sum([k*(fa[min(i+k, N-1)] - fa[max(i-k, 0)]) for k in seq])
+        delta[N-1] = fa[N-1]/2 - np.sum(np.flip(a)*fa[N-n-1:N-1])
+        delta[ind] = delta
+        return delta
+
+    def state_sampling_analysis(self, staging_variable=None, to_file=True):
         """
         Build histograms of states visited during the overall process as well as during downhill
         walks.
@@ -598,22 +613,27 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         histogram = self._overall_visits[mask]
         downhill_fraction = self._downhill_visits[mask]/histogram
         weight = self._weights[mask]
-        free_energy = weight - np.log(self._probability_accumulators[mask]/self._nreports)
-        free_energy -= free_energy[0]
         frame['weight'] = weight
-        frame['histogram'] = histogram
+        frame['histogram'] = histogram/np.sum(histogram)
         frame['downhill fraction'] = downhill_fraction
-        frame['free energy (kJ/mol)'] = free_energy/self._beta
-        if self._counting_started and xvar is not None:
-            x = frame[xvar].values
-            f = downhill_fraction
-            n = len(x)
-            optimal_pdf = np.sqrt(np.diff(f)/np.diff(x))      # Stepwise optimal PDF
-            area = optimal_pdf*np.diff(x)                     # Integral in each interval
-            optimal_cdf = np.cumsum(area)/np.sum(area)        # Piecewise linear optimal CDF
-            optimal_x = np.interp(np.linspace(0, 1, n), np.insert(optimal_cdf, 0, 0), x)
-            frame['{} (opt)'.format(xvar)] = optimal_x
-            frame['weight (opt)'] = np.interp(optimal_x, x, free_energy)
+        if self._counting_started:
+            free_energy = weight - np.log(self._probability_accumulators[mask]/self._nreports)
+            free_energy -= free_energy[0]
+            delta = self._isochronal_delta(downhill_fraction, 2)
+            opt_weight = free_energy + np.log(delta/delta[0])
+            frame['free energy'] = free_energy
+            frame['histogram (isochronal)'] = delta
+            frame['weight (isochronal)'] = opt_weight
+            if staging_variable is not None:
+                x = frame[staging_variable].values
+                f = downhill_fraction
+                n = len(x)
+                optimal_pdf = np.sqrt(np.diff(f)/np.diff(x))      # Stepwise optimal PDF
+                area = optimal_pdf*np.diff(x)                     # Integral in each interval
+                optimal_cdf = np.cumsum(area)/np.sum(area)        # Piecewise linear optimal CDF
+                optimal_x = np.interp(np.linspace(0, 1, n), np.insert(optimal_cdf, 0, 0), x)
+                frame['{} (stating)'.format(staging_variable)] = optimal_x
+                frame['weight (staging)'] = np.interp(optimal_x, x, free_energy)
         if to_file:
             print('# {0} State Sampling Analysis {0}'.format('-'*40), file=self._out)
             with pd.option_context('display.max_rows', None, 'display.max_columns', None):
@@ -624,10 +644,11 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         times = np.diff(np.array(self._regime_change))
         downhill = self._reportInterval*times[0::2]
         uphill = self._reportInterval*times[1::2]
-        df = pd.DataFrame(index=['mean time', 'total time'],
+        df = pd.DataFrame(index=['count', 'mean time'],
                           columns=['downhill', 'uphill'],
-                          data=[[downhill.mean(), uphill.mean()],
-                                [downhill.sum(), uphill.sum()]])
+                          data=[[downhill.size, uphill.size],
+                                [downhill.mean(), uphill.mean()]],
+                          dtype='object')
         if to_file:
             print('# {0} Walking Time Analysis {0}'.format('-'*10), file=self._out)
             print('# ' + df.__repr__().replace('\n', '\n# '), file=self._out)
