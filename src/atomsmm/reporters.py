@@ -635,9 +635,10 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
         if self._counting_started:
             probability = self._probability_accumulators[mask]/self._nreports
             free_energy = weight - np.log(probability)
+            free_energy -= free_energy[0]
             delta = self._isochronal_delta(downhill_fraction, isochronal_n)
             isochronal_weight = weight + 0.5*np.log(delta/probability)
-            frame['free_energy'] = free_energy - free_energy[0]
+            frame['free_energy'] = free_energy
             frame['isochronal_histogram'] = np.sqrt(delta*probability)
             frame['isochronal_weight'] = isochronal_weight - isochronal_weight[0]
             if staging_variable is not None:
@@ -667,5 +668,5 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                           dtype='object')
         if to_file:
             print('# {0} Walking Time Analysis {0}'.format('-'*10), file=self._out)
-            print('# ' + df.to_string(index=False).replace('\n', '\n# '), file=self._out)
+            print('# ' + df.to_string().replace('\n', '\n# '), file=self._out)
         return df
