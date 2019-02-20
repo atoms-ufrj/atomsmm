@@ -42,6 +42,22 @@ def test_SolvationSystem():
         assert value/value.unit == pytest.approx(potential[term])
 
 
+def test_SolvationSystem_with_lj_parameter_scaling():
+    system, positions, topology, solute = readSystem('hydroxyethylaminoanthraquinone-in-water')
+    solvation_system = atomsmm.SolvationSystem(system, solute, use_softcore=False)
+    state = dict(lambda_vdw=0.5, lambda_coul=0.5)
+    components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
+    potential = dict()
+    potential['HarmonicBondForce'] = 1815.1848188179738
+    potential['HarmonicAngleForce'] = 1111.5544374007236
+    potential['PeriodicTorsionForce'] = 1.5998609986459567
+    potential['Real-Space'] = 58235.03496195241
+    potential['Reciprocal-Space'] = -76436.3982762784
+    potential['Total'] = -15273.024197108643
+    for term, value in components.items():
+        assert value/value.unit == pytest.approx(potential[term])
+
+
 def test_RESPASystem():
     system, positions, topology, solute = readSystem('hydroxyethylaminoanthraquinone-in-water')
     respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
@@ -87,5 +103,26 @@ def test_RESPASystem_with_exception_offsets():
     potential['CustomNonbondedForce(2)'] = 17294.836032921194
     potential['CustomBondForce'] = 72.25414937535754
     potential['Total'] = -15299.377781942048
+    for term, value in components.items():
+        assert value/value.unit == pytest.approx(potential[term])
+
+
+def test_RESPASystem_with_lj_parameter_scaling():
+    system, positions, topology, solute = readSystem('hydroxyethylaminoanthraquinone-in-water')
+    respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
+    solvation_system = atomsmm.SolvationSystem(system, solute, use_softcore=False)
+    respa_system = atomsmm.RESPASystem(solvation_system, *respa_info.values())
+    state = dict(lambda_vdw=0.5, lambda_coul=0.5)
+    components = atomsmm.splitPotentialEnergy(respa_system, topology, positions, **state)
+    potential = dict()
+    potential['HarmonicBondForce'] = 1815.1848188179738
+    potential['HarmonicAngleForce'] = 1111.5544374007236
+    potential['PeriodicTorsionForce'] = 1.5998609986459567
+    potential['Real-Space'] = 58122.78180670893
+    potential['Reciprocal-Space'] = -76436.3982762784
+    potential['CustomNonbondedForce'] = -17317.054135213173
+    potential['CustomNonbondedForce(1)'] = 17317.054135213126
+    potential['CustomBondForce'] = 112.25315524350334
+    potential['Total'] = -15273.024197108669
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])

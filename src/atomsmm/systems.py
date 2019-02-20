@@ -107,14 +107,18 @@ class SolvationSystem(openmm.System):
             The original system from which to generate the SolvationSystem.
         solute_atoms : set(int)
             A set containing the indexes of all solute atoms.
+        use_softcore : bool, optional, default=True
+            Whether to define a softcore potential for the coupling/decoupling of solute-solvent
+            Lennard-Jones interactions. If this is `False`, then a linear scaling of both `sigma`
+            and `epsilon` will be applied instead.
         softcore_group : int, optional, default=0
-            The force group to be assigned to the solute-solvent softcore interactions.
+            The force group to be assigned to the solute-solvent softcore interactions, if any.
         split_exceptions : bool, optional, default=False
             Whether preexisting exceptions should be separated from the nonbonded force before new
             exceptions are created.
 
     """
-    def __init__(self, system, solute_atoms, softcore_group=0, split_exceptions=False):
+    def __init__(self, system, solute_atoms, use_softcore=True, softcore_group=0, split_exceptions=False):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
         all_atoms = set(range(nonbonded.getNumParticles()))
@@ -129,12 +133,13 @@ class SolvationSystem(openmm.System):
                 self.addForce(exceptions)
 
         # A custom nonbonded force for solute-solvent, softcore van der Waals interactions:
-        ljs_potential = '4*lambda_vdw*epsilon*(1-x)/x^2; x=(r/sigma)^6+0.5*(1-lambda_vdw)'
-        softcore = atomsmm.forces._AtomsMM_CustomNonbondedForce(ljs_potential, lambda_vdw=1)
-        softcore.importFrom(nonbonded)
-        softcore.addInteractionGroup(solute_atoms, solvent_atoms)
-        softcore.setForceGroup(softcore_group)
-        self.addForce(softcore)
+        if use_softcore:
+            ljs_potential = '4*lambda_vdw*epsilon*(1-x)/x^2; x=(r/sigma)^6+0.5*(1-lambda_vdw)'
+            softcore = atomsmm.forces._AtomsMM_CustomNonbondedForce(ljs_potential, lambda_vdw=1)
+            softcore.importFrom(nonbonded)
+            softcore.addInteractionGroup(solute_atoms, solvent_atoms)
+            softcore.setForceGroup(softcore_group)
+            self.addForce(softcore)
 
         # All solute-solute interactions are treated as nonbonded exceptions:
         exception_pairs = []
@@ -147,19 +152,27 @@ class SolvationSystem(openmm.System):
                 q1, sig1, eps1 = nonbonded.getParticleParameters(i)
                 q2, sig2, eps2 = nonbonded.getParticleParameters(j)
                 nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
-                softcore.addExclusion(i, j)  # Needed for matching exception number
+                if use_softcore:
+                    softcore.addExclusion(i, j)  # Needed for matching exception number
 
-        # Turn off intrasolute Lennard-Jones interactions and scale solute charges by lambda_coul:
+        # Turn off or scale solute Lennard-Jones interactions, scale solute charges:
+        lj_parameters = dict()
         charges = dict()
         for index in solute_atoms:
-            charge, _, _ = nonbonded.getParticleParameters(index)
-            nonbonded.setParticleParameters(index, 0.0, 1.0, 0.0)
+            charge, sigma, epsilon = nonbonded.getParticleParameters(index)
+            nonbonded.setParticleParameters(index, 0.0, 0.0, 0.0)
             if charge/charge.unit != 0.0:
                 charges[index] = charge
+            if epsilon/epsilon.unit != 0.0:
+                lj_parameters[index] = (sigma, epsilon)
         if charges:
             nonbonded.addGlobalParameter('lambda_coul', 1.0)
             for index, charge in charges.items():
                 nonbonded.addParticleParameterOffset('lambda_coul', index, charge, 0.0, 0.0)
+        if lj_parameters and not use_softcore:
+            nonbonded.addGlobalParameter('lambda_vdw', 1.0)
+            for index, (sigma, epsilon) in lj_parameters.items():
+                nonbonded.addParticleParameterOffset('lambda_vdw', index, 0.0, sigma, epsilon)
 
 
 class ComputingSystem(_AtomsMM_System):
