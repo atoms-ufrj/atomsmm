@@ -657,10 +657,15 @@ class ExpandedEnsembleReporter(_AtomsMM_Reporter):
                 print('# ' + frame.to_string(index=False).replace('\n', '\n# '), file=self._out)
         return frame
 
-    def walking_time_analysis(self, to_file=True):
+    def walking_time_analysis(self, history=False, to_file=True):
         times = np.diff(np.array(self._regime_change))
         downhill = self._reportInterval*times[0::2]
         uphill = self._reportInterval*times[1::2]
+        if history:
+            df = pd.DataFrame({'downhill': pd.Series(downhill),
+                               'uphill': pd.Series(uphill)})
+            print('# {0} Walking Time History {0}'.format('-'*10), file=self._out)
+            print('# ' + df.to_string().replace('\n', '\n# '), file=self._out)
         df = pd.DataFrame(index=['count', 'mean time'],
                           columns=['downhill', 'uphill'],
                           data=[[downhill.size, uphill.size],
