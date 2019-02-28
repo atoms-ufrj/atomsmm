@@ -205,17 +205,13 @@ class ComputingSystem(_AtomsMM_System):
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 nonbonded = copy.deepcopy(force)
-                if nonbonded.getUseDispersionCorrection():
-                    raise RuntimeError('virial/pressure computation not supported for force with dispersion correction')
                 nonbonded.setForceGroup(coulombGroup)
                 nonbonded.setReciprocalSpaceForceGroup(coulombGroup)
                 self.addForce(nonbonded)
                 expression = '24*epsilon*(2*(sigma/r)^12-(sigma/r)^6)'
                 expression += '; sigma=0.5*(sigma1+sigma2)'
                 expression += '; epsilon=sqrt(epsilon1*epsilon2)'
-                rcut = force.getCutoffDistance()
-                rswitch = force.getSwitchingDistance() if force.getUseSwitchingFunction() else None
-                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression, rcut, True, rswitch)
+                virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression)
                 virial.importFrom(nonbonded)
                 virial.setForceGroup(dispersionGroup)
                 self.addForce(virial)
@@ -229,7 +225,7 @@ class ComputingSystem(_AtomsMM_System):
                     exceptions.setForceGroup(dispersionGroup)
                     self.addForce(exceptions)
                 for index in range(nonbonded.getNumParticles()):
-                    charge, sigma, epsilon = nonbonded.getParticleParameters(index)
+                    charge, _, _ = nonbonded.getParticleParameters(index)
                     nonbonded.setParticleParameters(index, charge, 1.0, 0.0)
             elif isinstance(force, openmm.HarmonicBondForce) and force.getNumBonds() > 0:
                 bondforce = openmm.CustomBondForce('-K*r*(r-r0)')
