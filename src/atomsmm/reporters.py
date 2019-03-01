@@ -20,7 +20,7 @@ from simtk import openmm
 from simtk import unit
 from simtk.openmm import app
 
-from .systems import ComputingSystem
+from .computers import VirialComputer
 from .utils import InputError
 
 
@@ -243,9 +243,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             A DataFrame containing context global parameters (column names) and sets of values
             thereof. If it is provided, then the potential energy will be reported for every state
             these parameters define.
-        computer : :class:`~atomsmm.systems.ComputingSystem`, optional, default=None
-            A system designed to compute the internal virial. This is mandatory if keyword `virial`
-            or `pressure` is set to `True`.
+        virial_computer : :class:`~atomsmm.computers.VirialComputer`, optional, default=None
+            A computer designed to determine the internal virial. This is mandatory if any keyword
+            related to virial or pressure is set as `True`.
         bathTemperature : unit.Quantity, optional, default=None
             The temperature of the heat bath, used to compute atomic and molecular pressures.
         extraFile : str or file, optional, default=None
@@ -261,7 +261,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
-        self._computer = kwargs.pop('computer', None)
+        self._virial_computer = kwargs.pop('virial_computer', None)
         temp = kwargs.pop('bathTemperature', None)
         self._kT = None if temp is None else unit.MOLAR_GAS_CONSTANT_R*temp
         extra = kwargs.pop('extraFile', None)
@@ -277,8 +277,8 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                                self._molecularPressure,
                                self._molecularKineticEnergy])
         if self._computing:
-            if self._computer is not None and not isinstance(self._computer, ComputingSystem):
-                raise InputError('keyword "computer" requires a ComputingSystem instance')
+            if self._virial_computer is not None and not isinstance(self._virial_computer, VirialComputer):
+                raise InputError('keyword "virial_computer" requires a VirialComputer instance')
             self._requiresInitialization = True
             self._needsPositions = True
             self._needsForces = self._molecularVirial
@@ -314,24 +314,15 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 self._addItem(headers, 'Energy[{}] (kJ/mole)'.format(index))
         return headers
 
-    def _localContext(self, simulation):
-        integrator = openmm.CustomIntegrator(0)
-        platform = simulation.context.getPlatform()
-        properties = dict()
-        for name in platform.getPropertyNames():
-            properties[name] = platform.getPropertyValue(simulation.context, name)
-        return openmm.Context(self._computer, integrator, platform, properties)
-
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
         if self._computing:
             if self._requiresInitialization:
-                self._computeContext = self._localContext(simulation)
                 if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
                     self._mols = _MoleculeTotalizer(simulation)
                 self._requiresInitialization = False
 
-            context = self._computeContext
+            context = self._virial_computer
             box = state.getPeriodicBoxVectors()
             context.setPeriodicBoxVectors(*box)
             positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
@@ -341,9 +332,10 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 groupState = context.getState(getEnergy=True, groups=groups)
                 return groupState.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
 
-            dispersionVirial = potential(self._computer._dispersion)
-            coulombVirial = potential(self._computer._coulomb)
-            bondVirial = potential(self._computer._bonded)
+            system = self._virial_computer._system
+            dispersionVirial = potential(system._dispersion)
+            coulombVirial = potential(system._coulomb)
+            bondVirial = potential(system._bonded)
             atomicVirial = dispersionVirial + coulombVirial + bondVirial
 
             if self._atomicPressure or self._molecularPressure:
@@ -380,7 +372,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             if self._molecularVirial or self._molecularPressure:
                 molecularVirial = atomicVirial
                 forces = state.getForces(asNumpy=True)
-                others = context.getState(getForces=True, groups=self._computer._others)
+                others = context.getState(getForces=True, groups=system._others)
                 forces -= others.getForces(asNumpy=True)
                 forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
