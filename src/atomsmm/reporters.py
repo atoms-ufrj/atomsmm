@@ -319,24 +319,18 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
                 self._addItem(values, pressure.value_in_unit(unit.atmospheres))
 
-            if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
-                if self._needsVelocities:
-                    nm_ps = unit.nanometers/unit.picosecond
-                    velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
-                    cmVelocities = computer._mols.massFrac.dot(velocities)
-                    cmKineticEnergies = computer._mols.molMass*np.sum(cmVelocities**2, axis=1)
-                    molKinEng = np.sum(cmKineticEnergies)*unit.dalton*nm_ps**2
-
             if self._molecularVirial or self._molecularPressure:
                 forces = state.getForces(asNumpy=True)
                 molecularVirial = computer.get_molecular_virial(forces)
                 if self._molecularVirial:
                     self._addItem(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))
                 if self._molecularPressure:
+                    molKinEng = computer.get_molecular_kinetic_energy()
                     dNkT = molKinEng if self._kT is None else 3*computer._mols.nmols*self._kT
                     pressure = (dNkT + molecularVirial)*vfactor
                     self._addItem(values, pressure.value_in_unit(unit.atmospheres))
                 if self._molecularKineticEnergy:
+                    molKinEng = computer.get_molecular_kinetic_energy()
                     self._addItem(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
 
         if self._globalParameterStates is not None:

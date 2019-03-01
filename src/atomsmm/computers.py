@@ -59,11 +59,15 @@ class VirialComputer(openmm.Context):
     def _get_potential(self, groups):
         return self.getState(getEnergy=True, groups=groups).getPotentialEnergy()
 
+    def _get_velocities(self):
+        return self.getState(getVelocities=True).getVelocities(asNumpy=True)
+
     def _make_obsolete(self):
         self._bond_virial = None
         self._coulomb_virial = None
         self._dispersion_virial = None
         self._molecular_virial = None
+        self._molecular_kinetic_energy = None
 
     def get_atomic_virial(self):
         return self.get_bond_virial() + self.get_coulomb_virial() + self.get_dispersion_virial()
@@ -72,6 +76,14 @@ class VirialComputer(openmm.Context):
         if self._bond_virial is None:
             self._bond_virial = self._get_potential(self._system._bonded)
         return self._bond_virial
+
+    def get_molecular_kinetic_energy(self):
+        if self._molecular_kinetic_energy is None:
+            velocities = self._get_velocities().value_in_unit(unit.nanometers/unit.picosecond)
+            vcm = self._mols.massFrac.dot(velocities)
+            Kcm = self._mols.molMass*np.sum(vcm**2, axis=1)
+            self._molecular_kinetic_energy = np.sum(Kcm)*unit.kilojoules_per_mole
+        return self._molecular_kinetic_energy
 
     def get_coulomb_virial(self):
         if self._coulomb_virial is None:
@@ -101,4 +113,5 @@ class VirialComputer(openmm.Context):
     def import_configuration(self, state):
         self.setPeriodicBoxVectors(*state.getPeriodicBoxVectors())
         self.setPositions(state.getPositions())
+        self.setVelocities(state.getVelocities())
         self._make_obsolete()
