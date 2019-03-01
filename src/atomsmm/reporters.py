@@ -322,24 +322,15 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                     self._mols = _MoleculeTotalizer(simulation)
                 self._requiresInitialization = False
 
-            context = self._virial_computer
-            box = state.getPeriodicBoxVectors()
-            context.setPeriodicBoxVectors(*box)
-            positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
-            context.setPositions(positions)
+            computer = self._virial_computer
+            computer.import_configuration(state)
 
-            def potential(groups):
-                groupState = context.getState(getEnergy=True, groups=groups)
-                return groupState.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
-
-            system = self._virial_computer._system
-            dispersionVirial = potential(system._dispersion)
-            coulombVirial = potential(system._coulomb)
-            bondVirial = potential(system._bonded)
-            atomicVirial = dispersionVirial + coulombVirial + bondVirial
+            dispersionVirial = computer.get_dispersion_virial().value_in_unit(unit.kilojoules_per_mole)
+            coulombVirial = computer.get_coulomb_virial().value_in_unit(unit.kilojoules_per_mole)
+            atomicVirial = computer.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
 
             if self._atomicPressure or self._molecularPressure:
-                volume = box[0][0]*box[1][1]*box[2][2]
+                volume = computer.get_volume()
                 vfactor = 1/(3*volume*unit.AVOGADRO_CONSTANT_NA)
 
             if self._coulombEnergy:
@@ -356,11 +347,12 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 if self._kT is None:
                     dNkT = 2*state.getKineticEnergy()
                 else:
-                    dNkT = 3*context.getSystem().getNumParticles()*self._kT
+                    dNkT = 3*computer.getSystem().getNumParticles()*self._kT
                 pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
                 self._addItem(values, pressure.value_in_unit(unit.atmospheres))
 
             if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
+                positions = computer.get_positions().value_in_unit(unit.nanometers)
                 cmPositions = self._mols.massFrac.dot(positions)
                 if self._needsVelocities:
                     nm_ps = unit.nanometers/unit.picosecond
@@ -372,7 +364,8 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             if self._molecularVirial or self._molecularPressure:
                 molecularVirial = atomicVirial
                 forces = state.getForces(asNumpy=True)
-                others = context.getState(getForces=True, groups=system._others)
+                # CHANGE HERE (define class function):
+                others = computer.getState(getForces=True, groups=computer._system._others)
                 forces -= others.getForces(asNumpy=True)
                 forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
                 molecularVirial -= np.sum(positions*forces)
