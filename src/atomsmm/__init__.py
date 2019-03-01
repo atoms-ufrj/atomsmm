@@ -1,6 +1,6 @@
 __version__ = '0.1.0'
 
-from .computers import VirialComputer  # noqa: F401
+from .computers import PressureComputer  # noqa: F401
 from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401
 from .forces import NearExceptionForce  # noqa: F401
@@ -38,7 +38,7 @@ from .utils import hijackForce  # noqa: F401
 from .utils import splitPotentialEnergy  # noqa: F401
 
 __computers__ = [
-    'VirialComputer',
+    'PressureComputer',
 ]
 
 __forces__ = [

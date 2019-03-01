@@ -18,7 +18,7 @@ from simtk import openmm
 from simtk import unit
 from simtk.openmm import app
 
-from .computers import VirialComputer
+from .computers import PressureComputer
 from .computers import _MoleculeTotalizer
 from .utils import InputError
 
@@ -218,11 +218,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             A DataFrame containing context global parameters (column names) and sets of values
             thereof. If it is provided, then the potential energy will be reported for every state
             these parameters define.
-        virial_computer : :class:`~atomsmm.computers.VirialComputer`, optional, default=None
-            A computer designed to determine the internal virial. This is mandatory if any keyword
+        pressure_computer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
+            A computer designed to determine pressures and virials. This is mandatory if any keyword
             related to virial or pressure is set as `True`.
-        bathTemperature : unit.Quantity, optional, default=None
-            The temperature of the heat bath, used to compute atomic and molecular pressures.
         extraFile : str or file, optional, default=None
             Extra file to write to, specified as a file name or a file object.
 
@@ -236,9 +234,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
-        self._virial_computer = kwargs.pop('virial_computer', None)
-        temp = kwargs.pop('bathTemperature', None)
-        self._kT = None if temp is None else unit.MOLAR_GAS_CONSTANT_R*temp
+        self._pressure_computer = kwargs.pop('pressure_computer', None)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
             super().__init__(file, reportInterval, **kwargs)
@@ -252,12 +248,13 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                                self._molecularPressure,
                                self._molecularKineticEnergy])
         if self._computing:
-            if self._virial_computer is not None and not isinstance(self._virial_computer, VirialComputer):
-                raise InputError('keyword "virial_computer" requires a VirialComputer instance')
+            if self._pressure_computer is not None and not isinstance(self._pressure_computer, PressureComputer):
+                raise InputError('keyword "pressure_computer" requires a PressureComputer instance')
             self._needsPositions = True
-            self._needsForces = self._molecularVirial
-            self._needsVelocities = any([self._molecularPressure and self._kT is None,
-                                         self._atomicPressure and self._kT is None,
+            self._needsForces = self._needsForces or self._molecularVirial
+            self._needsVelocities = any([self._needsVelocities,
+                                         self._molecularPressure,
+                                         self._atomicPressure,
                                          self._molecularKineticEnergy])
         self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
 
@@ -291,47 +288,31 @@ class ExtendedStateDataReporter(app.StateDataReporter):
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
         if self._computing:
-            computer = self._virial_computer
+            computer = self._pressure_computer
             computer.import_configuration(state)
-
             atomicVirial = computer.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
-
-            if self._atomicPressure or self._molecularPressure:
-                volume = computer.get_volume()
-                vfactor = 1/(3*volume*unit.AVOGADRO_CONSTANT_NA)
-
             if self._coulombEnergy:
                 coulombVirial = computer.get_coulomb_virial()
                 self._addItem(values, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
-
             if self._atomicVirial:
                 self._addItem(values, atomicVirial)
-
             if self._nonbondedVirial:
                 nonbondedVirial = computer.get_dispersion_virial() + computer.get_coulomb_virial()
                 self._addItem(values, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
-
             if self._atomicPressure:
-                if self._kT is None:
-                    dNkT = 2*state.getKineticEnergy()
-                else:
-                    dNkT = 3*computer.getSystem().getNumParticles()*self._kT
-                pressure = (dNkT + atomicVirial*unit.kilojoules_per_mole)*vfactor
-                self._addItem(values, pressure.value_in_unit(unit.atmospheres))
-
+                atomicPressure = computer.get_atomic_pressure()
+                self._addItem(values, atomicPressure.value_in_unit(unit.atmospheres))
             if self._molecularVirial or self._molecularPressure:
                 forces = state.getForces(asNumpy=True)
-                molecularVirial = computer.get_molecular_virial(forces)
                 if self._molecularVirial:
+                    molecularVirial = computer.get_molecular_virial(forces)
                     self._addItem(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))
                 if self._molecularPressure:
-                    molKinEng = computer.get_molecular_kinetic_energy()
-                    dNkT = molKinEng if self._kT is None else 3*computer._mols.nmols*self._kT
-                    pressure = (dNkT + molecularVirial)*vfactor
-                    self._addItem(values, pressure.value_in_unit(unit.atmospheres))
-                if self._molecularKineticEnergy:
-                    molKinEng = computer.get_molecular_kinetic_energy()
-                    self._addItem(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
+                    molecularPressure = computer.get_molecular_pressure(forces)
+                    self._addItem(values, molecularPressure.value_in_unit(unit.atmospheres))
+            if self._molecularKineticEnergy:
+                molKinEng = computer.get_molecular_kinetic_energy()
+                self._addItem(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
 
         if self._globalParameterStates is not None:
             original = dict()

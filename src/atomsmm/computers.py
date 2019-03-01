@@ -32,10 +32,10 @@ class _MoleculeTotalizer(object):
 
         selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
         system = context.getSystem()
-        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
-        molMass = self.molMass = selection.dot(mass)
+        self.mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
+        molMass = self.molMass = selection.dot(self.mass)
         total = selection.T.dot(molMass)
-        self.massFrac = sparseMatrix(mass/total)
+        self.massFrac = sparseMatrix(self.mass/total)
 
         atomResidues = {}
         for atom in topology.atoms():
@@ -43,11 +43,12 @@ class _MoleculeTotalizer(object):
         self.residues = [atomResidues[item[0]] for item in molecules]
 
 
-class VirialComputer(openmm.Context):
-    def __init__(self, system, topology, platform, properties=dict(), **kwargs):
+class PressureComputer(openmm.Context):
+    def __init__(self, system, topology, platform, properties=dict(), temperature=None, **kwargs):
         self._system = atomsmm.ComputingSystem(system, **kwargs)
         super().__init__(self._system, openmm.CustomIntegrator(0), platform, properties)
         self._mols = _MoleculeTotalizer(self, topology)
+        self._kT = None if temperature is None else unit.MOLAR_GAS_CONSTANT_R*temperature
         self._make_obsolete()
 
     def _get_forces(self, groups):
@@ -62,12 +63,25 @@ class VirialComputer(openmm.Context):
     def _get_velocities(self):
         return self.getState(getVelocities=True).getVelocities(asNumpy=True)
 
+    def _get_volume(self):
+        box = self.getState().getPeriodicBoxVectors()
+        return box[0][0]*box[1][1]*box[2][2]*unit.AVOGADRO_CONSTANT_NA
+
     def _make_obsolete(self):
         self._bond_virial = None
         self._coulomb_virial = None
         self._dispersion_virial = None
         self._molecular_virial = None
         self._molecular_kinetic_energy = None
+
+    def get_atomic_pressure(self):
+        if self._kT is None:
+            velocities = self._get_velocities().value_in_unit(unit.nanometers/unit.picosecond)
+            mvv = self._mols.mass*np.sum(velocities**2, axis=1)
+            dNkT = np.sum(mvv)*unit.kilojoules_per_mole
+        else:
+            dNkT = 3*self._mols.natoms*self._kT
+        return (dNkT + self.get_atomic_virial())/(3*self._get_volume())
 
     def get_atomic_virial(self):
         return self.get_bond_virial() + self.get_coulomb_virial() + self.get_dispersion_virial()
@@ -76,14 +90,6 @@ class VirialComputer(openmm.Context):
         if self._bond_virial is None:
             self._bond_virial = self._get_potential(self._system._bonded)
         return self._bond_virial
-
-    def get_molecular_kinetic_energy(self):
-        if self._molecular_kinetic_energy is None:
-            velocities = self._get_velocities().value_in_unit(unit.nanometers/unit.picosecond)
-            vcm = self._mols.massFrac.dot(velocities)
-            Kcm = self._mols.molMass*np.sum(vcm**2, axis=1)
-            self._molecular_kinetic_energy = np.sum(Kcm)*unit.kilojoules_per_mole
-        return self._molecular_kinetic_energy
 
     def get_coulomb_virial(self):
         if self._coulomb_virial is None:
@@ -95,6 +101,21 @@ class VirialComputer(openmm.Context):
             self._dispersion_virial = self._get_potential(self._system._dispersion)
         return self._dispersion_virial
 
+    def get_molecular_kinetic_energy(self):
+        if self._molecular_kinetic_energy is None:
+            velocities = self._get_velocities().value_in_unit(unit.nanometers/unit.picosecond)
+            vcm = self._mols.massFrac.dot(velocities)
+            mvv = self._mols.molMass*np.sum(vcm**2, axis=1)
+            self._molecular_kinetic_energy = 0.5*np.sum(mvv)*unit.kilojoules_per_mole
+        return self._molecular_kinetic_energy
+
+    def get_molecular_pressure(self, forces):
+        if self._kT is None:
+            dNkT = 2.0*self.get_molecular_kinetic_energy()
+        else:
+            dNkT = 3*self._mols.nmols*self._kT
+        return (dNkT + self.get_molecular_virial(forces))/(3*self._get_volume())
+
     def get_molecular_virial(self, forces):
         if self._molecular_virial is None:
             others = self._get_forces(self._system._others)
@@ -105,10 +126,6 @@ class VirialComputer(openmm.Context):
             W = self.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
             self._molecular_virial = (W + np.sum(rcm*fcm) - np.sum(r*f))*unit.kilojoules_per_mole
         return self._molecular_virial
-
-    def get_volume(self):
-        box = self.getState().getPeriodicBoxVectors()
-        return box[0][0]*box[1][1]*box[2][2]
 
     def import_configuration(self, state):
         self.setPeriodicBoxVectors(*state.getPeriodicBoxVectors())
