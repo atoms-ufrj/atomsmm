@@ -1,5 +1,6 @@
 __version__ = '0.1.0'
 
+from .computers import VirialComputer  # noqa: F401
 from .forces import DampedSmoothedForce  # noqa: F401
 from .forces import FarNonbondedForce  # noqa: F401
 from .forces import NearExceptionForce  # noqa: F401
@@ -35,6 +36,10 @@ from .utils import countDegreesOfFreedom  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
 from .utils import hijackForce  # noqa: F401
 from .utils import splitPotentialEnergy  # noqa: F401
+
+__computers__ = [
+    'VirialComputer',
+]
 
 __forces__ = [
     'DampedSmoothedForce',
@@ -89,4 +94,4 @@ __utils__ = [
     'splitPotentialEnergy',
     ]  # noqa E123
 
-__all__ = __forces__ + __integrators__ + __propagators__ + __reporters__ + __systems__ + __utils__
+__all__ = __computers__ + __forces__ + __integrators__ + __propagators__ + __reporters__ + __systems__ + __utils__
