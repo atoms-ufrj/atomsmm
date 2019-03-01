@@ -44,47 +44,50 @@ class _MoleculeTotalizer(object):
 
 
 class VirialComputer(openmm.Context):
-    def __init__(self, system, topology, positions, platform, properties=dict(), **kwargs):
-        integrator = openmm.CustomIntegrator(0)
+    def __init__(self, system, topology, platform, properties=dict(), **kwargs):
         self._system = atomsmm.ComputingSystem(system, **kwargs)
-        self._positions = positions
-        self._box = system.getDefaultPeriodicBoxVectors()
-        super().__init__(self._system, integrator, platform, properties)
-        self.setPositions(positions)
+        super().__init__(self._system, openmm.CustomIntegrator(0), platform, properties)
+        self._mols = _MoleculeTotalizer(self, topology)
+        self._make_obsolete()
+
+    def _get_forces(self, groups):
+        return self.getState(getForces=True, groups=groups).getForces(asNumpy=True)
+
+    def _get_positions(self):
+        return self.getState(getPositions=True).getPositions(asNumpy=True)
+
+    def _get_potential(self, groups):
+        return self.getState(getEnergy=True, groups=groups).getPotentialEnergy()
+
+    def _make_obsolete(self):
         self._bond_virial = None
         self._coulomb_virial = None
         self._dispersion_virial = None
         self._molecular_virial = None
-        self._mols = _MoleculeTotalizer(self, topology)
-
-    def _potential(self, groups):
-        groupState = self.getState(getEnergy=True, groups=groups)
-        return groupState.getPotentialEnergy()
 
     def get_atomic_virial(self):
         return self.get_bond_virial() + self.get_coulomb_virial() + self.get_dispersion_virial()
 
     def get_bond_virial(self):
         if self._bond_virial is None:
-            self._bond_virial = self._potential(self._system._bonded)
+            self._bond_virial = self._get_potential(self._system._bonded)
         return self._bond_virial
 
     def get_coulomb_virial(self):
         if self._coulomb_virial is None:
-            self._coulomb_virial = self._potential(self._system._coulomb)
+            self._coulomb_virial = self._get_potential(self._system._coulomb)
         return self._coulomb_virial
 
     def get_dispersion_virial(self):
         if self._dispersion_virial is None:
-            self._dispersion_virial = self._potential(self._system._dispersion)
+            self._dispersion_virial = self._get_potential(self._system._dispersion)
         return self._dispersion_virial
 
     def get_molecular_virial(self, forces):
         if self._molecular_virial is None:
-            state = self.getState(getForces=True, groups=self._system._others)
-            others = state.getForces(asNumpy=True)
+            others = self._get_forces(self._system._others)
             f = (forces - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
-            r = self.get_positions().value_in_unit(unit.nanometers)
+            r = self._get_positions().value_in_unit(unit.nanometers)
             fcm = self._mols.selection.dot(f)
             rcm = self._mols.massFrac.dot(r)
             W = self.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
@@ -92,17 +95,10 @@ class VirialComputer(openmm.Context):
         return self._molecular_virial
 
     def get_volume(self):
-        return self._box[0][0]*self._box[1][1]*self._box[2][2]
-
-    def get_positions(self):
-        return self._positions
+        box = self.getState().getPeriodicBoxVectors()
+        return box[0][0]*box[1][1]*box[2][2]
 
     def import_configuration(self, state):
-        self._box = state.getPeriodicBoxVectors()
-        self._positions = state.getPositions(asNumpy=True)
-        self.setPeriodicBoxVectors(*self._box)
-        self.setPositions(self._positions)
-        self._bond_virial = None
-        self._coulomb_virial = None
-        self._dispersion_virial = None
-        self._molecular_virial = None
+        self.setPeriodicBoxVectors(*state.getPeriodicBoxVectors())
+        self.setPositions(state.getPositions())
+        self._make_obsolete()
