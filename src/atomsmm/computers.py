@@ -9,9 +9,38 @@
 
 """
 
+import itertools
+
+import numpy as np
+from scipy import sparse
 from simtk import openmm
+from simtk import unit
 
 import atomsmm
+
+
+class _MoleculeTotalizer(object):
+    def __init__(self, simulation):
+        molecules = simulation.context.getMolecules()
+        atoms = list(itertools.chain.from_iterable(molecules))
+        nmols = self.nmols = len(molecules)
+        natoms = self.natoms = len(atoms)
+        mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
+
+        def sparseMatrix(data):
+            return sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
+
+        selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
+        system = simulation.context.getSystem()
+        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
+        molMass = self.molMass = selection.dot(mass)
+        total = selection.T.dot(molMass)
+        self.massFrac = sparseMatrix(mass/total)
+
+        atomResidues = {}
+        for atom in simulation.topology.atoms():
+            atomResidues[int(atom.index)-1] = atom.residue.name
+        self.residues = [atomResidues[item[0]] for item in molecules]
 
 
 class VirialComputer(openmm.Context):

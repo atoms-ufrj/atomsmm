@@ -10,42 +10,17 @@
 
 """
 
-import itertools
 import sys
 
 import numpy as np
 import pandas as pd
-from scipy import sparse
 from simtk import openmm
 from simtk import unit
 from simtk.openmm import app
 
 from .computers import VirialComputer
+from .computers import _MoleculeTotalizer
 from .utils import InputError
-
-
-class _MoleculeTotalizer(object):
-    def __init__(self, simulation):
-        molecules = simulation.context.getMolecules()
-        atoms = list(itertools.chain.from_iterable(molecules))
-        nmols = self.nmols = len(molecules)
-        natoms = self.natoms = len(atoms)
-        mol = sum([[i]*len(molecule) for i, molecule in enumerate(molecules)], [])
-
-        def sparseMatrix(data):
-            return sparse.csr_matrix((data, (mol, atoms)), shape=(nmols, natoms))
-
-        selection = self.selection = sparseMatrix(np.ones(natoms, np.int))
-        system = simulation.context.getSystem()
-        mass = np.array([system.getParticleMass(i).value_in_unit(unit.dalton) for i in range(natoms)])
-        molMass = self.molMass = selection.dot(mass)
-        total = selection.T.dot(molMass)
-        self.massFrac = sparseMatrix(mass/total)
-
-        atomResidues = {}
-        for atom in simulation.topology.atoms():
-            atomResidues[int(atom.index)-1] = atom.residue.name
-        self.residues = [atomResidues[item[0]] for item in molecules]
 
 
 class _MultiStream:
@@ -325,8 +300,6 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             computer = self._virial_computer
             computer.import_configuration(state)
 
-            dispersionVirial = computer.get_dispersion_virial().value_in_unit(unit.kilojoules_per_mole)
-            coulombVirial = computer.get_coulomb_virial().value_in_unit(unit.kilojoules_per_mole)
             atomicVirial = computer.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
 
             if self._atomicPressure or self._molecularPressure:
@@ -334,14 +307,15 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 vfactor = 1/(3*volume*unit.AVOGADRO_CONSTANT_NA)
 
             if self._coulombEnergy:
-                self._addItem(values, coulombVirial)
+                coulombVirial = computer.get_coulomb_virial()
+                self._addItem(values, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
 
             if self._atomicVirial:
                 self._addItem(values, atomicVirial)
 
             if self._nonbondedVirial:
-                nonbondedVirial = dispersionVirial + coulombVirial
-                self._addItem(values, nonbondedVirial)
+                nonbondedVirial = computer.get_dispersion_virial() + computer.get_coulomb_virial()
+                self._addItem(values, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
 
             if self._atomicPressure:
                 if self._kT is None:
