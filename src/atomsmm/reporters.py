@@ -254,7 +254,6 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         if self._computing:
             if self._virial_computer is not None and not isinstance(self._virial_computer, VirialComputer):
                 raise InputError('keyword "virial_computer" requires a VirialComputer instance')
-            self._requiresInitialization = True
             self._needsPositions = True
             self._needsForces = self._molecularVirial
             self._needsVelocities = any([self._molecularPressure and self._kT is None,
@@ -292,11 +291,6 @@ class ExtendedStateDataReporter(app.StateDataReporter):
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
         if self._computing:
-            if self._requiresInitialization:
-                if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
-                    self._mols = _MoleculeTotalizer(simulation)
-                self._requiresInitialization = False
-
             computer = self._virial_computer
             computer.import_configuration(state)
 
@@ -326,30 +320,21 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 self._addItem(values, pressure.value_in_unit(unit.atmospheres))
 
             if self._molecularVirial or self._molecularPressure or self._molecularKineticEnergy:
-                positions = computer.get_positions().value_in_unit(unit.nanometers)
-                cmPositions = self._mols.massFrac.dot(positions)
                 if self._needsVelocities:
                     nm_ps = unit.nanometers/unit.picosecond
                     velocities = state.getVelocities(asNumpy=True).value_in_unit(nm_ps)
-                    cmVelocities = self._mols.massFrac.dot(velocities)
-                    cmKineticEnergies = self._mols.molMass*np.sum(cmVelocities**2, axis=1)
+                    cmVelocities = computer._mols.massFrac.dot(velocities)
+                    cmKineticEnergies = computer._mols.molMass*np.sum(cmVelocities**2, axis=1)
                     molKinEng = np.sum(cmKineticEnergies)*unit.dalton*nm_ps**2
 
             if self._molecularVirial or self._molecularPressure:
-                molecularVirial = atomicVirial
                 forces = state.getForces(asNumpy=True)
-                # CHANGE HERE (define class function):
-                others = computer.getState(getForces=True, groups=computer._system._others)
-                forces -= others.getForces(asNumpy=True)
-                forces = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
-                molecularVirial -= np.sum(positions*forces)
-                resultantForces = self._mols.selection.dot(forces)
-                molecularVirial += np.sum(cmPositions*resultantForces)
+                molecularVirial = computer.get_molecular_virial(forces)
                 if self._molecularVirial:
-                    self._addItem(values, molecularVirial)
+                    self._addItem(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))
                 if self._molecularPressure:
-                    dNkT = molKinEng if self._kT is None else 3*self._mols.nmols*self._kT
-                    pressure = (dNkT + molecularVirial*unit.kilojoules_per_mole)*vfactor
+                    dNkT = molKinEng if self._kT is None else 3*computer._mols.nmols*self._kT
+                    pressure = (dNkT + molecularVirial)*vfactor
                     self._addItem(values, pressure.value_in_unit(unit.atmospheres))
                 if self._molecularKineticEnergy:
                     self._addItem(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
@@ -385,7 +370,7 @@ class CenterOfMassReporter(_AtomsMM_Reporter):
         self._needsPositions = True
 
     def _initialize(self, simulation, state):
-        self._mols = _MoleculeTotalizer(simulation)
+        self._mols = _MoleculeTotalizer(simulation.context, simulation.topology)
 
     def _generateReport(self, simulation, state):
         positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
