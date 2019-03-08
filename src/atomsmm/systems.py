@@ -201,28 +201,25 @@ class ComputingSystem(_AtomsMM_System):
         for force in system.getForces():
             if isinstance(force, openmm.NonbondedForce) and force.getNumParticles() > 0:
                 nonbonded = copy.deepcopy(force)
-                nonbonded.setForceGroup(coulombGroup)
-                nonbonded.setReciprocalSpaceForceGroup(coulombGroup)
-                self.addForce(nonbonded)
                 expression = '24*epsilon*(2*(sigma/r)^12-(sigma/r)^6)'
-                expression += '; sigma=0.5*(sigma1+sigma2)'
-                expression += '; epsilon=sqrt(epsilon1*epsilon2)'
                 virial = atomsmm.forces._AtomsMM_CustomNonbondedForce(expression)
                 virial.importFrom(nonbonded)
                 virial.setForceGroup(dispersionGroup)
                 self.addForce(virial)
                 exceptions = atomsmm.forces._AtomsMM_CustomBondForce(expression)
-                for index in range(nonbonded.getNumExceptions()):
-                    i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
-                    if epsilon/epsilon.unit != 0.0:
-                        exceptions.addBond(i, j, [sigma, epsilon])
-                        nonbonded.setExceptionParameters(index, i, j, chargeprod, 1.0, 0.0)
+                exceptions.importFrom(nonbonded, extract=False)
                 if exceptions.getNumBonds() > 0:
                     exceptions.setForceGroup(dispersionGroup)
                     self.addForce(exceptions)
                 for index in range(nonbonded.getNumParticles()):
                     charge, _, _ = nonbonded.getParticleParameters(index)
                     nonbonded.setParticleParameters(index, charge, 1.0, 0.0)
+                for index in range(nonbonded.getNumExceptions()):
+                    i, j, charge, _, _ = nonbonded.getExceptionParameters(index)
+                    nonbonded.setExceptionParameters(index, i, j, charge, 1.0, 0.0)
+                nonbonded.setForceGroup(coulombGroup)
+                nonbonded.setReciprocalSpaceForceGroup(coulombGroup)
+                self.addForce(nonbonded)
             elif isinstance(force, openmm.HarmonicBondForce) and force.getNumBonds() > 0:
                 bondforce = openmm.CustomBondForce('-K*r*(r-r0)')
                 bondforce.addPerBondParameter('r0')
