@@ -586,9 +586,14 @@ class RespaPropagator(Propagator):
             then no shell propagators will be applied. Dictionary keys must be integers from `0` to
             `N-1` and omitted keys mean that no shell propagators will be considered at those
             particular loop levels.
+        has_memory : bool, optional, default=True
+            If `True`, integration in the fastest time scale remembers the lattest forces computed
+            in all other time scales. To compensate, each remembered force is substracted during the
+            integration in its respective time scale. **Warning**: this integration scheme is not
+            time-reversal symmetric.
 
     """
-    def __init__(self, loops, move=None, boost=None, core=None, shell=None):
+    def __init__(self, loops, move=None, boost=None, core=None, shell=None, has_memory=False):
         super().__init__()
         self.loops = loops
         self.N = len(loops)
@@ -600,7 +605,7 @@ class RespaPropagator(Propagator):
         elif set(shell.keys()).issubset(range(self.N)):
             self.shell = shell
         else:
-            raise InputError('invalid key(s) in RespaPropagator argument shell')
+            raise InputError('invalid key(s) in RespaPropagator \'shell\' argument')
         for propagator in [self.move, self.boost, self.core] + list(self.shell.values()):
             if propagator is not None:
                 self.absorbVariables(propagator)
@@ -608,13 +613,23 @@ class RespaPropagator(Propagator):
             if n > 1:
                 self.globalVariables['n{}RESPA'.format(i)] = 0
         self.force = ['f{}'.format(group) for group in range(self.N)]
+        self._has_memory = has_memory
+        if self._has_memory:
+            for group in range(1, self.N):
+                self.perDofVariables['F{}'.format(group)] = 0.0
+                self.force[0] += '+F{}'.format(group)
+                self.force[group] += '-F{}'.format(group)
+            self.force = ['({})'.format(force) for force in self.force]
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         self._addSubsteps(integrator, self.N-1, fraction)
 
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         shell and shell.addSteps(integrator, 0.5*fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
+        if self._has_memory and timescale > 0:
+            integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+        else:
+            self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         self._addSubsteps(integrator, timescale-1, fraction)
         self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         shell and shell.addSteps(integrator, 0.5*fraction)
@@ -640,8 +655,32 @@ class RespaPropagator(Propagator):
 
 class BlitzRespaPropagator(RespaPropagator):
     def _internalSplitting(self, integrator, timescale, fraction, shell):
-        self.boost.addSteps(integrator, fraction, self.force[timescale])
+        if self._has_memory and timescale > 0:
+            integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+        else:
+            self.boost.addSteps(integrator, fraction, self.force[timescale])
         self._addSubsteps(integrator, timescale-1, fraction)
+
+
+class MemoryRespaPropagator(RespaPropagator):
+    def __init__(self, loops, move=None, boost=None, core=None, shell=None):
+        super().__init__(loops, move, boost, core, shell)
+        for group in range(1, self.N):
+            self.perDofVariables['F{}'.format(group)] = 0.0
+            self.force[0] += '+F{}'.format(group)
+            self.force[group] += '-F{}'.format(group)
+        for group in range(self.N):
+            self.force[group] = '({})'.format(self.force[group])
+
+    def _internalSplitting(self, integrator, timescale, fraction, shell):
+        shell and shell.addSteps(integrator, 0.5*fraction)
+        if timescale == 0:
+            self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
+        else:
+            integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+        self._addSubsteps(integrator, timescale-1, fraction)
+        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
+        shell and shell.addSteps(integrator, 0.5*fraction)
 
 
 class VelocityVerletPropagator(Propagator):
