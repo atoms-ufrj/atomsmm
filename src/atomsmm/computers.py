@@ -232,8 +232,7 @@ class PressureComputer(openmm.Context):
                 contains the force on the i-th particle.
 
         """
-        others = self._get_forces(self._system._others)
-        f = (forces - others).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+        f = forces.value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
         r = self._get_positions().value_in_unit(unit.nanometers)
         fcm = self._mols.selection.dot(f)
         rcm = self._mols.massFrac.dot(r)
