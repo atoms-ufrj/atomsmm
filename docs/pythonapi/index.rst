@@ -4,6 +4,7 @@ Python API
 .. toctree::
     :glob:
 
+    computers
     forces
     integrators
     propagators

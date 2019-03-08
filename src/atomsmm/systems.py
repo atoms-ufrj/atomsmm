@@ -190,7 +190,7 @@ class ComputingSystem(_AtomsMM_System):
             The original system from which to generate the ComputingSystem.
 
     """
-    def __init__(self, system, **kwargs):
+    def __init__(self, system):
         super().__init__(system, copyForces=False)
         if system.getNumConstraints() > 0:
             raise RuntimeError('virial/pressure computation not supported for system with constraints')
