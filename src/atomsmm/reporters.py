@@ -251,7 +251,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             if self._pressure_computer is not None and not isinstance(self._pressure_computer, PressureComputer):
                 raise InputError('keyword "pressure_computer" requires a PressureComputer instance')
             self._needsPositions = True
-            self._needsForces = self._needsForces or self._molecularVirial
+            self._needsForces = any([self._needsForces,
+                                     self._molecularVirial,
+                                     self._molecularPressure])
             self._needsVelocities = any([self._needsVelocities,
                                          self._molecularPressure,
                                          self._atomicPressure,
