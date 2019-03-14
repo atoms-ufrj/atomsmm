@@ -28,7 +28,7 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
         self.addGlobalVariable('NDOF', 0.0)
         self.addPerDofVariable('ndof', 0.0)
         self._obsoleteKinetic = True
-        self._forceFinder = re.compile('f[0-9]*')
+        self._forceFinder = re.compile('^f[0-9]+$|^f$')
         self._obsoleteContextState = True
         self._random = np.random.RandomState()
         self._uninitialized = True
