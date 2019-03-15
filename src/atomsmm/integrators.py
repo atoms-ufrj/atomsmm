@@ -244,12 +244,12 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
         if nsy > 1:
             bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
         if scheme == 'middle':
-            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
+            propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
         elif scheme == 'blitz':
             propagator = propagators.BlitzRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
         elif scheme in ['xi-respa', 'xo-respa', 'side']:
             level = location if scheme == 'side' else (0 if scheme == 'xi-respa' else len(loops)-1)
-            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, shell={level: bath}, has_memory=has_memory)
+            propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, shell={level: bath}, has_memory=has_memory)
         else:
             raise InputError('wrong value of scheme parameter')
         propagator.addVariables(self)
