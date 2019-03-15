@@ -244,7 +244,8 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
         if nsy > 1:
             bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
         if scheme == 'middle':
-            propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
+            # propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
+            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath)
         elif scheme == 'blitz':
             propagator = propagators.BlitzRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
         elif scheme in ['xi-respa', 'xo-respa', 'side']:
