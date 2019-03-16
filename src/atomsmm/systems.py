@@ -77,7 +77,7 @@ class RESPASystem(openmm.System):
                     self._addCustomBondForce(ljc_potential, 0, force, extract=True)
                 else:
                     self._addCustomBondForce(near_potential, 1, force)
-                    self._addCustomBondForce(minus_near_potential, 1, force)
+                    self._addCustomBondForce(minus_near_potential, 2, force)
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
