@@ -593,123 +593,6 @@ class RespaPropagator(Propagator):
             time-reversal symmetric.
 
     """
-    def __init__(self, loops, move=None, boost=None, core=None, shell=None):
-        super().__init__()
-        self.loops = loops
-        self.N = len(loops)
-        self.move = TranslationPropagator(constrained=False) if move is None else move
-        self.boost = VelocityBoostPropagator(constrained=False) if boost is None else boost
-        self.core = core
-        if shell is None:
-            self.shell = dict()
-        elif set(shell.keys()).issubset(range(self.N)):
-            self.shell = shell
-        else:
-            raise InputError('invalid key(s) in RespaPropagator \'shell\' argument')
-        for propagator in [self.move, self.boost, self.core] + list(self.shell.values()):
-            if propagator is not None:
-                self.absorbVariables(propagator)
-        for (i, n) in enumerate(self.loops):
-            if n > 1:
-                self.globalVariables['n{}RESPA'.format(i)] = 0
-        self.force = ['f{}'.format(group) for group in range(self.N)]
-
-    def addSteps(self, integrator, fraction=1.0, force='f'):
-        self._addSubsteps(integrator, self.N-1, fraction)
-
-    def _internalSplitting(self, integrator, timescale, fraction, shell):
-        shell and shell.addSteps(integrator, 0.5*fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
-        self._addSubsteps(integrator, timescale-1, fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
-        shell and shell.addSteps(integrator, 0.5*fraction)
-
-    def _addSubsteps(self, integrator, timescale, fraction):
-        if timescale >= 0:
-            n = self.loops[timescale]
-            if n > 1:
-                counter = 'n{}RESPA'.format(timescale)
-                integrator.addComputeGlobal(counter, '0')
-                integrator.beginWhileBlock('{} < {}'.format(counter, n))
-            self._internalSplitting(integrator, timescale, fraction/n, self.shell.get(timescale, None))
-            if n > 1:
-                integrator.addComputeGlobal(counter, '{} + 1'.format(counter))
-                integrator.endBlock()
-        elif self.core is None:
-            self.move.addSteps(integrator, fraction)
-        else:
-            self.move.addSteps(integrator, 0.5*fraction)
-            self.core.addSteps(integrator, fraction)
-            self.move.addSteps(integrator, 0.5*fraction)
-
-
-class MemoryRespaPropagator(Propagator):
-    """
-    This class implements a multiple timescale (MTS) rRESPA propagator :cite:`Tuckerman_1992`
-    with :math:`N` force groups, where group :math:`0` goes in the innermost loop (shortest
-    time step) and group :math:`N-1` goes in the outermost loop (largest time step). The complete
-    Liouville-like operator corresponding to the equations of motion is split as
-
-    .. math::
-        iL = iL_\\mathrm{move} + \\sum_{k=0}^{N-1} \\left( iL_{\\mathrm{boost}, k} \\right) +
-             iL_\\mathrm{core} + \\sum_{k=0}^{N-1} \\left( iL_{\\mathrm{shell}, k} \\right)
-
-    In this scheme, :math:`iL_\\mathrm{move}` is the only component that entails changes in the
-    atomic coordinates, while :math:`iL_{\\mathrm{boost}, k}` is the only component that depends
-    on the forces of group :math:`k`. Therefore, operator :math:`iL_\\mathrm{core}` and each
-    operator :math:`iL_{\\mathrm{shell}, k}` are reserved to changes in atomic velocities due to
-    the action of thermostats, as well as to changes in the thermostat variables themselves.
-
-    The rRESPA split can be represented recursively as
-
-    .. math::
-        e^{\\Delta t iL} = e^{\\Delta t iL_{N-1}}
-
-    where
-
-    .. math::
-        e^{\\delta t iL_k} = \\begin{cases}
-                             \\left(e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{shell}, k}}
-                                    e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
-                                    e^{\\frac{\\delta t}{n_k} iL_{k-1}}
-                                    e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{boost}, k}}
-                                    e^{\\frac{\\delta t}{2 n_k} iL_{\\mathrm{shell}, k}}
-                             \\right)^{n_k} & k \\geq 0 \\\\
-                             e^{\\frac{\\delta t}{2} iL_\\mathrm{move}}
-                             e^{\\delta t iL_\\mathrm{core}}
-                             e^{\\frac{\\delta t}{2} iL_\\mathrm{move}} & k = -1
-                             \\end{cases}
-
-    Parameters
-    ----------
-        loops : list(int)
-            A list of `N` integers, where `loops[k]` determines how many iterations of force group
-            `k` are internally executed for every iteration of force group `k+1`.
-        move : :class:`Propagator`, optional, default=None
-            A propagator used to update the coordinate of every atom based on its current velocity.
-            If it is `None`, then an unconstrained, linear translation is applied.
-        boost : :class:`Propagator`, optional, default=None
-            A propagator used to update the velocity of every atom based on the resultant force
-            acting on it. If it is `None`, then an unconstrained, linear boosting is applied.
-        core : :class:`Propagator`, optional, default=None
-            An internal propagator to be used for controlling the configurational probability
-            distribution sampled by the rRESPA scheme. This propagator will be integrated in the
-            innermost loop (shortest time step). If it is `None` (default), then no core propagator
-            will be applied.
-        shell : dict(int : :class:`Propagator`), optional, default=None
-            A dictionary of propagators to be used for controlling the configurational probability
-            distribution sampled by the rRESPA scheme. Propagator `shell[k]` will be excecuted in
-            both extremities of the loop involving forces of group `k`. If it is `None` (default),
-            then no shell propagators will be applied. Dictionary keys must be integers from `0` to
-            `N-1` and omitted keys mean that no shell propagators will be considered at those
-            particular loop levels.
-        has_memory : bool, optional, default=True
-            If `True`, integration in the fastest time scale remembers the lattest forces computed
-            in all other time scales. To compensate, each remembered force is substracted during the
-            integration in its respective time scale. **Warning**: this integration scheme is not
-            time-reversal symmetric.
-
-    """
     def __init__(self, loops, move=None, boost=None, core=None, shell=None, has_memory=False):
         super().__init__()
         self.loops = loops
@@ -770,7 +653,7 @@ class MemoryRespaPropagator(Propagator):
             self.move.addSteps(integrator, 0.5*fraction)
 
 
-class BlitzRespaPropagator(MemoryRespaPropagator):
+class BlitzRespaPropagator(RespaPropagator):
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         if self._has_memory and timescale > 0:
             integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))

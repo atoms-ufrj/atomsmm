@@ -244,13 +244,12 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
         if nsy > 1:
             bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
         if scheme == 'middle':
-            # propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
-            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath)
+            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
         elif scheme == 'blitz':
             propagator = propagators.BlitzRespaPropagator(loops, move=move, boost=boost, core=bath, has_memory=has_memory)
         elif scheme in ['xi-respa', 'xo-respa', 'side']:
             level = location if scheme == 'side' else (0 if scheme == 'xi-respa' else len(loops)-1)
-            propagator = propagators.MemoryRespaPropagator(loops, move=move, boost=boost, shell={level: bath}, has_memory=has_memory)
+            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, shell={level: bath}, has_memory=has_memory)
         else:
             raise InputError('wrong value of scheme parameter')
         propagator.addVariables(self)
@@ -305,6 +304,39 @@ class NHL_R_Integrator(MultipleTimeScaleIntegrator):
         for i in range(len(v2)):
             v2[i] = S*self._normalVec()
         self.setPerDofVariableByName('v2', v2)
+
+
+class Langevin_R_Integrator(MultipleTimeScaleIntegrator):
+    """
+    This class is an implementation of the multiple time scale Langevin (RESPA) integrator. The
+    method consists in solving the following equations for each degree of freedom (DOF) in the
+    system:
+
+    .. math::
+        & \\frac{dx}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{f}{m} - \\gamma v dt + \\sqrt{\\frac{2 \\gamma kT}{m}} dW
+
+    The equations are integrated by a reversible, multiple timescale numerical scheme.
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, frictionConstant, **kwargs):
+        bath = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
+                                                       'v', 'm', kT=kB*temperature)
+        super().__init__(stepSize, loops, None, None, bath, **kwargs)
 
 
 class SIN_R_Integrator(MultipleTimeScaleIntegrator):
