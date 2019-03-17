@@ -375,14 +375,20 @@ class XYZReporter(_AtomsMM_Reporter):
         super().__init__(file, reportInterval, **kwargs)
         self._needsPositions = True
 
+    def _initialize(self, simulation, state):
+        if self._atoms == 'all':
+            self._atoms = range(simulation.topology.getNumAtoms())
+        symbol = [atom.element.symbol for atom in simulation.topology.atoms()]
+        self._symbols = [symbol[i] for i in self._atoms]
+        self._N = len(self._atoms)
+
     def _generateReport(self, simulation, state):
         positions = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
-        atoms = range(positions.shape[0]) if self._atoms == 'all' else self._atoms
-        print(len(atoms), file=self._out)
+        print(self._N, file=self._out)
         print('# timestep: {}'.format(simulation.currentStep), file=self._out)
-        for i, atom in enumerate(atoms):
+        for symbol, atom in zip(self._symbols, self._atoms):
             xyz = '{:.4f} {:.4f} {:.4f}'.format(*positions[atom, :])
-            print(i, xyz, file=self._out)
+            print(symbol, xyz, file=self._out)
 
 
 class CustomIntegratorReporter(_AtomsMM_Reporter):
