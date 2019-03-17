@@ -235,6 +235,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
         self._pressure_computer = kwargs.pop('pressure_computer', None)
+        self._time_scales = kwargs.pop('time_scales', 1)
+        if self._time_scales > 2:
+            self._potential_energy = kwargs.pop('potentialEnergy', False)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
             super().__init__(file, reportInterval, **kwargs)
@@ -268,6 +271,8 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
+        if self._time_scales > 2 and self._potential_energy:
+            self._addItem(headers, 'Potential Energy (kJ/mole)')
         if self._coulombEnergy:
             self._addItem(headers, 'Coulomb Energy (kJ/mole)')
         if self._atomicVirial:
@@ -289,6 +294,10 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
+        if self._time_scales > 2 and self._potential_energy:
+            groups = 1 + 2**(self._time_scales - 1)
+            energy = simulation.context.getState(getEnergy=True, groups=groups).getPotentialEnergy()
+            self._addItem(values, energy.value_in_unit(unit.kilojoules_per_mole))
         if self._computing:
             computer = self._pressure_computer
             computer.import_configuration(state)
@@ -305,7 +314,11 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                 atomicPressure = computer.get_atomic_pressure()
                 self._addItem(values, atomicPressure.value_in_unit(unit.atmospheres))
             if self._molecularVirial or self._molecularPressure:
-                forces = state.getForces(asNumpy=True)
+                if self._time_scales > 2:
+                    groups = 1 + 2**(self._time_scales - 1)
+                    forces = simulation.context.getState(getForces=True, groups=groups).getForces(asNumpy=True)
+                else:
+                    forces = state.getForces(asNumpy=True)
                 if self._molecularVirial:
                     molecularVirial = computer.get_molecular_virial(forces)
                     self._addItem(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))

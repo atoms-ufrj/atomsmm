@@ -73,9 +73,8 @@ def test_RESPASystem():
     potential['Reciprocal-Space'] = -76436.3982762784
     potential['CustomNonbondedForce'] = -64.67189605331785
     potential['CustomNonbondedForce(1)'] = -17294.836032921234
-    potential['CustomNonbondedForce(2)'] = 17294.836032921194
     potential['CustomBondForce'] = 112.25315524350334
-    potential['Total'] = -15299.377781942032
+    potential['Total'] = -32594.213814863226
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
 
@@ -100,9 +99,8 @@ def test_RESPASystem_with_exception_offsets():
     potential['Reciprocal-Space'] = -76436.3982762784
     potential['CustomNonbondedForce'] = -64.67189605331785
     potential['CustomNonbondedForce(1)'] = -17294.836032921234
-    potential['CustomNonbondedForce(2)'] = 17294.836032921194
     potential['CustomBondForce'] = 72.25414937535754
-    potential['Total'] = -15299.377781942048
+    potential['Total'] = -32594.213814863244
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
 
@@ -121,8 +119,7 @@ def test_RESPASystem_with_lj_parameter_scaling():
     potential['Real-Space'] = 58122.78180670893
     potential['Reciprocal-Space'] = -76436.3982762784
     potential['CustomNonbondedForce'] = -17317.054135213173
-    potential['CustomNonbondedForce(1)'] = 17317.054135213126
     potential['CustomBondForce'] = 112.25315524350334
-    potential['Total'] = -15273.024197108669
+    potential['Total'] = -32590.078332321795
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])

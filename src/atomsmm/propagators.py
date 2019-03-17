@@ -609,28 +609,38 @@ class RespaPropagator(Propagator):
         for propagator in [self.move, self.boost, self.core] + list(self.shell.values()):
             if propagator is not None:
                 self.absorbVariables(propagator)
-        for (i, n) in enumerate(self.loops):
+        for i, n in enumerate(self.loops):
             if n > 1:
                 self.globalVariables['n{}RESPA'.format(i)] = 0
-        self.force = ['f{}'.format(group) for group in range(self.N)]
+
+        self.expr = ['f{}'.format(group) for group in range(self.N)]
+        for group in range(2, self.N):
+            self.expr[group] += '-g{}'.format(group-1)
+            self.perDofVariables['g{}'.format(group-1)] = 0.0
+        self.force = self.expr.copy()
+
         self._has_memory = has_memory
         if self._has_memory:
             for group in range(1, self.N):
-                self.perDofVariables['F{}'.format(group)] = 0.0
-                self.force[0] += '+F{}'.format(group)
-                self.force[group] += '-F{}'.format(group)
-            self.force = ['({})'.format(force) for force in self.force]
+                self.perDofVariables['fm{}'.format(group)] = 0.0
+                self.force[0] += '+fm{}'.format(group)
+                self.force[group] += '-fm{}'.format(group)
+        self.force = ['({})'.format(force) for force in self.force]
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         self._addSubsteps(integrator, self.N-1, fraction)
 
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         shell and shell.addSteps(integrator, 0.5*fraction)
+        if timescale > 1:
+            integrator.addComputePerDof('g{}'.format(timescale-1), self.expr[timescale-1])
         if self._has_memory and timescale > 0:
-            integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+            integrator.addComputePerDof('fm{}'.format(timescale), self.expr[timescale])
         else:
             self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         self._addSubsteps(integrator, timescale-1, fraction)
+        if timescale > 1:
+            integrator.addComputePerDof('g{}'.format(timescale-1), self.expr[timescale-1])
         self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         shell and shell.addSteps(integrator, 0.5*fraction)
 
