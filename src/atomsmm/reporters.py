@@ -369,6 +369,22 @@ class CenterOfMassReporter(_AtomsMM_Reporter):
         pd.DataFrame(index=self._mols.residues, data=cmPositions).to_csv(self._out, sep='\t')
 
 
+class XYZReporter(_AtomsMM_Reporter):
+    def __init__(self, file, reportInterval, **kwargs):
+        self._atoms = kwargs.pop('atoms', 'all')
+        super().__init__(file, reportInterval, **kwargs)
+        self._needsPositions = True
+
+    def _generateReport(self, simulation, state):
+        positions = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
+        atoms = range(positions.shape[0]) if self._atoms == 'all' else self._atoms
+        print(len(atoms), file=self._out)
+        print('# timestep: {}'.format(simulation.currentStep), file=self._out)
+        for i, atom in enumerate(atoms):
+            xyz = '{:.4f} {:.4f} {:.4f}'.format(*positions[atom, :])
+            print(i, xyz, file=self._out)
+
+
 class CustomIntegratorReporter(_AtomsMM_Reporter):
     """
     Outputs global and per-DoF variables of a CustomIntegrator instance.

@@ -29,6 +29,7 @@ from .propagators import VelocityVerletPropagator  # noqa: F401
 from .reporters import CenterOfMassReporter  # noqa: F401
 from .reporters import CustomIntegratorReporter  # noqa: F401
 from .reporters import ExtendedStateDataReporter  # noqa: F401
+from .reporters import XYZReporter  # noqa: F401
 from .systems import ComputingSystem  # noqa: F401
 from .systems import RESPASystem  # noqa: F401
 from .systems import SolvationSystem  # noqa: F401
@@ -79,6 +80,7 @@ __reporters__ = [
     'CenterOfMassReporter',
     'CustomIntegratorReporter',
     'ExtendedStateDataReporter',
+    'XYZReporter',
     ]  # noqa E123
 
 __systems__ = [
