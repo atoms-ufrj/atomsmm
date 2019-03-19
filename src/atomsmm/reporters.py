@@ -218,7 +218,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             A DataFrame containing context global parameters (column names) and sets of values
             thereof. If it is provided, then the potential energy will be reported for every state
             these parameters define.
-        pressure_computer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
+        pressureComputer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
             A computer designed to determine pressures and virials. This is mandatory if any keyword
             related to virial or pressure is set as `True`.
         extraFile : str or file, optional, default=None
@@ -234,7 +234,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
-        self._pressure_computer = kwargs.pop('pressure_computer', None)
+        self._pressureComputer = kwargs.pop('pressureComputer', None)
         self._time_scales = kwargs.pop('time_scales', 1)
         if self._time_scales > 2:
             self._potential_energy = kwargs.pop('potentialEnergy', False)
@@ -251,8 +251,8 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                                self._molecularPressure,
                                self._molecularKineticEnergy])
         if self._computing:
-            if self._pressure_computer is not None and not isinstance(self._pressure_computer, PressureComputer):
-                raise InputError('keyword "pressure_computer" requires a PressureComputer instance')
+            if self._pressureComputer is not None and not isinstance(self._pressureComputer, PressureComputer):
+                raise InputError('keyword "pressureComputer" requires a PressureComputer instance')
             self._needsPositions = True
             self._needsForces = any([self._needsForces,
                                      self._molecularVirial,
@@ -299,7 +299,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             energy = simulation.context.getState(getEnergy=True, groups=groups).getPotentialEnergy()
             self._addItem(values, energy.value_in_unit(unit.kilojoules_per_mole))
         if self._computing:
-            computer = self._pressure_computer
+            computer = self._pressureComputer
             computer.import_configuration(state)
             atomicVirial = computer.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
             if self._coulombEnergy:
