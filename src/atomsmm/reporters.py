@@ -235,9 +235,6 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
         self._pressureComputer = kwargs.pop('pressureComputer', None)
-        self._time_scales = kwargs.pop('time_scales', 1)
-        if self._time_scales > 2:
-            self._potential_energy = kwargs.pop('potentialEnergy', False)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
             super().__init__(file, reportInterval, **kwargs)
@@ -263,7 +260,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                                          self._molecularKineticEnergy])
         self._backSteps = -sum([self._speed, self._elapsedTime, self._remainingTime])
 
-    def _addItem(self, lst, item):
+    def _add_item(self, lst, item):
         if self._backSteps == 0:
             lst.append(item)
         else:
@@ -271,63 +268,53 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
     def _constructHeaders(self):
         headers = super()._constructHeaders()
-        if self._time_scales > 2 and self._potential_energy:
-            self._addItem(headers, 'Potential Energy (kJ/mole)')
         if self._coulombEnergy:
-            self._addItem(headers, 'Coulomb Energy (kJ/mole)')
+            self._add_item(headers, 'Coulomb Energy (kJ/mole)')
         if self._atomicVirial:
-            self._addItem(headers, 'Atomic Virial (kJ/mole)')
+            self._add_item(headers, 'Atomic Virial (kJ/mole)')
         if self._nonbondedVirial:
-            self._addItem(headers, 'Nonbonded Virial (kJ/mole)')
+            self._add_item(headers, 'Nonbonded Virial (kJ/mole)')
         if self._atomicPressure:
-            self._addItem(headers, 'Atomic Pressure (atm)')
+            self._add_item(headers, 'Atomic Pressure (atm)')
         if self._molecularVirial:
-            self._addItem(headers, 'Molecular Virial (kJ/mole)')
+            self._add_item(headers, 'Molecular Virial (kJ/mole)')
         if self._molecularPressure:
-            self._addItem(headers, 'Molecular Pressure (atm)')
+            self._add_item(headers, 'Molecular Pressure (atm)')
         if self._molecularKineticEnergy:
-            self._addItem(headers, 'Molecular Kinetic Energy (kJ/mole)')
+            self._add_item(headers, 'Molecular Kinetic Energy (kJ/mole)')
         if self._globalParameterStates is not None:
             for index in self._globalParameterStates.index:
-                self._addItem(headers, 'Energy[{}] (kJ/mole)'.format(index))
+                self._add_item(headers, 'Energy[{}] (kJ/mole)'.format(index))
         return headers
 
     def _constructReportValues(self, simulation, state):
         values = super()._constructReportValues(simulation, state)
-        if self._time_scales > 2 and self._potential_energy:
-            groups = 1 + 2**(self._time_scales - 1)
-            energy = simulation.context.getState(getEnergy=True, groups=groups).getPotentialEnergy()
-            self._addItem(values, energy.value_in_unit(unit.kilojoules_per_mole))
         if self._computing:
             computer = self._pressureComputer
             computer.import_configuration(state)
             atomicVirial = computer.get_atomic_virial().value_in_unit(unit.kilojoules_per_mole)
             if self._coulombEnergy:
                 coulombVirial = computer.get_coulomb_virial()
-                self._addItem(values, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
+                self._add_item(values, coulombVirial.value_in_unit(unit.kilojoules_per_mole))
             if self._atomicVirial:
-                self._addItem(values, atomicVirial)
+                self._add_item(values, atomicVirial)
             if self._nonbondedVirial:
                 nonbondedVirial = computer.get_dispersion_virial() + computer.get_coulomb_virial()
-                self._addItem(values, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
+                self._add_item(values, nonbondedVirial.value_in_unit(unit.kilojoules_per_mole))
             if self._atomicPressure:
                 atomicPressure = computer.get_atomic_pressure()
-                self._addItem(values, atomicPressure.value_in_unit(unit.atmospheres))
+                self._add_item(values, atomicPressure.value_in_unit(unit.atmospheres))
             if self._molecularVirial or self._molecularPressure:
-                if self._time_scales > 2:
-                    groups = 1 + 2**(self._time_scales - 1)
-                    forces = simulation.context.getState(getForces=True, groups=groups).getForces(asNumpy=True)
-                else:
-                    forces = state.getForces(asNumpy=True)
+                forces = state.getForces(asNumpy=True)
                 if self._molecularVirial:
                     molecularVirial = computer.get_molecular_virial(forces)
-                    self._addItem(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))
+                    self._add_item(values, molecularVirial.value_in_unit(unit.kilojoules_per_mole))
                 if self._molecularPressure:
                     molecularPressure = computer.get_molecular_pressure(forces)
-                    self._addItem(values, molecularPressure.value_in_unit(unit.atmospheres))
+                    self._add_item(values, molecularPressure.value_in_unit(unit.atmospheres))
             if self._molecularKineticEnergy:
                 molKinEng = computer.get_molecular_kinetic_energy()
-                self._addItem(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
+                self._add_item(values, molKinEng.value_in_unit(unit.kilojoules_per_mole))
 
         if self._globalParameterStates is not None:
             original = dict()
@@ -340,7 +327,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
                         simulation.context.setParameter(name, value)
                         latest[name] = value
                 energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-                self._addItem(values, energy.value_in_unit(unit.kilojoules_per_mole))
+                self._add_item(values, energy.value_in_unit(unit.kilojoules_per_mole))
             for name, value in original.items():
                 if value != latest[name]:
                     simulation.context.setParameter(name, value)

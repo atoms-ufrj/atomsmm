@@ -62,15 +62,19 @@ class RESPASystem(openmm.System):
         fastExceptions = kwargs.get('fastExceptions', True)
         ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
         near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
+        minus_near_potential = copy.deepcopy(near_potential)
+        minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
                 self._addCustomNonbondedForce(near_potential, rcutIn, 1, force)
+                self._addCustomNonbondedForce(minus_near_potential, rcutIn, 31, force)
                 if fastExceptions:
                     self._addCustomBondForce(ljc_potential, 0, force, extract=True)
                 else:
                     self._addCustomBondForce(near_potential, 1, force)
+                    self._addCustomBondForce(minus_near_potential, 31, force)
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
