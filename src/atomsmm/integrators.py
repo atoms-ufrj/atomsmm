@@ -482,3 +482,51 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
         else:
             sigma = math.sqrt(kT/(self._ndof*Q_eta))
             self.setGlobalVariableByName('v_eta', sigma*self._random.normal())
+
+
+class RestrainedLangevinIntegrator(MultipleTimeScaleIntegrator):
+    """
+    This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
+    Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
+    equations for each degree of freedom (DOF) in the system:
+
+    .. math::
+        & \\frac{dx}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{f}{m} - \\lambda v \\\\
+        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
+        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
+
+    where:
+
+    .. math::
+        \\lambda = \\frac{f v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}.
+
+    A consequence of these equations is that
+
+    .. math::
+        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT.
+
+    The equations are integrated by a reversible, multiple timescale numerical scheme.
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, frictionConstant, **kwargs):
+        L = kwargs.pop('L', 1)
+        newF = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'force')
+        newN = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'damp')
+        newR = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'random')
+        bath = propagators.TrotterSuzukiPropagator(newR, newN)
+        super().__init__(stepSize, loops, None, newF, bath, **kwargs)

@@ -394,6 +394,51 @@ class NewMethodPropagator(Propagator):
         integrator.addComputePerDof('vc', 'vc/norm')
 
 
+class RestrainedLangevinPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        forceDependent : bool
+            If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
+
+    """
+    def __init__(self, temperature, frictionConstant, L, kind):
+        super().__init__()
+        self.globalVariables['kT'] = kT = kB*temperature
+        self.globalVariables['TwoGammaByL'] = 2*frictionConstant/L
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['friction'] = frictionConstant
+        self.globalVariables['vlim'] = 30.0
+        self.perDofVariables['vc'] = math.sqrt(L/(L+1))
+        self.perDofVariables['norm'] = 1
+        self.kind = kind
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        expression = 'vs*cosh(fsdt) + sinh(fsdt)'
+        if self.kind == 'force':
+            expression += '; fsdt = ({}*dt)*{}/(m*vmax)'.format(fraction, force)
+        elif self.kind == 'random':
+            expression += '; fsdt = sqrt({}*dt*TwoGammaByL)*gaussian'.format(fraction)
+        elif self.kind == 'damp':
+            expression = 'vs*exp(-({}*dt)*friction)'.format(fraction)
+        expression += '; vs = v/vmax'
+        expression += '; vmax = sqrt(LkT/m)'
+        expression = 'select(step(vm-vlim),vlim,select(step(vm+vlim),vm,-vlim)); vm={}'.format(expression)
+        # expression = 'max(-vlim,min(vm,vlim)); vlim=30; vm={}'.expression
+        integrator.addComputePerDof('v', expression)
+        integrator.addComputePerDof('norm', 'sqrt(v^2 + vc^2)')
+        integrator.addComputePerDof('v', 'sqrt(LkT/m)*v/norm')
+        integrator.addComputePerDof('vc', 'vc/norm')
+
+
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
     This class implements an unconstrained, Ornstein-Uhlenbeck (OU) propagator, which provides a
