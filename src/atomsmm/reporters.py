@@ -358,9 +358,14 @@ class CenterOfMassReporter(_AtomsMM_Reporter):
 
 class XYZReporter(_AtomsMM_Reporter):
     def __init__(self, file, reportInterval, **kwargs):
-        self._atoms = kwargs.pop('atoms', 'all')
+        self._atoms = kwargs.get('atoms', 'all')
+        self._output = kwargs.get('output', 'positions')
+        if self._output not in ['positions', 'velocities', 'forces']:
+            raise InputError('Unrecognizable keyword argument value')
         super().__init__(file, reportInterval, **kwargs)
-        self._needsPositions = True
+        self._needsPositions = self._output == 'positions'
+        self._needsVelocities = self._output == 'velocities'
+        self._needsForces = self._output == 'forces'
 
     def _initialize(self, simulation, state):
         if self._atoms == 'all':
@@ -370,11 +375,16 @@ class XYZReporter(_AtomsMM_Reporter):
         self._N = len(self._atoms)
 
     def _generateReport(self, simulation, state):
-        positions = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
+        if self._output == 'positions':
+            values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
+        elif self._output == 'velocities':
+            values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
+        else:
+            values = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
         print(self._N, file=self._out)
         print('# timestep: {}'.format(simulation.currentStep), file=self._out)
         for symbol, atom in zip(self._symbols, self._atoms):
-            xyz = '{:.4f} {:.4f} {:.4f}'.format(*positions[atom, :])
+            xyz = '{:.4f} {:.4f} {:.4f}'.format(*values[atom, :])
             print(symbol, xyz, file=self._out)
 
 
