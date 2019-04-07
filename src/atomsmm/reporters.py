@@ -360,6 +360,7 @@ class XYZReporter(_AtomsMM_Reporter):
     def __init__(self, file, reportInterval, **kwargs):
         self._atoms = kwargs.get('atoms', 'all')
         self._output = kwargs.get('output', 'positions')
+        self._groups = kwargs.get('groups', None)
         if self._output not in ['positions', 'velocities', 'forces']:
             raise InputError('Unrecognizable keyword argument value')
         super().__init__(file, reportInterval, **kwargs)
@@ -379,8 +380,12 @@ class XYZReporter(_AtomsMM_Reporter):
             values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
         elif self._output == 'velocities':
             values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
-        else:
+        elif self._groups is None:
             values = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+        else:
+            new_state = simulation.context.getState(getForces=True, groups=self._groups)
+            values = new_state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+
         print(self._N, file=self._out)
         print('# timestep: {}'.format(simulation.currentStep), file=self._out)
         for symbol, atom in zip(self._symbols, self._atoms):
