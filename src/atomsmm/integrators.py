@@ -484,29 +484,8 @@ class NewMethodIntegrator(MultipleTimeScaleIntegrator):
             self.setGlobalVariableByName('v_eta', sigma*self._random.normal())
 
 
-class RestrainedLangevinIntegrator(MultipleTimeScaleIntegrator):
+class LimitedSpeedBAOABIntegrator(MultipleTimeScaleIntegrator):
     """
-    This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
-    Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
-    equations for each degree of freedom (DOF) in the system:
-
-    .. math::
-        & \\frac{dx}{dt} = v \\\\
-        & \\frac{dv}{dt} = \\frac{f}{m} - \\lambda v \\\\
-        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
-        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
-
-    where:
-
-    .. math::
-        \\lambda = \\frac{f v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}.
-
-    A consequence of these equations is that
-
-    .. math::
-        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT.
-
-    The equations are integrated by a reversible, multiple timescale numerical scheme.
 
     Parameters
     ----------
@@ -525,8 +504,12 @@ class RestrainedLangevinIntegrator(MultipleTimeScaleIntegrator):
     """
     def __init__(self, stepSize, loops, temperature, frictionConstant, **kwargs):
         L = kwargs.pop('L', 1)
-        newF = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'force')
-        newN = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'damp')
-        newR = propagators.RestrainedLangevinPropagator(temperature, frictionConstant, L, 'random')
-        bath = propagators.TrotterSuzukiPropagator(newR, newN)
-        super().__init__(stepSize, loops, None, newF, bath, **kwargs)
+        move = propagators.LimitedSpeedLangevinPropagator(temperature, frictionConstant, L, 'move')
+        boost = propagators.LimitedSpeedLangevinPropagator(temperature, frictionConstant, L, 'boost')
+        bath = propagators.LimitedSpeedLangevinPropagator(temperature, frictionConstant, L, 'bath')
+        super().__init__(stepSize, loops, move, boost, bath, **kwargs)
+        self.addComputePerDof('v', 'sqrt(LkT*p*tanh(p)/m)')
+
+    def initialize(self):
+        # Implement initial values of per-dof variable p
+        pass

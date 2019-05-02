@@ -439,6 +439,52 @@ class RestrainedLangevinPropagator(Propagator):
         integrator.addComputePerDof('vc', 'vc/norm')
 
 
+class LimitedSpeedLangevinPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        forceDependent : bool
+            If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
+
+    """
+    def __init__(self, temperature, frictionConstant, L, kind):
+        super().__init__()
+        self.globalVariables['LkT'] = L*kB*temperature
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['p'] = 0.0
+        self.kind = kind
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        if self.kind == 'move':
+            integrator.addComputePerDof('x', 'x + sqrt(m*LkT)*tanh(p)*{}*dt/m'.format(fraction))
+        elif self.kind == 'boost':
+            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+        elif self.kind == 'bath':
+            expressions = [
+                'alpha = exp(-friction*{}*dt/2)'.format(fraction),
+                'a = alpha^2',
+                'b = sqrt(1-a^2)',
+                'p1 = p/alpha',
+                'x1 = alpha*sinh(p1)',
+                'p2 = log(x1+sqrt(x1^2+1))',
+                'p3 = a*p2 + b*gaussian',
+                'x3 = alpha*sinh(p3)',
+                'p4 = log(x3+sqrt(x3^2+1))',
+                'p4/alpha',
+            ]
+            integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+        elif self.kind == 'end':
+            integrator.addComputePerDof('v', 'sqrt(m*LkT)*sqrt(p*tanh(p))/m')
+
+
 class OrnsteinUhlenbeckPropagator(Propagator):
     """
     This class implements an unconstrained, Ornstein-Uhlenbeck (OU) propagator, which provides a
