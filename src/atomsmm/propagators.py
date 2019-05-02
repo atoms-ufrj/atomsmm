@@ -458,6 +458,7 @@ class LimitedSpeedLangevinPropagator(Propagator):
     def __init__(self, temperature, frictionConstant, L, kind):
         super().__init__()
         self.globalVariables['LkT'] = L*kB*temperature
+        self.globalVariables['one'] = 1.0
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
         self.kind = kind
@@ -471,13 +472,13 @@ class LimitedSpeedLangevinPropagator(Propagator):
             expressions = [
                 'alpha = exp(-friction*{}*dt/2)'.format(fraction),
                 'a = alpha^2',
-                'b = sqrt(1-a^2)',
+                'b = sqrt(one-a^2)',
                 'p1 = p/alpha',
                 'x1 = alpha*sinh(p1)',
-                'p2 = log(x1+sqrt(x1^2+1))',
+                'p2 = log(x1+sqrt(x1^2+one))',
                 'p3 = a*p2 + b*gaussian',
                 'x3 = alpha*sinh(p3)',
-                'p4 = log(x3+sqrt(x3^2+1))',
+                'p4 = log(x3+sqrt(x3^2+one))',
                 'p4/alpha',
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
