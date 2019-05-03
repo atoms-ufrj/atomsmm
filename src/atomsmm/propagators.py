@@ -459,6 +459,7 @@ class LimitedSpeedLangevinPropagator(Propagator):
         super().__init__()
         self.globalVariables['LkT'] = L*kB*temperature
         self.globalVariables['one'] = 1.0
+        self.globalVariables['plim'] = 15.0  # Use prob distrib to define this values
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
         self.kind = kind
@@ -467,7 +468,11 @@ class LimitedSpeedLangevinPropagator(Propagator):
         if self.kind == 'move':
             integrator.addComputePerDof('x', 'x + sqrt(m*LkT)*tanh(p)*{}*dt/m'.format(fraction))
         elif self.kind == 'boost':
-            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+            expressions = [
+                'pm = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                'select(step(pm-plim),plim,select(step(pm+plim),pm,-plim))'
+            ]
+            integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
         elif self.kind == 'bath':
             expressions = [
                 'alpha = exp(-friction*{}*dt/2)'.format(fraction),
