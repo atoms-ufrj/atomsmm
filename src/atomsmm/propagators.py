@@ -459,25 +459,26 @@ class LimitedSpeedLangevinPropagator(Propagator):
         super().__init__()
         self.globalVariables['LkT'] = L*kB*temperature
         self.globalVariables['one'] = 1.0
-        self.globalVariables['plim'] = 15.0  # Use prob distrib to define this values
+        self.globalVariables['L'] = L
+        self.globalVariables['plim'] = 20.0  # Use prob distrib to define this values
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
         self.kind = kind
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.kind == 'move':
-            integrator.addComputePerDof('x', 'x + sqrt(m*LkT)*tanh(p)*{}*dt/m'.format(fraction))
+            integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
         elif self.kind == 'boost':
             expressions = [
                 'pm = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
-                'select(step(pm-plim),plim,select(step(pm+plim),pm,-plim))'
+                'select(step(pm - plim), plim, select(step(pm + plim), pm, -plim))'
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
         elif self.kind == 'bath':
             expressions = [
                 'alpha = exp(-friction*{}*dt/2)'.format(fraction),
                 'a = alpha^2',
-                'b = sqrt(one-a^2)',
+                'b = sqrt((one-a^2)/L)',
                 'p1 = p/alpha',
                 'x1 = alpha*sinh(p1)',
                 'p2 = log(x1+sqrt(x1^2+one))',
@@ -487,8 +488,6 @@ class LimitedSpeedLangevinPropagator(Propagator):
                 'p4/alpha',
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
-        elif self.kind == 'end':
-            integrator.addComputePerDof('v', 'sqrt(m*LkT)*sqrt(p*tanh(p))/m')
 
 
 class OrnsteinUhlenbeckPropagator(Propagator):
