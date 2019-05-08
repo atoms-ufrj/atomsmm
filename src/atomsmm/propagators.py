@@ -451,8 +451,8 @@ class LimitedSpeedLangevinPropagator(Propagator):
             :math:`Q_1 = kT\\tau^2`.
         L : int
             The parameter L.
-        forceDependent : bool
-            If `True`, the propagator will solve System 1. If `False`, then System 2 will be solved.
+        kind : str
+            Options are `move`, `boost`, and `bath`.
 
     """
     def __init__(self, temperature, frictionConstant, L, kind):
@@ -460,9 +460,10 @@ class LimitedSpeedLangevinPropagator(Propagator):
         self.globalVariables['LkT'] = L*kB*temperature
         self.globalVariables['one'] = 1.0
         self.globalVariables['L'] = L
-        self.globalVariables['plim'] = 20.0  # Use prob distrib to define this values
+        # self.globalVariables['plim'] = 250.0  # Use prob distrib to define this values
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
+        self.perDofVariables['C'] = 0.0
         self.kind = kind
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
@@ -470,13 +471,20 @@ class LimitedSpeedLangevinPropagator(Propagator):
             integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
         elif self.kind == 'boost':
             expressions = [
-                'pm = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
-                'select(step(pm - plim), plim, select(step(pm + plim), pm, -plim))'
+                # 'pm = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                # 'select(step(pm - plim), plim, select(step(pm + plim), pm, -plim))'
+                'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
         elif self.kind == 'bath':
+            # integrator.addComputePerDof('C', 'p - x*tanh(p) + 2*sqrt(x/L)*gaussian; x = friction*{}*dt/2'.format(fraction))
+            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
+            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
+            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
+            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
+            n = 1
             expressions = [
-                'alpha = exp(-friction*{}*dt/2)'.format(fraction),
+                'alpha = exp(-friction*{}*dt/2)'.format(fraction/n),
                 'a = alpha^2',
                 'b = sqrt((one-a^2)/L)',
                 'p1 = p/alpha',
@@ -487,7 +495,173 @@ class LimitedSpeedLangevinPropagator(Propagator):
                 'p4 = log(x3+sqrt(x3^2+one))',
                 'p4/alpha',
             ]
-            integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            for i in range(n):
+                integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+
+
+class LimitedSpeedNHLPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        kind : str
+            Options are `move`, `boost`, and `bath`.
+
+    """
+    def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
+        self.globalVariables['LkT'] = L*kB*temperature
+        self.globalVariables['kT'] = kB*temperature
+        self.globalVariables['L'] = L
+        self.globalVariables['one'] = 1.0
+        self.globalVariables['Q_eta'] = kB*temperature*timeScale**2
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['p'] = 0.0
+        self.perDofVariables['v_eta'] = 0.0
+        self.kind = kind
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        if self.kind == 'move':
+            integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
+        elif self.kind == 'boost':
+            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+        elif self.kind == 'bath':
+            scaling = 'p*exp(-v_eta*{}*dt)'.format(0.5*fraction)
+            # stochastic = [
+            #     'delta = (L*p*tanh(p) - one)*omegaSq*{}*dt'.format(0.5*fraction),
+            #     'v1 = v_eta + delta',
+            #     'a=exp(-friction*{}*dt)'.format(fraction),
+            #     'v2 = a*v1 + sqrt(omegaSq*(one - a*a))*gaussian',
+            #     'v2 + delta'
+            # ]
+            stochastic = [
+                'mu = (L*p*tanh(p) - one)*kT/(Q_eta*friction)',
+                'a = exp(-friction*{}*dt)'.format(fraction),
+                'a*v_eta + mu*(one - a) + sqrt((one - a^2)*kT/Q_eta)*gaussian',
+            ]
+            integrator.addComputePerDof('p', scaling)
+            integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
+            integrator.addComputePerDof('p', scaling)
+
+
+class LimitedSpeedStochasticPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        kind : str
+            Options are `move`, `boost`, and `bath`.
+
+    """
+    def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
+        kT = kB*temperature
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['kT'] = kT
+        self.globalVariables['one'] = 1.0
+        self.globalVariables['Lp1'] = L + 1.0
+        self.globalVariables['Q_eta'] = kT*timeScale**2
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['p'] = 0.0
+        self.perDofVariables['v_eta'] = 0.0
+        self.kind = kind
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        if self.kind == 'move':
+            integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
+        elif self.kind == 'boost':
+            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+        elif self.kind == 'bath':
+            scaling = [
+                ' z = exp(-v_eta*{}*dt/2)*sinh(p)'.format(fraction),
+                'log(z + sqrt(z*z + one))',
+            ]
+            stochastic = [
+                ' mu = (Lp1*tanh(p)^2 - one)*kT/(Q_eta*friction)',
+                ' a = exp(-friction*{}*dt)'.format(fraction),
+                'a*v_eta + mu*(one - a) + sqrt((one - a*a)*kT/Q_eta)*gaussian',
+            ]
+            integrator.addComputePerDof('p', ';'.join(reversed(scaling)))
+            integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
+            integrator.addComputePerDof('p', ';'.join(reversed(scaling)))
+
+
+class LimitedSpeedStochasticVelocityPropagator(Propagator):
+    """
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which to compute the inertial parameter
+            :math:`Q_1 = kT\\tau^2`.
+        L : int
+            The parameter L.
+        kind : str
+            Options are `move`, `boost`, and `bath`.
+
+    """
+    def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
+        kT = kB*temperature
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['kT'] = kT
+        self.globalVariables['Lfactor'] = (L + 1.0)/L
+        self.globalVariables['one'] = 1.0
+        self.globalVariables['Q_eta'] = kT*timeScale**2
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['vlim'] = 1000.0
+        self.perDofVariables['vcSq'] = L/(L + 1.0)
+        self.perDofVariables['v_eta'] = 0.0
+        self.kind = kind
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        if self.kind == 'move':
+            integrator.addComputePerDof('x', 'x + v*{}*dt'.format(fraction))
+        elif self.kind == 'boost':
+            boost = [
+                ' vmax = sqrt(LkT/m)',
+                ' z = {}*{}*dt/(m*vmax)'.format(force, fraction),
+                ' v1 = (v/vmax)*cosh(z) + sinh(z)',
+                ' v2 = select(step(v1-vlim), vlim, select(step(v1+vlim), v1, -vlim))',
+                ' v3 = v2/sqrt(vcSq + v2^2)',
+                'vmax*v3'
+            ]
+            integrator.addComputePerDof('v', ';'.join(reversed(boost)))
+            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
+        elif self.kind == 'bath':
+            scaling = [
+                ' vmax = sqrt(LkT/m)',
+                ' v1 = (v/vmax)*exp(-v_eta*{}*dt)'.format(0.5*fraction),
+                ' v2 = select(step(v1-vlim), vlim, select(step(v1+vlim), v1, -vlim))',
+                ' v3 = v2/sqrt(vcSq + v2^2)',
+                'vmax*v3'
+            ]
+            stochastic = [
+                ' mu = (Lfactor*m*v*v - kT)/(Q_eta*friction)',
+                ' a = exp(-friction*{}*dt)'.format(fraction),
+                'a*v_eta + mu*(one - a) + sqrt(kT*(one - a*a)/Q_eta)*gaussian',
+            ]
+            integrator.addComputePerDof('v', ';'.join(reversed(scaling)))
+            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
+            integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
+            integrator.addComputePerDof('v', ';'.join(reversed(scaling)))
+            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
 
 
 class OrnsteinUhlenbeckPropagator(Propagator):

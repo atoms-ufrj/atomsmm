@@ -508,8 +508,128 @@ class LimitedSpeedBAOABIntegrator(MultipleTimeScaleIntegrator):
         boost = propagators.LimitedSpeedLangevinPropagator(temperature, frictionConstant, L, 'boost')
         bath = propagators.LimitedSpeedLangevinPropagator(temperature, frictionConstant, L, 'bath')
         super().__init__(stepSize, loops, move, boost, bath, **kwargs)
-        self.addComputePerDof('v', 'sqrt(LkT*p*tanh(p)/m)')
+        # self.addComputePerDof('v', 'sqrt(LkT*p*tanh(p)/m)')
+        self.addComputePerDof('v', 'sqrt(LkT/m)*tanh(p)')
+        # self.addComputePerDof('v', 'p')
 
     def initialize(self):
         # Implement initial values of per-dof variable p
         pass
+
+
+class LimitedSpeedNHLIntegrator(MultipleTimeScaleIntegrator):
+    """
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        L = kwargs.pop('L', 1)
+        move = propagators.LimitedSpeedNHLPropagator(temperature, timeScale, frictionConstant, L, 'move')
+        boost = propagators.LimitedSpeedNHLPropagator(temperature, timeScale, frictionConstant, L, 'boost')
+        bath = propagators.LimitedSpeedNHLPropagator(temperature, timeScale, frictionConstant, L, 'bath')
+        super().__init__(stepSize, loops, move, boost, bath, **kwargs)
+        # self.addComputePerDof('v', 'sqrt(LkT*p*tanh(p)/m)')
+        self.addComputePerDof('v', 'sqrt(LkT/m)*tanh(p)')
+        # self.addComputePerDof('v', 'p')
+
+    def initialize(self):
+        kT = self.getGlobalVariableByName('kT')
+        Q_eta = self.getGlobalVariableByName('Q_eta')
+        sigma = math.sqrt(kT/Q_eta)
+        v_eta = self.getPerDofVariableByName('v_eta')
+        for i in range(len(v_eta)):
+            v_eta[i] = sigma*self._normalVec()
+        self.setPerDofVariableByName('v_eta', v_eta)
+        p = self.getPerDofVariableByName('p')
+        for i in range(len(v_eta)):
+            p[i] = self._normalVec()
+        self.setPerDofVariableByName('p', p)
+
+
+class LimitedSpeedStochasticIntegrator(MultipleTimeScaleIntegrator):
+    """
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        L = kwargs.pop('L', 1)
+        move = propagators.LimitedSpeedStochasticPropagator(temperature, timeScale, frictionConstant, L, 'move')
+        boost = propagators.LimitedSpeedStochasticPropagator(temperature, timeScale, frictionConstant, L, 'boost')
+        bath = propagators.LimitedSpeedStochasticPropagator(temperature, timeScale, frictionConstant, L, 'bath')
+        super().__init__(stepSize, loops, move, boost, bath, **kwargs)
+        # self.addComputePerDof('v', 'sqrt(LkT*p*tanh(p)/m)')
+        self.addComputePerDof('v', 'sqrt(LkT/m)*tanh(p)')
+        # self.addComputePerDof('v', 'p')
+
+    def initialize(self):
+        kT = self.getGlobalVariableByName('kT')
+        Q_eta = self.getGlobalVariableByName('Q_eta')
+        sigma = math.sqrt(kT/Q_eta)
+        v_eta = self.getPerDofVariableByName('v_eta')
+        for i in range(len(v_eta)):
+            v_eta[i] = sigma*self._normalVec()
+        self.setPerDofVariableByName('v_eta', v_eta)
+        p = self.getPerDofVariableByName('p')
+        for i in range(len(v_eta)):
+            p[i] = self._normalVec()
+        self.setPerDofVariableByName('p', p)
+
+class LimitedSpeedStochasticVelocityIntegrator(MultipleTimeScaleIntegrator):
+    """
+
+    Parameters
+    ----------
+        stepSize : unit.Quantity
+            The largest time step for numerically integrating the system of equations.
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScaleIntegrator` apply here.
+
+    """
+    def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
+        L = kwargs.pop('L', 1)
+        move = propagators.LimitedSpeedStochasticVelocityPropagator(temperature, timeScale, frictionConstant, L, 'move')
+        boost = propagators.LimitedSpeedStochasticVelocityPropagator(temperature, timeScale, frictionConstant, L, 'boost')
+        bath = propagators.LimitedSpeedStochasticVelocityPropagator(temperature, timeScale, frictionConstant, L, 'bath')
+        super().__init__(stepSize, loops, move, boost, bath, **kwargs)
+
+    def initialize(self):
+        kT = self.getGlobalVariableByName('kT')
+        Q_eta = self.getGlobalVariableByName('Q_eta')
+        sigma = math.sqrt(kT/Q_eta)
+        v_eta = self.getPerDofVariableByName('v_eta')
+        for i in range(len(v_eta)):
+            v_eta[i] = sigma*self._normalVec()
+        self.setPerDofVariableByName('v_eta', v_eta)
