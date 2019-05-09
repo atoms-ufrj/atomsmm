@@ -478,10 +478,16 @@ class LimitedSpeedLangevinPropagator(Propagator):
             integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
         elif self.kind == 'bath':
             # integrator.addComputePerDof('C', 'p - x*tanh(p) + 2*sqrt(x/L)*gaussian; x = friction*{}*dt/2'.format(fraction))
-            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
-            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
-            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
-            # integrator.addComputePerDof('p', 'p - (p + x*v - C)/(one + x*(one - v*v)); v = tanh(p); x = friction*{}*dt/2'.format(fraction))
+            expressions = [
+                ' z = friction*{}*dt/2'.format(fraction),
+                ' v = tanh(p)',
+                'p - (p + z*v - C)/(one + x*(one - v*v))'
+            ]
+            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             n = 1
             expressions = [
                 'alpha = exp(-friction*{}*dt/2)'.format(fraction/n),
@@ -576,6 +582,7 @@ class LimitedSpeedStochasticPropagator(Propagator):
         self.globalVariables['Lp1'] = L + 1.0
         self.globalVariables['Q_eta'] = kT*timeScale**2
         self.globalVariables['friction'] = frictionConstant
+        self.globalVariables['plim'] = 50.0
         self.perDofVariables['p'] = 0.0
         self.perDofVariables['v_eta'] = 0.0
         self.kind = kind
@@ -584,7 +591,11 @@ class LimitedSpeedStochasticPropagator(Propagator):
         if self.kind == 'move':
             integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
         elif self.kind == 'boost':
-            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+            boost = [
+                ' p1 = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                'select(step(p1-plim), plim, select(step(p1+plim), p1, -plim))',
+            ]
+            integrator.addComputePerDof('p', ';'.join(reversed(boost)))
         elif self.kind == 'bath':
             # scaling = [
             #     ' y = -v_eta*{}*dt'.format(0.5*fraction),
@@ -632,10 +643,16 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
         self.globalVariables['one'] = 1.0
         self.globalVariables['Q_eta'] = kT*timeScale**2
         self.globalVariables['friction'] = frictionConstant
-        self.perDofVariables['vlim'] = 100.0
         self.perDofVariables['vcSq'] = L/(L + 1.0)
+        self.perDofVariables['normSq'] = 0.0
         self.perDofVariables['v_eta'] = 0.0
         self.kind = kind
+
+    def update_v(self, integrator, expression):
+        integrator.addComputePerDof('v', expression)
+        integrator.addComputePerDof('normSq', 'vcSq + v^2')
+        integrator.addComputePerDof('v', 'sqrt(LkT/m)*v/sqrt(normSq)')
+        integrator.addComputePerDof('vcSq', '(LkT/m)*vcSq/normSq')
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.kind == 'move':
@@ -644,31 +661,19 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
             boost = [
                 ' vmax = sqrt(LkT/m)',
                 ' z = {}*{}*dt/(m*vmax)'.format(force, fraction),
-                ' v1 = (v/vmax)*cosh(z) + sinh(z)',
-                ' v2 = select(step(v1-vlim), vlim, select(step(v1+vlim), v1, -vlim))',
-                ' v3 = v2/sqrt(vcSq + v2^2)',
-                'vmax*v3'
+                'v*cosh(z) + vmax*sinh(z)',
             ]
-            integrator.addComputePerDof('v', ';'.join(reversed(boost)))
-            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
+            self.update_v(integrator, ';'.join(reversed(boost)))
         elif self.kind == 'bath':
-            scaling = [
-                ' vmax = sqrt(LkT/m)',
-                ' v1 = (v/vmax)*exp(-v_eta*{}*dt)'.format(0.5*fraction),
-                ' v2 = select(step(v1-vlim), vlim, select(step(v1+vlim), v1, -vlim))',
-                ' v3 = v2/sqrt(vcSq + v2^2)',
-                'vmax*v3'
-            ]
+            scaling = 'v*exp(-v_eta*{}*dt)'.format(0.5*fraction)
             stochastic = [
                 ' mu = (Lfactor*m*v*v - kT)/(Q_eta*friction)',
                 ' a = exp(-friction*{}*dt)'.format(fraction),
                 'a*v_eta + mu*(one - a) + sqrt(kT*(one - a*a)/Q_eta)*gaussian',
             ]
-            integrator.addComputePerDof('v', ';'.join(reversed(scaling)))
-            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
+            self.update_v(integrator, scaling)
             integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
-            integrator.addComputePerDof('v', ';'.join(reversed(scaling)))
-            integrator.addComputePerDof('vcSq', 'one - m*v^2/LkT')
+            self.update_v(integrator, scaling)
 
 
 class OrnsteinUhlenbeckPropagator(Propagator):

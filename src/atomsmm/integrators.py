@@ -600,6 +600,7 @@ class LimitedSpeedStochasticIntegrator(MultipleTimeScaleIntegrator):
             p[i] = self._normalVec()
         self.setPerDofVariableByName('p', p)
 
+
 class LimitedSpeedStochasticVelocityIntegrator(MultipleTimeScaleIntegrator):
     """
 
