@@ -464,25 +464,25 @@ class LimitedSpeedLangevinPropagator(Propagator):
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
         self.perDofVariables['C'] = 0.0
+        self.globalVariables['plim'] = 15.0
         self.kind = kind
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.kind == 'move':
             integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
         elif self.kind == 'boost':
-            expressions = [
-                # 'pm = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
-                # 'select(step(pm - plim), plim, select(step(pm + plim), pm, -plim))'
-                'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+            boost = [
+                ' p1 = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                'select(step(p1-plim), plim, select(step(p1+plim), p1, -plim))',
             ]
-            integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
+            integrator.addComputePerDof('p', ';'.join(reversed(boost)))
         elif self.kind == 'bath':
             # integrator.addComputePerDof('C', 'p - x*tanh(p) + 2*sqrt(x/L)*gaussian; x = friction*{}*dt/2'.format(fraction))
-            expressions = [
-                ' z = friction*{}*dt/2'.format(fraction),
-                ' v = tanh(p)',
-                'p - (p + z*v - C)/(one + x*(one - v*v))'
-            ]
+            # expressions = [
+            #     ' z = friction*{}*dt/2'.format(fraction),
+            #     ' v = tanh(p)',
+            #     'p - (p + z*v - C)/(one + x*(one - v*v))'
+            # ]
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
@@ -490,16 +490,20 @@ class LimitedSpeedLangevinPropagator(Propagator):
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             n = 1
             expressions = [
-                'alpha = exp(-friction*{}*dt/2)'.format(fraction/n),
-                'a = alpha^2',
-                'b = sqrt((one-a^2)/L)',
-                'p1 = p/alpha',
-                'x1 = alpha*sinh(p1)',
-                'p2 = log(x1+sqrt(x1^2+one))',
-                'p3 = a*p2 + b*gaussian',
-                'x3 = alpha*sinh(p3)',
-                'p4 = log(x3+sqrt(x3^2+one))',
-                'p4/alpha',
+                ' alpha = exp(-friction*{}*dt/2)'.format(fraction/n),
+                ' a = alpha^2',
+                ' b = sqrt((one-a^2)/L)',
+                ' p1 = p/alpha',
+                ' v1 = tanh(p1)',
+                ' v2 = alpha*v1',
+                ' v3 = v2/sqrt(one - v1^2 + v2^2)',
+                ' p2 = 0.5*log((one + v3)/(one - v3))',
+                ' p3 = a*p2 + b*gaussian',
+                ' v4 = tanh(p3)',
+                ' v5 = alpha*v4',
+                ' v6 = v5/sqrt(one - v4^2 + v5^2)',
+                ' p3 = 0.5*log((one + v6)/(one - v6))',
+                'p3/alpha',
             ]
             for i in range(n):
                 integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
@@ -582,7 +586,7 @@ class LimitedSpeedStochasticPropagator(Propagator):
         self.globalVariables['Lp1'] = L + 1.0
         self.globalVariables['Q_eta'] = kT*timeScale**2
         self.globalVariables['friction'] = frictionConstant
-        self.globalVariables['plim'] = 50.0
+        self.globalVariables['plim'] = 15.0
         self.perDofVariables['p'] = 0.0
         self.perDofVariables['v_eta'] = 0.0
         self.kind = kind
