@@ -586,9 +586,16 @@ class LimitedSpeedStochasticPropagator(Propagator):
         elif self.kind == 'boost':
             integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
         elif self.kind == 'bath':
+            # scaling = [
+            #     ' y = -v_eta*{}*dt'.format(0.5*fraction),
+            #     ' z = (exp(y+p)-exp(y-p))/2',
+            #     'log(z + sqrt(z*z + one))',
+            # ]
             scaling = [
-                ' z = exp(-v_eta*{}*dt/2)*sinh(p)'.format(fraction),
-                'log(z + sqrt(z*z + one))',
+                ' v1 = tanh(p)',
+                ' v2 = v1*exp(-v_eta*{}*dt)'.format(0.5*fraction),
+                ' v3 = v2/sqrt(one - v1^2 + v2^2)',
+                '0.5*log((one + v3)/(one - v3))',
             ]
             stochastic = [
                 ' mu = (Lp1*tanh(p)^2 - one)*kT/(Q_eta*friction)',
@@ -625,7 +632,7 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
         self.globalVariables['one'] = 1.0
         self.globalVariables['Q_eta'] = kT*timeScale**2
         self.globalVariables['friction'] = frictionConstant
-        self.perDofVariables['vlim'] = 1000.0
+        self.perDofVariables['vlim'] = 100.0
         self.perDofVariables['vcSq'] = L/(L + 1.0)
         self.perDofVariables['v_eta'] = 0.0
         self.kind = kind
