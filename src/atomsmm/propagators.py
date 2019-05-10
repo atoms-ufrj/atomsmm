@@ -535,13 +535,18 @@ class LimitedSpeedNHLPropagator(Propagator):
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['p'] = 0.0
         self.perDofVariables['v_eta'] = 0.0
+        self.globalVariables['plim'] = 15.0
         self.kind = kind
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.kind == 'move':
             integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
         elif self.kind == 'boost':
-            integrator.addComputePerDof('p', 'p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction))
+            boost = [
+                ' p1 = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                'select(step(p1-plim), plim, select(step(p1+plim), p1, -plim))',
+            ]
+            integrator.addComputePerDof('p', ';'.join(reversed(boost)))
         elif self.kind == 'bath':
             scaling = 'p*exp(-v_eta*{}*dt)'.format(0.5*fraction)
             # stochastic = [
