@@ -218,6 +218,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             A DataFrame containing context global parameters (column names) and sets of values
             thereof. If it is provided, then the potential energy will be reported for every state
             these parameters define.
+        globalParameters : list(str), optional, default=None
+            A list of global parameter names. If it is provided, then the values of these parameters
+            will be reported.
         pressureComputer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
             A computer designed to determine pressures and virials. This is mandatory if any keyword
             related to virial or pressure is set as `True`.
@@ -234,6 +237,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularPressure = kwargs.pop('molecularPressure', False)
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
+        self._globalParameters = kwargs.pop('globalParameters', None)
         self._pressureComputer = kwargs.pop('pressureComputer', None)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
@@ -285,6 +289,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         if self._globalParameterStates is not None:
             for index in self._globalParameterStates.index:
                 self._add_item(headers, 'Energy[{}] (kJ/mole)'.format(index))
+        if self._globalParameters is not None:
+            for name in self._globalParameters:
+                self._add_item(headers, name)
         return headers
 
     def _constructReportValues(self, simulation, state):
@@ -331,6 +338,11 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             for name, value in original.items():
                 if value != latest[name]:
                     simulation.context.setParameter(name, value)
+
+        if self._globalParameters is not None:
+            for name in self._globalParameters:
+                self._add_item(values, simulation.context.getParameter(name))
+
         return values
 
 
