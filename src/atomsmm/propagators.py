@@ -548,22 +548,17 @@ class LimitedSpeedNHLPropagator(Propagator):
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(boost)))
         elif self.kind == 'bath':
+            kick = 'v_eta + (L*p*tanh(p) - one)*kT*{}*dt/Q_eta'.format(0.5*fraction)
             scaling = 'p*exp(-v_eta*{}*dt)'.format(0.5*fraction)
-            # stochastic = [
-            #     'delta = (L*p*tanh(p) - one)*omegaSq*{}*dt'.format(0.5*fraction),
-            #     'v1 = v_eta + delta',
-            #     'a=exp(-friction*{}*dt)'.format(fraction),
-            #     'v2 = a*v1 + sqrt(omegaSq*(one - a*a))*gaussian',
-            #     'v2 + delta'
-            # ]
             stochastic = [
-                'mu = (L*p*tanh(p) - one)*kT/(Q_eta*friction)',
                 'a = exp(-friction*{}*dt)'.format(fraction),
-                'a*v_eta + mu*(one - a) + sqrt((one - a^2)*kT/Q_eta)*gaussian',
+                'a*v_eta + sqrt((one - a^2)*kT/Q_eta)*gaussian',
             ]
+            integrator.addComputePerDof('v_eta', kick)
             integrator.addComputePerDof('p', scaling)
             integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
             integrator.addComputePerDof('p', scaling)
+            integrator.addComputePerDof('v_eta', kick)
 
 
 class LimitedSpeedStochasticPropagator(Propagator):
@@ -606,6 +601,7 @@ class LimitedSpeedStochasticPropagator(Propagator):
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(boost)))
         elif self.kind == 'bath':
+            kick = 'v_eta + (Lp1*tanh(p)^2 - one)*kT*{}*dt/Q_eta'.format(0.5*fraction)
             # scaling = [
             #     ' y = -v_eta*{}*dt'.format(0.5*fraction),
             #     ' z = (exp(y+p)-exp(y-p))/2',
@@ -618,13 +614,14 @@ class LimitedSpeedStochasticPropagator(Propagator):
                 '0.5*log((one + v3)/(one - v3))',
             ]
             stochastic = [
-                ' mu = (Lp1*tanh(p)^2 - one)*kT/(Q_eta*friction)',
                 ' a = exp(-friction*{}*dt)'.format(fraction),
-                'a*v_eta + mu*(one - a) + sqrt((one - a*a)*kT/Q_eta)*gaussian',
+                'a*v_eta + sqrt((one - a*a)*kT/Q_eta)*gaussian',
             ]
+            integrator.addComputePerDof('v_eta', kick)
             integrator.addComputePerDof('p', ';'.join(reversed(scaling)))
             integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
             integrator.addComputePerDof('p', ';'.join(reversed(scaling)))
+            integrator.addComputePerDof('v_eta', kick)
 
 
 class LimitedSpeedStochasticVelocityPropagator(Propagator):
@@ -674,15 +671,17 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
             ]
             self.update_v(integrator, ';'.join(reversed(boost)))
         elif self.kind == 'bath':
+            kick = 'v_eta + (Lfactor*m*v*v - kT)*{}*dt/Q_eta'.format(0.5*fraction)
             scaling = 'v*exp(-v_eta*{}*dt)'.format(0.5*fraction)
             stochastic = [
-                ' mu = (Lfactor*m*v*v - kT)/(Q_eta*friction)',
                 ' a = exp(-friction*{}*dt)'.format(fraction),
-                'a*v_eta + mu*(one - a) + sqrt(kT*(one - a*a)/Q_eta)*gaussian',
+                'a*v_eta + sqrt(kT*(one - a*a)/Q_eta)*gaussian',
             ]
+            integrator.addComputePerDof('v_eta', kick)
             self.update_v(integrator, scaling)
             integrator.addComputePerDof('v_eta', ';'.join(reversed(stochastic)))
             self.update_v(integrator, scaling)
+            integrator.addComputePerDof('v_eta', kick)
 
 
 class OrnsteinUhlenbeckPropagator(Propagator):
