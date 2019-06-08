@@ -14,6 +14,7 @@ import itertools
 
 import numpy as np
 from simtk import openmm
+from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -54,12 +55,20 @@ class RESPASystem(openmm.System):
         fastExceptions : bool, optional, default=True
             Whether nonbonded exceptions must be considered to belong to the group of fastest
             forces. If `False`, then they will be split into intermediate and slowest forces.
+        specialBonds : dict(), optional, default=None
+            A dictionary for equilibrium bond length replacement in the fastest time scale.
+            The lengths that must be substituted are the dict keys, while the new lengths are the
+            dict values.
+        specialAngles : dict(), optional, default=None
+            A dictionary for equilibrium angle replacement in the fastest time scale.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
         self.this = copy.deepcopy(system).this
         adjustment = kwargs.pop('adjustment', 'force-switch')
         fastExceptions = kwargs.get('fastExceptions', True)
+        specialBonds = kwargs.get('specialBonds', None)
+        specialAngles = kwargs.get('specialAngles', None)
         ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
         near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
         minus_near_potential = copy.deepcopy(near_potential)
@@ -75,6 +84,36 @@ class RESPASystem(openmm.System):
                 else:
                     self._addCustomBondForce(near_potential, 1, force)
                     self._addCustomBondForce(minus_near_potential, 31, force)
+            elif specialBonds is not None and isinstance(force, openmm.HarmonicBondForce):
+                new_force = openmm.CustomBondForce('0.5*kb*(r1+r2-2*r)*(r1-r2)')
+                new_force.addPerBondParameter('r1')
+                new_force.addPerBondParameter('r2')
+                new_force.addPerBondParameter('kb')
+                for index in range(force.getNumBonds()):
+                    i, j, length, k = force.getBondParameters(index)
+                    lenval = length.value_in_unit(unit.nanometer)
+                    if lenval in specialBonds:
+                        new_length = specialBonds[lenval]*unit.nanometer
+                        force.setBondParameters(index, i, j, new_length, k)
+                        new_force.addBond(i, j, (length, new_length, k))
+                if new_force.getNumBonds() > 0:
+                    new_force.setForceGroup(1)
+                    self.addForce(new_force)
+            elif specialAngles is not None and isinstance(force, openmm.HarmonicAngleForce):
+                new_force = openmm.CustomAngleForce('0.5*ka*(theta1+theta2-2*theta)*(theta1-theta2)')
+                new_force.addPerAngleParameter('theta1')
+                new_force.addPerAngleParameter('theta2')
+                new_force.addPerAngleParameter('ka')
+                for index in range(force.getNumAngles()):
+                    i, j, k, theta, ka = force.getAngleParameters(index)
+                    angval = theta.value_in_unit(unit.radian)
+                    if angval in specialAngles:
+                        new_theta = specialAngles[angval]*unit.radian
+                        force.setAngleParameters(index, i, j, k, new_theta, ka)
+                        new_force.addAngle(i, j, k, (theta, new_theta, ka))
+                if new_force.getNumAngles() > 0:
+                    new_force.setForceGroup(1)
+                    self.addForce(new_force)
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
