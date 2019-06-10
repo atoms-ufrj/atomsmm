@@ -11,10 +11,10 @@
 
 import copy
 import itertools
+import re
 
 import numpy as np
 from simtk import openmm
-from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -55,20 +55,14 @@ class RESPASystem(openmm.System):
         fastExceptions : bool, optional, default=True
             Whether nonbonded exceptions must be considered to belong to the group of fastest
             forces. If `False`, then they will be split into intermediate and slowest forces.
-        specialBonds : dict(), optional, default=None
-            A dictionary for equilibrium bond length replacement in the fastest time scale.
-            The lengths that must be substituted are the dict keys, while the new lengths are the
-            dict values.
-        specialAngles : dict(), optional, default=None
-            A dictionary for equilibrium angle replacement in the fastest time scale.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, **kwargs):
         self.this = copy.deepcopy(system).this
+        self._special_bond_force = None
+        self._special_angle_force = None
         adjustment = kwargs.pop('adjustment', 'force-switch')
         fastExceptions = kwargs.get('fastExceptions', True)
-        specialBonds = kwargs.get('specialBonds', None)
-        specialAngles = kwargs.get('specialAngles', None)
         ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
         near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
         minus_near_potential = copy.deepcopy(near_potential)
@@ -84,36 +78,6 @@ class RESPASystem(openmm.System):
                 else:
                     self._addCustomBondForce(near_potential, 1, force)
                     self._addCustomBondForce(minus_near_potential, 31, force)
-            elif specialBonds is not None and isinstance(force, openmm.HarmonicBondForce):
-                new_force = openmm.CustomBondForce('0.5*kb*(r1+r2-2*r)*(r1-r2)')
-                new_force.addPerBondParameter('r1')
-                new_force.addPerBondParameter('r2')
-                new_force.addPerBondParameter('kb')
-                for index in range(force.getNumBonds()):
-                    i, j, length, k = force.getBondParameters(index)
-                    lenval = length.value_in_unit(unit.nanometer)
-                    if lenval in specialBonds:
-                        new_length = specialBonds[lenval]*unit.nanometer
-                        force.setBondParameters(index, i, j, new_length, k)
-                        new_force.addBond(i, j, (length, new_length, k))
-                if new_force.getNumBonds() > 0:
-                    new_force.setForceGroup(1)
-                    self.addForce(new_force)
-            elif specialAngles is not None and isinstance(force, openmm.HarmonicAngleForce):
-                new_force = openmm.CustomAngleForce('0.5*ka*(theta1+theta2-2*theta)*(theta1-theta2)')
-                new_force.addPerAngleParameter('theta1')
-                new_force.addPerAngleParameter('theta2')
-                new_force.addPerAngleParameter('ka')
-                for index in range(force.getNumAngles()):
-                    i, j, k, theta, ka = force.getAngleParameters(index)
-                    angval = theta.value_in_unit(unit.radian)
-                    if angval in specialAngles:
-                        new_theta = specialAngles[angval]*unit.radian
-                        force.setAngleParameters(index, i, j, k, new_theta, ka)
-                        new_force.addAngle(i, j, k, (theta, new_theta, ka))
-                if new_force.getNumAngles() > 0:
-                    new_force.setForceGroup(1)
-                    self.addForce(new_force)
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
         energy = ';'.join(expressions)
@@ -131,6 +95,108 @@ class RESPASystem(openmm.System):
         if force.getNumBonds() > 0:
             force.setForceGroup(group)
             self.addForce(force)
+
+    def redefine_bond(self, topology, residue, atom1, atom2, length):
+        """
+        Changes the equilibrium length of a specified bond for integration within its original
+        time scale. The difference between the original and the redefined bond potentials is
+        evaluated at the time scale right above the original one.
+
+        Parameters
+        ----------
+            topology : openmm.Topology
+                The topology corresponding to the original system.
+            residue : str
+                A name or regular expression to identify the residue which contains the redefined
+                bond.
+            atom1 : str
+                A name or regular expression to identify the first atom that makes the bond.
+            atom2 : str
+                A name or regular expression to identify the second atom that makes the bond.
+            length: unit.Quantity
+                The redifined equilibrium length for integration at the shortest time scale.
+
+        """
+        resname = [atom.residue.name for atom in topology.atoms()]
+        atom = [atom.name for atom in topology.atoms()]
+        r_regex = re.compile(residue)
+        a_regex = [re.compile(a) for a in [atom1, atom2]]
+
+        def r_match(*args):
+            return all(r_regex.match(resname[j]) for j in args)
+
+        def a_match(*args):
+            return all(a_regex[i].match(atom[j]) for i, j in enumerate(args))
+
+        bond_list = []
+        for force in self.getForces():
+            if isinstance(force, openmm.HarmonicBondForce):
+                for index in range(force.getNumBonds()):
+                    i, j, r0, K = force.getBondParameters(index)
+                    if r_match(i, j) and (a_match(i, j) or a_match(j, i)):
+                        force.setBondParameters(index, i, j, length, K)
+                        bond_list.append((i, j, r0, K))
+        if bond_list and self._special_bond_force is None:
+            new_force = openmm.CustomBondForce('K_delta*(r_mean - r)')
+            new_force.addPerBondParameter('K_delta')
+            new_force.addPerBondParameter('r_mean')
+            new_force.setForceGroup(force.getForceGroup() + 1)
+            self.addForce(new_force)
+            self._special_bond_force = new_force
+        for (i, j, r0, K) in bond_list:
+            self._special_bond_force.addBond(i, j, (K*(r0 - length), 0.5*(r0 + length)))
+
+    def redefine_angle(self, topology, residue, atom1, atom2, atom3, angle):
+        """
+        Changes the equilibrium value of a specified angle for integration within its original
+        time scale. The difference between the original and the redefined angle potentials is
+        evaluated at the time scale right above the original one.
+
+        Parameters
+        ----------
+            topology : openmm.Topology
+                The topology corresponding to the original system.
+            residue : str
+                A name or regular expression to identify the residue which contains the redefined
+                angle.
+            atom1 : str
+                A name or regular expression to identify the first atom that makes the angle.
+            atom2 : str
+                A name or regular expression to identify the second atom that makes the angle.
+            atom3 : str
+                A name or regular expression to identify the third atom that makes the angle.
+            angle: unit.Quantity
+                The redifined equilibrium angle value for integration at the shortest time scale.
+
+        """
+        resname = [atom.residue.name for atom in topology.atoms()]
+        atom = [atom.name for atom in topology.atoms()]
+        r_regex = re.compile(residue)
+        a_regex = [re.compile(a) for a in [atom1, atom2, atom3]]
+
+        def r_match(*args):
+            return all(r_regex.match(resname[j]) for j in args)
+
+        def a_match(*args):
+            return all(a_regex[i].match(atom[j]) for i, j in enumerate(args))
+
+        angle_list = []
+        for force in self.getForces():
+            if isinstance(force, openmm.HarmonicAngleForce):
+                for index in range(force.getNumAngles()):
+                    i, j, k, theta0, K = force.getAngleParameters(index)
+                    if r_match(i, j, k) and (a_match(i, j, k) or a_match(k, j, i)):
+                        force.setAngleParameters(index, i, j, k, angle, K)
+                        angle_list.append((i, j, k, theta0, K))
+        if angle_list and self._special_angle_force is None:
+            new_force = openmm.CustomAngleForce('K_delta*(theta_mean - theta)')
+            new_force.addPerAngleParameter('K_delta')
+            new_force.addPerAngleParameter('theta_mean')
+            new_force.setForceGroup(force.getForceGroup() + 1)
+            self.addForce(new_force)
+            self._special_angle_force = new_force
+        for (i, j, k, theta0, K) in angle_list:
+            self._special_angle_force.addAngle(i, j, k, (K*(theta0 - angle), 0.5*(theta0 + angle)))
 
 
 class SolvationSystem(openmm.System):

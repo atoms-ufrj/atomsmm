@@ -131,22 +131,22 @@ def test_RESPASystem_with_lj_parameter_scaling():
 def test_RESPASystem_with_special_bonds():
     system, positions, topology, solute = readSystem('q-SPC-FW')
     respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
-    respa_system = atomsmm.RESPASystem(system, *respa_info.values(),
-                                       specialBonds={0.1: 0.105},
-                                       specialAngles={1.95476878: 2.0})
+    respa_system = atomsmm.RESPASystem(system, *respa_info.values())
+    respa_system.redefine_bond(topology, 'HOH', 'H[1-2]', 'O', 1.05*unit.angstroms)
+    respa_system.redefine_angle(topology, 'HOH', 'H[1-2]', 'O', 'H[1-2]', 113*unit.degrees)
     components = atomsmm.splitPotentialEnergy(respa_system, topology, positions)
     potential = dict()
     potential['HarmonicBondForce'] = 3665.684696323676
-    potential['HarmonicAngleForce'] = 2398.8022975877616
+    potential['HarmonicAngleForce'] = 1811.197218501007
     potential['PeriodicTorsionForce'] = 0.0
     potential['Real-Space'] = 84694.39953220935
     potential['Reciprocal-Space'] = -111582.71281220087
-    potential['CustomBondForce'] = -1175.253817235862
-    potential['CustomAngleForce'] = -892.627270352322
     potential['CustomNonbondedForce'] = -25531.129587235544
     potential['CustomNonbondedForce(1)'] = 25531.129587235544
-    potential['CustomBondForce(1)'] = 0.0
-    potential['Total'] = -22891.70737366826
+    potential['CustomBondForce'] = 0.0
+    potential['CustomBondForce(1)'] = -1175.253817235862
+    potential['CustomAngleForce'] = -305.0221912655623
+    potential['Total'] = -22891.707373668243
     for term, value in components.items():
         print(term, value)
         assert value/value.unit == pytest.approx(potential[term])
