@@ -96,11 +96,11 @@ class RESPASystem(openmm.System):
             force.setForceGroup(group)
             self.addForce(force)
 
-    def redefine_bond(self, topology, residue, atom1, atom2, length, K=None):
+    def redefine_bond(self, topology, residue, atom1, atom2, length, K=None, group=1):
         """
         Changes the equilibrium length of a specified bond for integration within its original
         time scale. The difference between the original and the redefined bond potentials is
-        evaluated at the time scale right above the original one.
+        evaluated at another time scale.
 
         Parameters
         ----------
@@ -118,6 +118,9 @@ class RESPASystem(openmm.System):
             K : unit.Quantity, optional, default=None
                 The harmonic force constant for the bond. If this is `None`, then the original
                 value will be maintained.
+            group : int, optional, default=1
+                The force group with which the difference between the original and the redefined
+                bond potentials must be evaluated.
 
         """
         resname = [atom.residue.name for atom in topology.atoms()]
@@ -145,17 +148,17 @@ class RESPASystem(openmm.System):
             new_force.addPerBondParameter('K0')
             new_force.addPerBondParameter('rn')
             new_force.addPerBondParameter('Kn')
-            new_force.setForceGroup(force.getForceGroup() + 1)
+            new_force.setForceGroup(group)
             self.addForce(new_force)
             self._special_bond_force = new_force
         for (i, j, r0, K0) in bond_list:
             self._special_bond_force.addBond(i, j, (r0, K0, length, K0 if K is None else K))
 
-    def redefine_angle(self, topology, residue, atom1, atom2, atom3, angle, K=None):
+    def redefine_angle(self, topology, residue, atom1, atom2, atom3, angle, K=None, group=1):
         """
         Changes the equilibrium value of a specified angle for integration within its original
         time scale. The difference between the original and the redefined angle potentials is
-        evaluated at the time scale right above the original one.
+        evaluated at another time scale.
 
         Parameters
         ----------
@@ -175,6 +178,9 @@ class RESPASystem(openmm.System):
             K : unit.Quantity, optional, default=None
                 The harmonic force constant for the angle. If this is `None`, then the original
                 value will be maintained.
+            group : int, optional, default=1
+                The force group with which the difference between the original and the redefined
+                angle potentials must be evaluated.
 
         """
         resname = [atom.residue.name for atom in topology.atoms()]
@@ -202,7 +208,7 @@ class RESPASystem(openmm.System):
             new_force.addPerAngleParameter('K0')
             new_force.addPerAngleParameter('tn')
             new_force.addPerAngleParameter('Kn')
-            new_force.setForceGroup(force.getForceGroup() + 1)
+            new_force.setForceGroup(group)
             self.addForce(new_force)
             self._special_angle_force = new_force
         for (i, j, k, theta0, K0) in angle_list:
