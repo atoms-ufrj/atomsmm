@@ -327,6 +327,7 @@ class MassiveIsokineticPropagator(Propagator):
     def __init__(self, temperature, timeScale, L, forceDependent):
         super().__init__()
         self.globalVariables['Q1'] = kB*temperature*timeScale**2
+        self.globalVariables['L'] = L
         self.globalVariables['LkT'] = L*kB*temperature
         self.L = L
         for i in range(L):
@@ -340,8 +341,8 @@ class MassiveIsokineticPropagator(Propagator):
         v1 = ['v1_{}'.format(i) for i in range(L)]
         v2 = ['v2_{}'.format(i) for i in range(L)]
         if self.forceDependent:
-            expression = 'v*cosh(x) + sqrt(LkT/m)*sinh(x)'
-            expression += '; x = ({}*dt)*{}/sqrt(m*LkT)'.format(fraction, force)
+            expression = 'v*cosh(z) + sqrt(LkT/m)*sinh(z)'
+            expression += '; z = ({}*dt)*{}/sqrt(m*LkT)'.format(fraction, force)
             integrator.addComputePerDof('v', expression)
         else:
             for i in range(L):

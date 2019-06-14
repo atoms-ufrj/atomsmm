@@ -293,6 +293,68 @@ class SolvationSystem(openmm.System):
                 nonbonded.addParticleParameterOffset('lambda_vdw', index, 0.0, sigma, epsilon)
 
 
+class AlchemicalSystem(openmm.System):
+    """
+    An OpenMM System_ prepared for solvation free-energy calculations.
+
+    Parameters
+    ----------
+        system : openmm.System
+            The original system from which to generate the SolvationSystem.
+        atoms : set(int)
+            A set containing the indexes of all solute atoms.
+        group : int, optional, default=0
+            The force group to be assigned to the solute-solvent softcore interactions, if any.
+
+    """
+    def __init__(self, system, atoms, group=0):
+        self.this = copy.deepcopy(system).this
+        nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
+
+        potential = '4*lambda_vdw*epsilon*(1 - x)/x^2'
+        potential += '; x=(r/sigma)^6 + 0.5*(1 - lambda_vdw)'
+        potential += '; sigma = 0.5*(sigma1 + sigma2)'
+        potential += '; epsilon = sqrt(epsilon1*epsilon2)'
+        softcore = openmm.CustomNonbondedForce(potential)
+        if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
+            softcore.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
+        else:
+            softcore.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+        softcore.setCutoffDistance(nonbonded.getCutoffDistance())
+        softcore.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+        softcore.setSwitchingDistance(nonbonded.getSwitchingDistance())
+        # softcore.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+        softcore.setUseLongRangeCorrection(False)
+        softcore.addGlobalParameter('lambda_vdw', 1.0)
+        softcore.addPerParticleParameter('sigma')
+        softcore.addPerParticleParameter('epsilon')
+        all = range(nonbonded.getNumParticles())
+        for index in all:
+            _, sigma, epsilon = nonbonded.getParticleParameters(index)
+            softcore.addParticle([sigma, epsilon])
+        softcore.addInteractionGroup(atoms, set(all) - set(atoms))
+        softcore.setForceGroup(group)
+        softcore.addEnergyParameterDerivative('lambda_vdw')
+        self.addForce(softcore)
+
+        parameters = []
+        for index in atoms:
+            parameters.append(nonbonded.getParticleParameters(index))
+            nonbonded.setParticleParameters(index, 0.0, 1.0, 0.0)
+
+        exception_pairs = []
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+            if set([i, j]).issubset(atoms):
+                exception_pairs.append(set([i, j]))
+        for i, j in itertools.combinations(atoms, 2):
+            if set([i, j]) not in exception_pairs:
+                q1, sig1, eps1 = parameters[i]
+                q2, sig2, eps2 = parameters[j]
+                nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
+                softcore.addExclusion(i, j)  # Needed for matching exception number
+
+
 class ComputingSystem(_AtomsMM_System):
     """
     An OpenMM System_ prepared for computing the Coulomb contribution to the potential energy, as

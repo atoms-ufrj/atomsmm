@@ -7,8 +7,10 @@
 
 """
 
+import functools
 import math
 import re
+import types
 
 import numpy as np
 from simtk import openmm
@@ -382,7 +384,7 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        L = self._L = kwargs.pop('L', 1)
+        L = kwargs.pop('L', 1)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=False)
         v1 = ['v1_{}'.format(i) for i in range(L)]
@@ -402,10 +404,11 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
         kT = self.getGlobalVariableByName('kT')
         Q1 = self.getGlobalVariableByName('Q1')
         Q2 = self.getGlobalVariableByName('Q2')
-        for i in range(self._L):
+        L = round(self.getGlobalVariableByName('L'))
+        for i in range(L):
             v1 = self.getPerDofVariableByName('v1_{}'.format(i))
             v2 = self.getPerDofVariableByName('v2_{}'.format(i))
-            S1 = math.sqrt((self._L + 1)/self._L*kT/Q1)
+            S1 = math.sqrt((L + 1)/L*kT/Q1)
             S2 = math.sqrt(kT/Q2)
             for j in range(len(v1)):
                 v1[j] = S1*self._normalVec()
@@ -634,3 +637,138 @@ class LimitedSpeedStochasticVelocityIntegrator(MultipleTimeScaleIntegrator):
         for i in range(len(v_eta)):
             v_eta[i] = sigma*self._normalVec()
         self.setPerDofVariableByName('v_eta', v_eta)
+
+
+class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
+    """
+    This class implements the Adiabatic Free Energy Dynamics (AFED) method.
+
+    .. math::
+        e^{2 n \\Delta t \\mathcal{L}} =
+            [e^{\\delta t \\mathcal{L}_\\mathrm{NVT}}]^n
+            e^{2 n \\Delta t \\mathcal{L}_\\mathrm{AFED}}
+            [e^{\\delta t \\mathcal{L}_\\mathrm{NVT}}]^n
+
+    Parameters
+    ----------
+        nvt_integrator : openmm.CustomIntegrator
+            The NVT integrator.
+        steps : int
+            The number of NVT steps.
+        variable : str
+            The name of the extended-space variable.
+        mass : Number or unit.Quantity
+            The mass of the extended-space variable.
+        kT : Number of unit.Quantity
+            The temperature of the extended-space variable.
+        **kwargs : keyword arguments
+            Keyword arguments.
+
+    """
+    _v = '_v_extra'
+    _m = '_m_extra'
+    _kT = '_kT_extra'
+    _v_eta = '_v_eta_extra'
+    _Q_eta = '_Q_eta_extra'
+    _counter = '_nvt_steps_counter'
+
+    def __init__(self, nvt_integrator, steps, variable, mass, kT,
+                 time_scale=None, lower_limit=0, upper_limit = 1, wall_stiffness=100000000):
+        step_size = 2*steps*nvt_integrator.getStepSize()
+        tau = 10*step_size if time_scale is None else time_scale
+
+        super().__init__(step_size)
+
+        self._x = variable
+        self._lower_limit = lower_limit
+        self._upper_limit = upper_limit
+        self._K_wall = wall_stiffness
+        self._initialize_function = self._copy_function(nvt_integrator.initialize)
+
+        self.addGlobalVariable(self._v, 0)
+        self.addGlobalVariable(self._m, mass)
+        self.addGlobalVariable(self._kT, kT)
+        self.addGlobalVariable(self._v_eta, 0)
+        self.addGlobalVariable(self._Q_eta, kT*tau**2)
+        if steps > 1:
+            self.addGlobalVariable(self._counter, 0)
+
+        self._import_variables(nvt_integrator, steps)
+
+        self._add_physical_steps(nvt_integrator, steps)
+        self._add_extended_space_steps()
+        self._add_physical_steps(nvt_integrator, steps)
+
+    def _add_extended_space_steps(self):
+        move = '{} + 0.5*dt*{}'.format(self._x, self._v)
+        kick = '{} + 0.5*dt*({}*{}^2-{})/{}'.format(self._v_eta, self._m, self._v, self._kT, self._Q_eta)
+        scale = '{}*exp(-dt*{})'.format(self._v, self._v_eta)
+        self.addComputeGlobal(self._x, move)
+        self.addComputeGlobal(self._v_eta, kick)
+        self.addComputeGlobal(self._v, scale)
+        self.addComputeGlobal(self._v_eta, kick)
+        self.addComputeGlobal(self._x, move)
+
+    def _add_physical_steps(self, integrator, steps):
+        if steps > 1:
+            self.addComputeGlobal(self._counter, '0')
+            self.beginWhileBlock('{} < {}'.format(self._counter, steps))
+        lower = ' - {}*step(y)*y'.format(self._K_wall) if self._lower_limit is not None else ''
+        upper = ' + {}*step(z)*z'.format(self._K_wall) if self._upper_limit is not None else ''
+        boost = '{} - {}*dt*dEdx/{}'.format(self._v, 0.25/steps, self._m)
+        boost += '; dEdx = deriv(energy,{}){}{}'.format(self._x, upper, lower)
+        if self._lower_limit is not None:
+            boost += '; y = ({}) - {}'.format(self._lower_limit, self._x)
+        if self._upper_limit is not None:
+            boost += '; z = {} - ({})'.format(self._x, self._upper_limit)
+        self.addComputeGlobal(self._v, boost)
+        self._import_computations(integrator, steps)
+        self.addComputeGlobal(self._v, boost)
+        if steps > 1:
+            self.addComputeGlobal(self._counter, '{} + 1'.format(self._counter))
+            self.endBlock()
+
+    @staticmethod
+    def _copy_function(f):
+        g = types.FunctionType(f.__code__, f.__globals__)
+        return functools.update_wrapper(g, f)
+
+    def _import_computations(self, integrator, steps):
+        regex = re.compile(r'\bdt\b')
+        for index in range(integrator.getNumComputations()):
+            computation, variable, expression = integrator.getComputationStep(index)
+            expression = regex.sub('(dt/{})'.format(2*steps), expression)
+            if computation == openmm.CustomIntegrator.ComputeGlobal:
+                self.addComputeGlobal(variable, expression)
+            elif computation == openmm.CustomIntegrator.ComputePerDof:
+                self.addComputePerDof(variable, expression)
+            elif computation == openmm.CustomIntegrator.ComputeSum:
+                self.addComputeSum(variable, expression)
+            elif computation == openmm.CustomIntegrator.ConstrainPositions:
+                self.addConstrainPositions()
+            elif computation == openmm.CustomIntegrator.ConstrainVelocities:
+                self.addConstrainVelocities()
+            elif computation == openmm.CustomIntegrator.UpdateContextState:
+                self.addUpdateContextState()
+            elif computation == openmm.CustomIntegrator.IfBlockStart:
+                self.beginIfBlock(expression)
+            elif computation == openmm.CustomIntegrator.WhileBlockStart:
+                self.beginWhileBlock(expression)
+            elif computation == openmm.CustomIntegrator.BlockEnd:
+                self.endBlock()
+
+    def _import_variables(self, integrator, steps):
+        for index in range(integrator.getNumGlobalVariables()):
+            name = integrator.getGlobalVariableName(index)
+            if name not in ['mvv', 'NDOF']:
+                value = integrator.getGlobalVariable(index)
+                self.addGlobalVariable(name, value)
+        for index in range(integrator.getNumPerDofVariables()):
+            name = integrator.getPerDofVariableName(index)
+            if name != 'ndof':
+                values = integrator.getPerDofVariable(index)
+                self.addPerDofVariable(name, 0)
+                self.setPerDofVariableByName(name, values)
+
+    def initialize(self):
+        self._initialize_function(self)
