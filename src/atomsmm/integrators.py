@@ -673,7 +673,7 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
     _counter = '_nvt_steps_counter'
 
     def __init__(self, nvt_integrator, steps, variable, mass, kT,
-                 time_scale=None, lower_limit=0, upper_limit = 1, wall_stiffness=100000000):
+                 time_scale=None, lower_limit=0, upper_limit=1, wall_stiffness=100000000):
         step_size = 2*steps*nvt_integrator.getStepSize()
         tau = 10*step_size if time_scale is None else time_scale
 

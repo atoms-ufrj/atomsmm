@@ -7,6 +7,7 @@
 
 .. _pandas.DataFrame: https://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html
 .. _StateDataReporter: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.app.statedatareporter.StateDataReporter.html
+.. _CustomIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomIntegrator.html
 
 """
 
@@ -193,7 +194,16 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         Computes and reports the potential energy of the system at a number of provided global
         parameter states.
 
-    9. Allow specification of an extra file for reporting (keyword: `extraFile`).
+    9. Report global parameter values (keyword: `globalParameters`):
+
+        Reports the values of specified global parameters.
+
+    10. Report derivatives of energy with respect to global parameters (keyword: `energyDerivatives`):
+
+        Computes and reports derivatives of the potential energy of the system, at the current
+        state, with respect to specified global parameters.
+
+    11. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
         This can be used for replicating a report simultaneously to `sys.stdout` and to a file
         using a unique reporter.
@@ -221,6 +231,11 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         globalParameters : list(str), optional, default=None
             A list of global parameter names. If it is provided, then the values of these parameters
             will be reported.
+        energyDerivatives : list(str), optional, default=None
+            A list of global parameter names. If it is provided, then the derivatives of the
+            total potential energy with respect to these parameters will be reported. It is
+            necessary that the calculation of these derivatives has been activated beforehand
+            (see, for instance, CustomIntegrator_).
         pressureComputer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
             A computer designed to determine pressures and virials. This is mandatory if any keyword
             related to virial or pressure is set as `True`.
@@ -238,6 +253,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._molecularKineticEnergy = kwargs.pop('molecularKineticEnergy', False)
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
         self._globalParameters = kwargs.pop('globalParameters', None)
+        self._energyDerivatives = kwargs.pop('energyDerivatives', None)
         self._pressureComputer = kwargs.pop('pressureComputer', None)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
@@ -292,6 +308,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         if self._globalParameters is not None:
             for name in self._globalParameters:
                 self._add_item(headers, name)
+        if self._energyDerivatives is not None:
+            for name in self._energyDerivatives:
+                self._add_item(headers, 'diff(E,{})'.format(name))
         return headers
 
     def _constructReportValues(self, simulation, state):
@@ -342,6 +361,12 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         if self._globalParameters is not None:
             for name in self._globalParameters:
                 self._add_item(values, simulation.context.getParameter(name))
+
+        if self._energyDerivatives is not None:
+            mystate = simulation.context.getState(getParameterDerivatives=True)
+            derivative = mystate.getEnergyParameterDerivatives()
+            for name in self._energyDerivatives:
+                self._add_item(values, derivative[name])
 
         return values
 
