@@ -19,6 +19,7 @@ from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
 import atomsmm
+from atomsmm.utils import InputError
 
 
 class _AtomsMM_System(openmm.System):
@@ -303,16 +304,31 @@ class AlchemicalSystem(openmm.System):
             The original system from which to generate the SolvationSystem.
         atoms : set(int)
             A set containing the indexes of all solute atoms.
+        model : str, optional, default='softcore'
+            The model used for coupling the alchemical atoms to the system. The options are
+            `softcore` for using the model of Beutler et al. (1994), `linear` for using a simple
+            linear coupling, and `art` for using the model of Abrams, Rosso, and Tuckerman (2006).
         group : int, optional, default=0
             The force group to be assigned to the solute-solvent softcore interactions, if any.
 
     """
-    def __init__(self, system, atoms, group=0):
+    def __init__(self, system, atoms, model='softcore', group=0):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
 
-        potential = '4*lambda_vdw*epsilon*(1 - x)/x^2'
-        potential += '; x=(r/sigma)^6 + 0.5*(1 - lambda_vdw)'
+        if model == 'softcore':  # Beutler et al. (1994)
+            potential = '4*lambda_vdw*epsilon*(1 - x)/x^2'
+            potential += '; x = (r/sigma)^6 + 0.5*(1 - lambda_vdw)'
+        elif model == 'linear':
+            potential = '4*lambda_vdw*epsilon*x*(x - 1)'
+            potential += '; x = (sigma/r)^6'
+        elif model == 'art':  # Abrams, Rosso, and Tuckerman (2006)
+            potential = '4*g*epsilon*x*(x - 1)'
+            potential += '; x = (sigma/r)^6'
+            potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
+            potential += '; two_pi = 6.28318530717958'
+        else:
+            raise InputError('Unknown alchemical coupling model')
         potential += '; sigma = 0.5*(sigma1 + sigma2)'
         potential += '; epsilon = sqrt(epsilon1*epsilon2)'
         softcore = openmm.CustomNonbondedForce(potential)
