@@ -304,7 +304,7 @@ class AlchemicalSystem(openmm.System):
             The original system from which to generate the SolvationSystem.
         atoms : set(int)
             A set containing the indexes of all solute atoms.
-        model : str, optional, default='softcore'
+        coupling : str, optional, default='softcore'
             The model used for coupling the alchemical atoms to the system. The options are
             `softcore` for using the model of Beutler et al. (1994), `linear` for using a simple
             linear coupling, and `art` for using the model of Abrams, Rosso, and Tuckerman (2006).
@@ -312,21 +312,23 @@ class AlchemicalSystem(openmm.System):
             The force group to be assigned to the solute-solvent softcore interactions, if any.
 
     """
-    def __init__(self, system, atoms, model='softcore', group=0):
+    def __init__(self, system, atoms, coupling='softcore', group=0):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
 
-        if model == 'softcore':  # Beutler et al. (1994)
+        if coupling == 'softcore':  # Beutler et al. (1994)
             potential = '4*lambda_vdw*epsilon*(1 - x)/x^2'
             potential += '; x = (r/sigma)^6 + 0.5*(1 - lambda_vdw)'
-        elif model == 'linear':
-            potential = '4*lambda_vdw*epsilon*x*(x - 1)'
-            potential += '; x = (sigma/r)^6'
-        elif model == 'art':  # Abrams, Rosso, and Tuckerman (2006)
+        elif coupling in ['linear', 'spline', 'art']:
             potential = '4*g*epsilon*x*(x - 1)'
             potential += '; x = (sigma/r)^6'
-            potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
-            potential += '; two_pi = 6.28318530717958'
+            if coupling == 'linear':
+                potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
+            elif coupling == 'spline':
+                potential += '; g = lambda_vdw^3*(10 - 15*lambda_vdw + 6*lambda_vdw^2)'
+            elif coupling == 'art':  # Abrams, Rosso, and Tuckerman (2006)
+                potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
+                potential += '; two_pi = 6.28318530717958'
         else:
             raise InputError('Unknown alchemical coupling model')
         potential += '; sigma = 0.5*(sigma1 + sigma2)'
