@@ -65,11 +65,11 @@ class RESPASystem(openmm.System):
         adjustment = kwargs.pop('adjustment', 'force-switch')
         fastExceptions = kwargs.get('fastExceptions', True)
         ljc_potential = ['4*epsilon*x*(x-1) + Kc*chargeprod/r', 'x=(sigma/r)^6', 'Kc=138.935456']
-        near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
-        minus_near_potential = copy.deepcopy(near_potential)
-        minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
+                near_potential = atomsmm.forces.nearForceExpressions(rcutIn, rswitchIn, adjustment)
+                minus_near_potential = copy.deepcopy(near_potential)
+                minus_near_potential[0] = '-step(rc0-r)*({})'.format(near_potential[0])
                 force.setForceGroup(2)
                 force.setReciprocalSpaceForceGroup(2)
                 self._addCustomNonbondedForce(near_potential, rcutIn, 1, force)
@@ -79,13 +79,39 @@ class RESPASystem(openmm.System):
                 else:
                     self._addCustomBondForce(near_potential, 1, force)
                     self._addCustomBondForce(minus_near_potential, 31, force)
+            elif isinstance(force, openmm.CustomNonbondedForce):
+                potential = force.getEnergyFunction().split(';')
+                if potential[0] in ['U_linear', 'U_spline', 'U_art']:
+                    force.setForceGroup(2)
+                    near_potential = atomsmm.forces.nearLJForceExpressions(rcutIn, rswitchIn, adjustment)
+                    near_potential[0] = 'g*({})'.format(near_potential[0])
+                    if potential[0] == 'U_linear':
+                        near_potential += ['; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi']
+                    elif potential[0] == 'U_spline':
+                        near_potential += ['; g = lambda_vdw^3*(10 - 15*lambda_vdw + 6*lambda_vdw^2)']
+                    elif potential[0] == 'U_art':  # Abrams, Rosso, and Tuckerman (2006)
+                        near_potential += ['; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi',
+                                           '; two_pi = 6.28318530717958']
+                    near_potential += ['; sigma = 0.5*(sigma1 + sigma2)',
+                                       '; epsilon = sqrt(epsilon1*epsilon2)']
+                    self._addCustomNonbondedForce(near_potential, rcutIn, 1, force)
+                    minus_near_potential = copy.deepcopy(near_potential)
+                    minus_near_potential[0] = '-step(rc0-r)*{}'.format(near_potential[0])
+                    self._addCustomNonbondedForce(minus_near_potential, rcutIn, 31, force)
 
-    def _addCustomNonbondedForce(self, expressions, rcut, group, nonbonded):
+    def _addCustomNonbondedForce(self, expressions, rcut, group, source):
         energy = ';'.join(expressions)
-        force = atomsmm.forces._AtomsMM_CustomNonbondedForce(energy, rcut,
-                                                             use_switching_function=False,
-                                                             use_dispersion_correction=False)
-        force.importFrom(nonbonded)
+        if isinstance(source, openmm.NonbondedForce):
+            force = atomsmm.forces._AtomsMM_CustomNonbondedForce(
+                energy,
+                rcut,
+                use_switching_function=False,
+                use_dispersion_correction=False,
+            )
+            force.importFrom(source)
+        else:
+            force = copy.deepcopy(source)
+            force.setEnergyFunction(energy)
         force.setForceGroup(group)
         self.addForce(force)
 
@@ -316,11 +342,12 @@ class AlchemicalSystem(openmm.System):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
 
+        potential = 'U_{}'.format(coupling)
         if coupling == 'softcore':  # Beutler et al. (1994)
-            potential = '4*lambda_vdw*epsilon*(1 - x)/x^2'
+            potential += '; U_softcore = 4*lambda_vdw*epsilon*(1 - x)/x^2'
             potential += '; x = (r/sigma)^6 + 0.5*(1 - lambda_vdw)'
         elif coupling in ['linear', 'spline', 'art']:
-            potential = '4*g*epsilon*x*(x - 1)'
+            potential += '; U_{} = 4*g*epsilon*x*(x - 1)'.format(coupling)
             potential += '; x = (sigma/r)^6'
             if coupling == 'linear':
                 potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'

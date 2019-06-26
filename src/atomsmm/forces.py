@@ -500,6 +500,36 @@ def nearForceExpressions(cutoff_distance, switch_distance, adjustment):
     return expressions
 
 
+def nearLJForceExpressions(cutoff_distance, switch_distance, adjustment):
+    expressions = []
+    if adjustment is None:
+        expressions.append('energy=S*(4*epsilon*((sigma/r)^12-(sigma/r)^6)')
+        expressions.append('S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10)')
+    elif adjustment == 'shift':
+        LJ = '4*epsilon*((sigma/r)^12-(sigma/r)^6-((sigma/rc0)^12-(sigma/rc0)^6))'
+        expressions.append('S*({})'.format(LJ))
+        expressions.append('S = 1 + step(r - rs0)*u^3*(15*u - 6*u^2 - 10)')
+    elif adjustment == 'force-switch':
+        potential = '4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6)'
+        shift = '4*epsilon*(f12c*(sigma/rc0)^12-f6c*(sigma/rc0)^6)'
+        factors = dict(f12='(6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7',
+                       f6='(6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5')
+        expressions.append('{}-({})'.format(potential, shift))
+        for factor, func in factors.items():
+            expressions.append('{}=1+step(r-rs0)*({})'.format(factor, func))
+        expressions.append('R=u/b+1')  # R=r/rs0
+        b = switch_distance/(cutoff_distance-switch_distance)
+        expressions.append('b={}'.format(b))
+        expressions.append('f12c={}'.format((1+b)**3*(b**6+3*b**5+(30/7)*b**4+(25/7)*b**3+(25/14)*b**2+(1/2)*b+2/33)/b**9))
+        expressions.append('f6c={}'.format((1+b)**3/b**3))
+    else:
+        raise atomsmm.utils.InputError('unknown adjustment option')
+    expressions.append('u=(r-rs0)/(rc0-rs0)')
+    expressions.append('rs0={}'.format(switch_distance.value_in_unit(unit.nanometers)))
+    expressions.append('rc0={}'.format(cutoff_distance.value_in_unit(unit.nanometers)))
+    return expressions
+
+
 class NearForce(object):
     def _globalParams(self, cutoff_distance, switch_distance):
         return {'Kc': 138.935456*unit.kilojoules_per_mole/unit.nanometer,
