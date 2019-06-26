@@ -373,11 +373,14 @@ class AlchemicalSystem(openmm.System):
         softcore.addGlobalParameter('lambda_vdw', 1.0)
         softcore.addPerParticleParameter('sigma')
         softcore.addPerParticleParameter('epsilon')
-        all = range(nonbonded.getNumParticles())
-        for index in all:
+        all_atoms = range(nonbonded.getNumParticles())
+        for index in all_atoms:
             _, sigma, epsilon = nonbonded.getParticleParameters(index)
             softcore.addParticle([sigma, epsilon])
-        softcore.addInteractionGroup(atoms, set(all) - set(atoms))
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, _, _, epsilon = nonbonded.getExceptionParameters(index)
+            softcore.addExclusion(i, j)
+        softcore.addInteractionGroup(atoms, set(all_atoms) - set(atoms))
         softcore.setForceGroup(group)
         softcore.addEnergyParameterDerivative('lambda_vdw')
         self.addForce(softcore)
