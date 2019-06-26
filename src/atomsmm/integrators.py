@@ -88,13 +88,12 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
             symbols |= parse_expr(expr.replace('^', '**')).free_symbols
         return list(str(element) for element in (symbols - names))
 
-    def _checkUpdate(self, variable, expression):
+    def _checkUpdate(self, requirements):
         """
         Check whether it is necessary to update the mvv global variable (twice the kinetic energy)
         or to let the openmm.Force objects update the context state.
 
         """
-        requirements = self._required_variables(variable, expression)
         if self._obsoleteKinetic and 'mvv' in requirements:
             super().addComputeSum('mvv', 'm*v*v')
             self._obsoleteKinetic = False
@@ -110,11 +109,24 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
     def addComputeGlobal(self, variable, expression):
         if variable == 'mvv':
             raise InputError('Cannot assign value to global variable mvv')
-        self._checkUpdate(variable, expression)
+        requirements = self._required_variables(variable, expression)
+        self._checkUpdate(requirements)
         super().addComputeGlobal(variable, expression)
 
     def addComputePerDof(self, variable, expression):
-        self._checkUpdate(variable, expression)
+        requirements = self._required_variables(variable, expression)
+        self._checkUpdate(requirements)
+        forces = [s for s in requirements if self._forceFinder.match(s) is not None]
+        if len(forces) > 1:
+            forces.sort()
+            expression = re.sub(r'\bf([0-9]*)\b', '_f\\1_', expression)
+            buffers = ['_{}_'.format(force) for force in forces]
+            existing = [self.getPerDofVariableName(i) for i in range(self.getNumPerDofVariables())]
+            for force, buffer in zip(forces[1:], buffers[1:]):
+                if buffer not in existing:
+                    self.addPerDofVariable(buffer, 0.0)
+                self.addComputePerDof(buffer, force)
+            expression = re.sub(r'\b{}\b'.format(buffers[0]), forces[0], expression)
         super().addComputePerDof(variable, expression)
         if variable == 'v':
             self._obsoleteKinetic = True

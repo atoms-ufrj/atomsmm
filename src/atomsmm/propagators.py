@@ -906,8 +906,7 @@ class RespaPropagator(Propagator):
 
         self.expr = ['f{}'.format(group) for group in range(self.N)]
         for group in range(2, self.N):
-            self.expr[group] += '-g{}'.format(group-1)
-            self.perDofVariables['g{}'.format(group-1)] = 0.0
+            self.expr[group] += '-f{}'.format(group-1)
         self.force = self.expr.copy()
 
         self._has_memory = has_memory
@@ -923,15 +922,11 @@ class RespaPropagator(Propagator):
 
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         shell and shell.addSteps(integrator, 0.5*fraction)
-        if timescale > 1:
-            integrator.addComputePerDof('g{}'.format(timescale-1), self.expr[timescale-1])
         if self._has_memory and timescale > 0:
             integrator.addComputePerDof('fm{}'.format(timescale), self.expr[timescale])
         else:
             self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         self._addSubsteps(integrator, timescale-1, fraction)
-        if timescale > 1:
-            integrator.addComputePerDof('g{}'.format(timescale-1), self.expr[timescale-1])
         self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
         shell and shell.addSteps(integrator, 0.5*fraction)
 
