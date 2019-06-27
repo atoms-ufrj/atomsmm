@@ -8,6 +8,7 @@
 .. _pandas.DataFrame: https://pandas.pydata.org/pandas-docs/stable/generated/pandas.DataFrame.html
 .. _StateDataReporter: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.app.statedatareporter.StateDataReporter.html
 .. _CustomIntegrator: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomIntegrator.html
+.. _CustomCVForce: docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.CustomCVForce.html
 
 """
 
@@ -189,7 +190,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         total mass of molecule `i`, and :math:`v_{\\mathrm{cm}, i}` is the center-of-mass velocity
         of molecule `i`.
 
-    8. Report potential energies at multiple states (keyword: `globalParameterStates`):
+    8. Report potential energies at multiple global parameter states (keyword: `globalParameterStates`):
 
         Computes and reports the potential energy of the system at a number of provided global
         parameter states.
@@ -200,10 +201,14 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
     10. Report derivatives of energy with respect to global parameters (keyword: `energyDerivatives`):
 
-        Computes and reports derivatives of the potential energy of the system, at the current
-        state, with respect to specified global parameters.
+        Computes and reports derivatives of the potential energy of the system at the current
+        state with respect to specified global parameters.
 
-    11. Allow specification of an extra file for reporting (keyword: `extraFile`).
+    11. Report values of collective variables (keyword: `collectiveVariables`)
+
+        Report the values of a set of collective variables.
+
+    12. Allow specification of an extra file for reporting (keyword: `extraFile`).
 
         This can be used for replicating a report simultaneously to `sys.stdout` and to a file
         using a unique reporter.
@@ -236,6 +241,9 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             total potential energy with respect to these parameters will be reported. It is
             necessary that the calculation of these derivatives has been activated beforehand
             (see, for instance, CustomIntegrator_).
+        collectiveVariables : list(openmm.CustomCVForce), optional, default=None
+            A list of CustomCVForce_ objects. If it is provided, then the values of all collective
+            variables associated with these objects will be reported.
         pressureComputer : :class:`~atomsmm.computers.PressureComputer`, optional, default=None
             A computer designed to determine pressures and virials. This is mandatory if any keyword
             related to virial or pressure is set as `True`.
@@ -254,6 +262,7 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         self._globalParameterStates = kwargs.pop('globalParameterStates', None)
         self._globalParameters = kwargs.pop('globalParameters', None)
         self._energyDerivatives = kwargs.pop('energyDerivatives', None)
+        self._collectiveVariables = kwargs.pop('collectiveVariables', None)
         self._pressureComputer = kwargs.pop('pressureComputer', None)
         extra = kwargs.pop('extraFile', None)
         if extra is None:
@@ -311,6 +320,11 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         if self._energyDerivatives is not None:
             for name in self._energyDerivatives:
                 self._add_item(headers, 'diff(E,{})'.format(name))
+        if self._collectiveVariables is not None:
+            for force in self._collectiveVariables:
+                for index in range(force.getNumCollectiveVariables()):
+                    name = force.getCollectiveVariableName(index)
+                    self._add_item(headers, name)
         return headers
 
     def _constructReportValues(self, simulation, state):
@@ -367,6 +381,11 @@ class ExtendedStateDataReporter(app.StateDataReporter):
             derivative = mystate.getEnergyParameterDerivatives()
             for name in self._energyDerivatives:
                 self._add_item(values, derivative[name])
+
+        if self._collectiveVariables is not None:
+            for force in self._collectiveVariables:
+                for cv in force.getCollectiveVariableValues(simulation.context):
+                    self._add_item(values, cv)
 
         return values
 
