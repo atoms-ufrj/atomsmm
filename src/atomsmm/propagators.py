@@ -1,3 +1,4 @@
+# -*- coding: future_fstrings -*-
 """
 .. module:: propagators
    :platform: Unix, Windows
@@ -470,10 +471,10 @@ class LimitedSpeedLangevinPropagator(Propagator):
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self.kind == 'move':
-            integrator.addComputePerDof('x', 'x + sqrt(LkT/m)*tanh(p)*{}*dt'.format(fraction))
+            integrator.addComputePerDof('x', f'x + sqrt(LkT/m)*tanh(p)*{fraction}*dt')
         elif self.kind == 'boost':
             boost = [
-                ' p1 = p + {}*{}*dt/sqrt(m*LkT)'.format(force, fraction),
+                f' p1 = p + {force}*{fraction}*dt/sqrt(m*LkT)',
                 'select(step(p1-plim), plim, select(step(p1+plim), p1, -plim))',
             ]
             integrator.addComputePerDof('p', ';'.join(reversed(boost)))
@@ -491,7 +492,7 @@ class LimitedSpeedLangevinPropagator(Propagator):
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             n = 1
             expressions = [
-                ' alpha = exp(-friction*{}*dt/2)'.format(fraction/n),
+                f' alpha = exp(-friction*{fraction/n}*dt/2)',
                 ' a = alpha^2',
                 ' b = sqrt((one-a^2)/L)',
                 ' p1 = p/alpha',

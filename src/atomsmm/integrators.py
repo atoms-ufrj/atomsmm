@@ -1,3 +1,4 @@
+# -*- coding: future_fstrings -*-
 """
 .. module:: integrators
    :platform: Unix, Windows
@@ -712,9 +713,10 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
         self._add_physical_steps(nvt_integrator, steps)
 
     def _add_extended_space_steps(self):
-        move = '{} + 0.5*dt*{}'.format(self._x, self._v)
-        kick = '{} + 0.5*dt*({}*{}^2-{})/{}'.format(self._v_eta, self._m, self._v, self._kT, self._Q_eta)
-        scale = '{}*exp(-dt*{})'.format(self._v, self._v_eta)
+        move = f'{self._x} + 0.5*dt*{self._v}'
+        kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
+        scale = f'{self._v}*exp(-dt*{self._v_eta})'
+
         self.addComputeGlobal(self._x, move)
         self.addComputeGlobal(self._v_eta, kick)
         self.addComputeGlobal(self._v, scale)
@@ -724,20 +726,20 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
     def _add_physical_steps(self, integrator, steps):
         if steps > 1:
             self.addComputeGlobal(self._counter, '0')
-            self.beginWhileBlock('{} < {}'.format(self._counter, steps))
-        lower = ' - {}*step(y)*y'.format(self._K_wall) if self._lower_limit is not None else ''
-        upper = ' + {}*step(z)*z'.format(self._K_wall) if self._upper_limit is not None else ''
-        boost = '{} - {}*dt*dEdx/{}'.format(self._v, 0.25/steps, self._m)
-        boost += '; dEdx = deriv(energy,{}){}{}'.format(self._x, upper, lower)
+            self.beginWhileBlock(f'{self._counter} < {steps}')
+        lower = f' - {self._K_wall}*step(y)*y' if self._lower_limit is not None else ''
+        upper = f' + {self._K_wall}*step(z)*z' if self._upper_limit is not None else ''
+        boost = f'{self._v} - {0.25/steps}*dt*dEdx/{self._m}'
+        boost += f'; dEdx = deriv(energy,{self._x}) {upper} {lower}'
         if self._lower_limit is not None:
-            boost += '; y = ({}) - {}'.format(self._lower_limit, self._x)
+            boost += f'; y = ({self._lower_limit}) - {self._x}'
         if self._upper_limit is not None:
-            boost += '; z = {} - ({})'.format(self._x, self._upper_limit)
+            boost += f'; z = {self._x} - ({self._upper_limit})'
         self.addComputeGlobal(self._v, boost)
         self._import_computations(integrator, steps)
         self.addComputeGlobal(self._v, boost)
         if steps > 1:
-            self.addComputeGlobal(self._counter, '{} + 1'.format(self._counter))
+            self.addComputeGlobal(self._counter, f'{self._counter} + 1')
             self.endBlock()
 
     @staticmethod
@@ -749,7 +751,7 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
         regex = re.compile(r'\bdt\b')
         for index in range(integrator.getNumComputations()):
             computation, variable, expression = integrator.getComputationStep(index)
-            expression = regex.sub('(dt/{})'.format(2*steps), expression)
+            expression = regex.sub(f'(dt/{2*steps})', expression)
             if computation == openmm.CustomIntegrator.ComputeGlobal:
                 self.addComputeGlobal(variable, expression)
             elif computation == openmm.CustomIntegrator.ComputePerDof:
