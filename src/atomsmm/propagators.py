@@ -1133,7 +1133,7 @@ class NoseHooverPropagator(Propagator):
 
 class MassiveNoseHooverPropagator(Propagator):
     """
-    This class implements a Nose-Hoover propagator.
+    This class implements a massive Nose-Hoover propagator.
 
     As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
     :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`.
@@ -1142,9 +1142,6 @@ class MassiveNoseHooverPropagator(Propagator):
     ----------
         temperature : unit.Quantity
             The temperature of the heat bath.
-        degreesOfFreedom : int
-            The number of degrees of freedom in the system, which can be retrieved via function
-            :func:`~atomsmm.utils.countDegreesOfFreedom`.
         timeScale : unit.Quantity (time)
             The relaxation time of the Nose-Hoover thermostat.
         nloops : int, optional, default=1
@@ -1169,6 +1166,54 @@ class MassiveNoseHooverPropagator(Propagator):
         integrator.addComputePerDof('p_eta', f'p_eta + ({0.5*subfrac}*dt)*(m*v^2 - kT)')
         if self.nloops > 1:
             integrator.addComputeGlobal('nMNH', 'nMNH + 1')
+            integrator.endBlock()
+
+
+class MassiveGeneralizedGaussianMomentPropagator(Propagator):
+    """
+    This class implements a massive Generalized Gaussian Moment propagator.
+
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        nloops : int, optional, default=1
+            Number of RESPA-like subdivisions.
+
+    """
+    def __init__(self, temperature, timeScale, nloops=1):
+        super().__init__()
+        self.nloops = nloops
+        self.globalVariables['kT'] = kB*temperature
+        self.globalVariables['Q1'] = kB*temperature*timeScale**2
+        self.globalVariables['Q2'] = 2*(kB*temperature)**3*timeScale**2
+        self.globalVariables['nGGM'] = 0
+        self.perDofVariables['p1'] = 0
+        self.perDofVariables['p2'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        subfrac = fraction/self.nloops
+        if self.nloops > 1:
+            integrator.addComputeGlobal('nGGM', '0')
+            integrator.beginWhileBlock(f'nGGM < {self.nloops}')
+        integrator.addComputePerDof('p1', f'p1 + ({subfrac/2}*dt)*(m*v^2 - kT)')
+        integrator.addComputePerDof('p2', f'p2 + ({subfrac/2}*dt)*(m^2*v^4/3 - kT^2)')
+        expressions = [
+            f'v1 = v*exp(-{subfrac/2}*dt*(p1/Q1 + kT*p2/Q2))',
+            'alpha = p2/(3*m*Q2)',
+            f'v2 = v1/sqrt(1 + 2*v1^2*alpha*{subfrac}*dt)',
+            f'v2*exp(-{subfrac/2}*dt*(p1/Q1 + kT*p2/Q2))',
+        ]
+        integrator.addComputePerDof('v', ';'.join(reversed(expressions)))
+        integrator.addComputePerDof('p2', f'p2 + ({subfrac/2}*dt)*(m^2*v^4/3 - kT^2)')
+        integrator.addComputePerDof('p1', f'p1 + ({subfrac/2}*dt)*(m*v^2 - kT)')
+        if self.nloops > 1:
+            integrator.addComputeGlobal('nGGM', 'nGGM + 1')
             integrator.endBlock()
 
 

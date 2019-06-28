@@ -93,9 +93,19 @@ def test_NoseHooverPropagator():
 
 def test_MassiveNoseHooverPropagator():
     system, positions, topology = readSystem('emim_BCN4_Jiung2014')
-    NVE = atomsmm.VelocityVerletPropagator()
+    NVE = atomsmm.propagators.UnconstrainedVelocityVerletPropagator()
     thermostat = atomsmm.propagators.MassiveNoseHooverPropagator(300*unit.kelvin, 10*unit.femtoseconds, 1)
     combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
-    execute(integrator, -13484.829386266081)
+    execute(integrator, -13559.374824200062)
+
+
+def test_MassiveGGMPropagator():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    NVE = atomsmm.propagators.UnconstrainedVelocityVerletPropagator()
+    thermostat = atomsmm.propagators.MassiveGeneralizedGaussianMomentPropagator(300*unit.kelvin, 10*unit.femtoseconds, 1)
+    combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
+    integrator = combined.integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
+    execute(integrator, -13740.789502567375)
