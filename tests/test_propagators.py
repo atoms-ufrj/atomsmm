@@ -89,3 +89,13 @@ def test_NoseHooverPropagator():
     integrator = combined.integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
     execute(integrator, -13067.685398497035)
+
+
+def test_MassiveNoseHooverPropagator():
+    system, positions, topology = readSystem('emim_BCN4_Jiung2014')
+    NVE = atomsmm.VelocityVerletPropagator()
+    thermostat = atomsmm.propagators.MassiveNoseHooverPropagator(300*unit.kelvin, 10*unit.femtoseconds, 1)
+    combined = atomsmm.TrotterSuzukiPropagator(NVE, thermostat)
+    integrator = combined.integrator(1*unit.femtoseconds)
+    integrator.setRandomNumberSeed(1)
+    execute(integrator, -13484.829386266081)

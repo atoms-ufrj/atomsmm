@@ -987,6 +987,30 @@ class VelocityVerletPropagator(Propagator):
         integrator.addConstrainVelocities()
 
 
+class UnconstrainedVelocityVerletPropagator(Propagator):
+    """
+    This class implements a Velocity Verlet propagator with constraints.
+
+    .. math::
+        e^{\\delta t \\, iL_\\mathrm{NVE}} = e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
+                                             e^{\\delta t \\mathbf{p}^T \\mathbf{M}^{-1} \\nabla_\\mathbf{r}}
+                                             e^{\\frac{1}{2} \\delta t \\mathbf{F}^T \\nabla_\\mathbf{p}}
+
+    .. note::
+        In the original OpenMM VerletIntegrator_ class, the implemented propagator is a leap-frog
+        version of the Verlet method.
+
+    """
+    def __init__(self):
+        super().__init__()
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        Dt = '; Dt=%s*dt' % fraction
+        integrator.addComputePerDof('v', 'v+0.5*Dt*f/m' + Dt)
+        integrator.addComputePerDof('x', 'x+Dt*v' + Dt)
+        integrator.addComputePerDof('v', 'v+0.5*Dt*f/m' + Dt)
+
+
 class VelocityRescalingPropagator(Propagator):
     """
     This class implements the Stochastic Velocity Rescaling propagator of Bussi, Donadio, and
@@ -1105,6 +1129,47 @@ class NoseHooverPropagator(Propagator):
             integrator.endBlock()
         integrator.addComputeGlobal('p_eta', 'p_eta + ({}*dt)*(vscaling^2*mvv - LkT)'.format(0.5*subfrac))
         integrator.addComputePerDof('v', 'vscaling*v')
+
+
+class MassiveNoseHooverPropagator(Propagator):
+    """
+    This class implements a Nose-Hoover propagator.
+
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        degreesOfFreedom : int
+            The number of degrees of freedom in the system, which can be retrieved via function
+            :func:`~atomsmm.utils.countDegreesOfFreedom`.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        nloops : int, optional, default=1
+            Number of RESPA-like subdivisions.
+
+    """
+    def __init__(self, temperature, timeScale, nloops=1):
+        super().__init__()
+        self.nloops = nloops
+        self.globalVariables['kT'] = kB*temperature
+        self.globalVariables['Q'] = kB*temperature*timeScale**2
+        self.globalVariables['nMNH'] = 0
+        self.perDofVariables['p_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        subfrac = fraction/self.nloops
+        if self.nloops > 1:
+            integrator.addComputeGlobal('nMNH', '0')
+            integrator.beginWhileBlock(f'nMNH < {self.nloops}')
+        integrator.addComputePerDof('p_eta', f'p_eta + ({0.5*subfrac}*dt)*(m*v^2 - kT)')
+        integrator.addComputePerDof('v', f'v*exp(-({subfrac}*dt)*p_eta/Q)')
+        integrator.addComputePerDof('p_eta', f'p_eta + ({0.5*subfrac}*dt)*(m*v^2 - kT)')
+        if self.nloops > 1:
+            integrator.addComputeGlobal('nMNH', 'nMNH + 1')
+            integrator.endBlock()
 
 
 class NoseHooverLangevinPropagator(Propagator):

@@ -19,12 +19,13 @@ def readSystem(case, constraints=app.HBonds):
 
 
 def test_AdiabaticFreeEnergyDynamicsIntegrator():
-    nvt_integrator = atomsmm.SIN_R_Integrator(
+    nvt_integrator = atomsmm.GlobalThermostatIntegrator(
         1*unit.femtoseconds,
-        [1],
-        300*unit.kelvin,
-        10*unit.femtoseconds,
-        0.1/unit.femtoseconds,
+        atomsmm.propagators.UnconstrainedVelocityVerletPropagator(),
+        atomsmm.propagators.MassiveNoseHooverPropagator(
+            300*unit.kelvin,
+            10*unit.femtoseconds,
+        ),
     )
     system, positions, topology = readSystem('hydroxyethylaminoanthraquinone-in-water')
     residues = [atom.residue.name for atom in topology.atoms()]
@@ -41,4 +42,4 @@ def test_AdiabaticFreeEnergyDynamicsIntegrator():
     simulation.step(5)
     state = simulation.context.getState(getEnergy=True)
     potential = state.getPotentialEnergy()
-    assert potential/potential.unit == pytest.approx(-61952.0479169265)
+    assert potential/potential.unit == pytest.approx(-15727.875731174101)
