@@ -656,6 +656,11 @@ class ExtendedSystemVariable(object):
     """
     An extended-system variable used for Adiabatic Free Energy Dynamics (AFED).
 
+    .. warning:
+        It is necessary that the system energy depends on a gloval parameter with the same name
+        of this variable and that `addEnergyParameterDerivative` has been called for all forces
+        that depend on it.
+
     Parameters
     ----------
         name : str
@@ -664,17 +669,24 @@ class ExtendedSystemVariable(object):
             The mass of the extended-space variable.
         kT : Number of unit.Quantity
             The temperature of the extended-space variable.
+        time_scale : Number of unit.Quantity
+            The time scale of the thermostat that controls the temperature of this variable.
+        lower_limit : Number, optional, default=0
+            The lower limit of the variable.
+        upper_limit : Number, optional, default=1
+            The upper limit of the variable.
+        periodic : Bool, optional, default=False
+            Whether this variable is subject to periodic boundary conditions. If this is `False`,
+            then hard, ellastic walls will be considered instead.
 
     """
-    def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False,
-                 wall_stiffness=100000000):
+    def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False):
         self._m_value = mass
         self._kT_value = kT
         self._Q_eta_value = kT*time_scale**2
         self._lower_limit = lower_limit
         self._upper_limit = upper_limit
         self._periodic = periodic
-        self._K_wall = wall_stiffness
 
         self._x = name
         self._v = f'_v_{name}'
@@ -691,25 +703,39 @@ class ExtendedSystemVariable(object):
         integrator.addGlobalVariable(self._Q_eta, self._Q_eta_value)
 
     def add_integration_steps(self, integrator):
+        check_bounds = '; is_inside = above_lower*below_upper'
+        check_bounds += f'; above_lower = step({self._x}-({self._lower_limit}))'
+        check_bounds += f'; below_upper = step({self._upper_limit}-{self._x})'
+
         move = f'{self._x} + 0.5*dt*{self._v}'
-        thermostat_kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
-        velocity_scale = f'{self._v}*exp(-dt*{self._v_eta})'
+
+        kick_thermostat = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
+
+        scale_velocity = f'{self._v}*exp(-dt*{self._v_eta})'
+        if not self._periodic:
+            # Switch sign if variable trespassed one of the bounds:
+            scale_velocity = f'select(is_inside,1,-1)*{scale_velocity}'
+            scale_velocity += check_bounds
+
+        relocate_and_move = f'x0 + 0.5*dt*{self._v}'
+        relocate_and_move += f'; x0 = select(inside,{self._x},xb)'
+        if self._periodic:
+            # Jump before moving:
+            L = self._upper_limit - self._lower_limit
+            relocate_and_move += f'; xb = {self._x} + select(above_lower,{-L},{L})'
+        else:
+            # Bounce before moving:
+            relocate_and_move += f'; xb = 2*select(above_lower,{self._upper_limit},{self._lower_limit})-{self._x}'
+        relocate_and_move += check_bounds
 
         integrator.addComputeGlobal(self._x, move)
-        integrator.addComputeGlobal(self._v_eta, thermostat_kick)
-        integrator.addComputeGlobal(self._v, velocity_scale)
-        integrator.addComputeGlobal(self._v_eta, thermostat_kick)
-        integrator.addComputeGlobal(self._x, move)
+        integrator.addComputeGlobal(self._v_eta, kick_thermostat)
+        integrator.addComputeGlobal(self._v, scale_velocity)
+        integrator.addComputeGlobal(self._v_eta, kick_thermostat)
+        integrator.addComputeGlobal(self._x, relocate_and_move)
 
     def update_velocity(self, integrator, fraction):
-        lower = f' - {self._K_wall}*step(y)*y' if self._lower_limit is not None else ''
-        upper = f' + {self._K_wall}*step(z)*z' if self._upper_limit is not None else ''
-        boost = f'{self._v} - {fraction}*dt*dEdx/{self._m}'
-        boost += f'; dEdx = deriv(energy,{self._x}) {upper} {lower}'
-        if self._lower_limit is not None:
-            boost += f'; y = ({self._lower_limit}) - {self._x}'
-        if self._upper_limit is not None:
-            boost += f'; z = {self._x} - ({self._upper_limit})'
+        boost = f'{self._v} - {fraction}*dt*deriv(energy,{self._x})/{self._m}'
         integrator.addComputeGlobal(self._v, boost)
 
 
