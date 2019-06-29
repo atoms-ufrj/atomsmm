@@ -8,6 +8,8 @@ from .forces import NearNonbondedForce  # noqa: F401
 from .forces import NonbondedExceptionsForce  # noqa: F401
 from .forces import SoftcoreForce  # noqa: F401
 from .forces import SoftcoreLennardJonesForce  # noqa: F401
+from .integrators import AdiabaticDynamicsIntegrator  # noqa: F401
+from .integrators import ExtendedSystemVariable  # noqa: F401
 from .integrators import GlobalThermostatIntegrator  # noqa: F401
 from .integrators import NewMethodIntegrator  # noqa: F401
 from .integrators import NHL_R_Integrator  # noqa: F401
@@ -54,6 +56,8 @@ __forces__ = [
     ]  # noqa E123
 
 __integrators__ = [
+    'AdiabaticDynamicsIntegrator',
+    'ExtendedSystemVariable',
     'GlobalThermostatIntegrator',
     'NewMethodIntegrator',
     'NHL_R_Integrator',

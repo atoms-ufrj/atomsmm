@@ -652,7 +652,68 @@ class LimitedSpeedStochasticVelocityIntegrator(MultipleTimeScaleIntegrator):
         self.setPerDofVariableByName('v_eta', v_eta)
 
 
-class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
+class ExtendedSystemVariable(object):
+    """
+    An extended-system variable used for Adiabatic Free Energy Dynamics (AFED).
+
+    Parameters
+    ----------
+        name : str
+            The name of the extended-space variable.
+        mass : Number or unit.Quantity
+            The mass of the extended-space variable.
+        kT : Number of unit.Quantity
+            The temperature of the extended-space variable.
+
+    """
+    def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False,
+                 wall_stiffness=100000000):
+        self._m_value = mass
+        self._kT_value = kT
+        self._Q_eta_value = kT*time_scale**2
+        self._lower_limit = lower_limit
+        self._upper_limit = upper_limit
+        self._periodic = periodic
+        self._K_wall = wall_stiffness
+
+        self._x = name
+        self._v = f'_v_{name}'
+        self._m = f'_m_{name}'
+        self._kT = f'_kT_{name}'
+        self._v_eta = f'_v_eta_{name}'
+        self._Q_eta = f'_Q_eta_{name}'
+
+    def add_global_variables(self, integrator):
+        integrator.addGlobalVariable(self._v, 0.0)
+        integrator.addGlobalVariable(self._m, self._m_value)
+        integrator.addGlobalVariable(self._kT, self._kT_value)
+        integrator.addGlobalVariable(self._v_eta, 0.0)
+        integrator.addGlobalVariable(self._Q_eta, self._Q_eta_value)
+
+    def add_integration_steps(self, integrator):
+        move = f'{self._x} + 0.5*dt*{self._v}'
+        thermostat_kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
+        velocity_scale = f'{self._v}*exp(-dt*{self._v_eta})'
+
+        integrator.addComputeGlobal(self._x, move)
+        integrator.addComputeGlobal(self._v_eta, thermostat_kick)
+        integrator.addComputeGlobal(self._v, velocity_scale)
+        integrator.addComputeGlobal(self._v_eta, thermostat_kick)
+        integrator.addComputeGlobal(self._x, move)
+
+    def update_velocity(self, integrator, fraction):
+        lower = f' - {self._K_wall}*step(y)*y' if self._lower_limit is not None else ''
+        upper = f' + {self._K_wall}*step(z)*z' if self._upper_limit is not None else ''
+        boost = f'{self._v} - {fraction}*dt*dEdx/{self._m}'
+        boost += f'; dEdx = deriv(energy,{self._x}) {upper} {lower}'
+        if self._lower_limit is not None:
+            boost += f'; y = ({self._lower_limit}) - {self._x}'
+        if self._upper_limit is not None:
+            boost += f'; z = {self._x} - ({self._upper_limit})'
+        integrator.addComputeGlobal(self._v, boost)
+
+
+class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
     """
     This class implements the Adiabatic Free Energy Dynamics (AFED) method.
 
@@ -683,76 +744,33 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
         nsteps : int
             The number of consecutive `custom_integrator` steps executed in the begining of an
             overall AFED step, and then again in the end.
-        variable : str
-            The name of the extended-space variable.
-        mass : Number or unit.Quantity
-            The mass of the extended-space variable.
-        kT : Number of unit.Quantity
-            The temperature of the extended-space variable.
-        **kwargs : keyword arguments
-            Keyword arguments.
+        variables : list(:class:`ExtendedSystemVariable`)
+            A list of extended-system variables whose adiabatic dynamics must be taken into account.
 
     """
-    _v = '_v_extra'
-    _m = '_m_extra'
-    _kT = '_kT_extra'
-    _v_eta = '_v_eta_extra'
-    _Q_eta = '_Q_eta_extra'
-    _counter = '_nvt_nsteps_counter'
-
-    def __init__(self, custom_integrator, nsteps, variable, mass, kT,
-                 time_scale=None, lower_limit=0, upper_limit=1, wall_stiffness=100000000):
-
-        overall_step_size = 2*nsteps*custom_integrator.getStepSize()
-        tau = 10*overall_step_size if time_scale is None else time_scale
-
-        super().__init__(overall_step_size)
-
-        self._x = variable
-        self._lower_limit = lower_limit
-        self._upper_limit = upper_limit
-        self._K_wall = wall_stiffness
-
-        self.addGlobalVariable(self._v, 0)
-        self.addGlobalVariable(self._m, mass)
-        self.addGlobalVariable(self._kT, kT)
-        self.addGlobalVariable(self._v_eta, 0)
-        self.addGlobalVariable(self._Q_eta, kT*tau**2)
+    def __init__(self, custom_integrator, nsteps, variables):
+        super().__init__(2*nsteps*custom_integrator.getStepSize())
+        self._variables = variables
         if nsteps > 1:
+            self._counter = '_nsteps_counter'
             self.addGlobalVariable(self._counter, 0)
-
+        for variable in self._variables:
+            variable.add_global_variables(self)
         self._import_variables_and_initializer(custom_integrator)
-
         self._add_physical_steps(custom_integrator, nsteps)
-        self._add_extended_space_steps()
+        for variable in self._variables:
+            variable.add_integration_steps(self)
         self._add_physical_steps(custom_integrator, nsteps)
-
-    def _add_extended_space_steps(self):
-        move = f'{self._x} + 0.5*dt*{self._v}'
-        thermostat_kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
-        velocity_scale = f'{self._v}*exp(-dt*{self._v_eta})'
-
-        self.addComputeGlobal(self._x, move)
-        self.addComputeGlobal(self._v_eta, thermostat_kick)
-        self.addComputeGlobal(self._v, velocity_scale)
-        self.addComputeGlobal(self._v_eta, thermostat_kick)
-        self.addComputeGlobal(self._x, move)
 
     def _add_physical_steps(self, integrator, nsteps):
         if nsteps > 1:
             self.addComputeGlobal(self._counter, '0')
             self.beginWhileBlock(f'{self._counter} < {nsteps}')
-        lower = f' - {self._K_wall}*step(y)*y' if self._lower_limit is not None else ''
-        upper = f' + {self._K_wall}*step(z)*z' if self._upper_limit is not None else ''
-        boost = f'{self._v} - {0.25/nsteps}*dt*dEdx/{self._m}'
-        boost += f'; dEdx = deriv(energy,{self._x}) {upper} {lower}'
-        if self._lower_limit is not None:
-            boost += f'; y = ({self._lower_limit}) - {self._x}'
-        if self._upper_limit is not None:
-            boost += f'; z = {self._x} - ({self._upper_limit})'
-        self.addComputeGlobal(self._v, boost)
+        for variable in self._variables:
+            variable.update_velocity(self, 0.25/nsteps)
         self._import_computations(integrator, nsteps)
-        self.addComputeGlobal(self._v, boost)
+        for variable in self._variables:
+            variable.update_velocity(self, 0.25/nsteps)
         if nsteps > 1:
             self.addComputeGlobal(self._counter, f'{self._counter} + 1')
             self.endBlock()

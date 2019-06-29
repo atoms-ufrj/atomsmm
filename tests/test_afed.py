@@ -31,9 +31,9 @@ def test_AdiabaticFreeEnergyDynamicsIntegrator():
     residues = [atom.residue.name for atom in topology.atoms()]
     solute = set(i for (i, name) in enumerate(residues) if name == 'C1')
     solvation_system = atomsmm.AlchemicalSystem(system, solute)
-    integrator = atomsmm.integrators.AdiabaticFreeEnergyDynamicsIntegrator(
-        nvt_integrator, 2, 'lambda_vdw', 1000, 5,
-    )
+    lambda_vdw = atomsmm.ExtendedSystemVariable('lambda_vdw', 1000, 5, 40*unit.femtoseconds)
+    integrator = atomsmm.AdiabaticDynamicsIntegrator(nvt_integrator, 2, [lambda_vdw])
+    print(integrator)
     integrator.setRandomNumberSeed(1234)
     platform = openmm.Platform.getPlatformByName('Reference')
     simulation = app.Simulation(topology, solvation_system, integrator, platform)
