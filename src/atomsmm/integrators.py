@@ -656,18 +656,33 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
     """
     This class implements the Adiabatic Free Energy Dynamics (AFED) method.
 
+    The equations of motion go as follows:
+
     .. math::
-        e^{2 n \\Delta t \\mathcal{L}} =
-            [e^{\\delta t \\mathcal{L}_\\mathrm{NVT}}]^n
-            e^{2 n \\Delta t \\mathcal{L}_\\mathrm{AFED}}
-            [e^{\\delta t \\mathcal{L}_\\mathrm{NVT}}]^n
+        e^{2 n_\\mathrm{nsteps} \\delta t \\mathcal{L}} =
+            & [e^{\\frac{1}{2} \\delta t \\mathbf{F}^t_\\lambda \\nabla_{\\mathbf{p}_\\lambda}}
+               e^{\\delta t \\mathcal{L}_\\mathrm{atoms}}
+               e^{\\frac{1}{2} \\delta t \\mathbf{F}^t_\\lambda \\nabla_{\\mathbf{p}_\\lambda}}
+              ]^{n_\\mathrm{nsteps}} \\times \\\\
+            & e^{n_\\mathrm{nsteps} \\delta t \\mathbf{p}^t_\\lambda \\mathbf{M}^{-1}_\\lambda \\nabla_{\\mathbf{\\lambda}}}
+              e^{2 n_\\mathrm{nsteps} \\delta t \\mathcal{L}_\\mathrm{bath}}
+              e^{n_\\mathrm{nsteps} \\delta t \\mathbf{p}^t_\\lambda \\mathbf{M}^{-1}_\\lambda \\nabla_{\\mathbf{\\lambda}}} \\times \\\\
+            & [e^{\\frac{1}{2} \\delta t \\mathbf{F}^t_\\lambda \\nabla_{\\mathbf{p}_\\lambda}}
+               e^{\\delta t \\mathcal{L}_\\mathrm{atoms}}
+               e^{\\frac{1}{2} \\delta t \\mathbf{F}^t_\\lambda \\nabla_{\\mathbf{p}_\\lambda}}
+              ]^{n_\\mathrm{nsteps}}
 
     Parameters
     ----------
-        nvt_integrator : openmm.CustomIntegrator
-            The NVT integrator.
-        steps : int
-            The number of NVT steps.
+        custom_integrator : openmm.CustomIntegrator
+            A CustomIntegrator_ employed to solve the equations of motion of the physical particles,
+            that is, to enact the propagator :math:`e^{\\delta t \\mathcal{L}_\\mathrm{atoms}}`.
+            The size of an overall AFED time step will be given by
+            :math:`\\Delta t = 2 n_\\mathrm{nsteps} \\delta t`, where :math:`\\delta t` is the time
+            step size previously specified for the `custom_integrator`.
+        nsteps : int
+            The number of consecutive `custom_integrator` steps executed in the begining of an
+            overall AFED step, and then again in the end.
         variable : str
             The name of the extended-space variable.
         mass : Number or unit.Quantity
@@ -683,75 +698,70 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
     _kT = '_kT_extra'
     _v_eta = '_v_eta_extra'
     _Q_eta = '_Q_eta_extra'
-    _counter = '_nvt_steps_counter'
+    _counter = '_nvt_nsteps_counter'
 
-    def __init__(self, nvt_integrator, steps, variable, mass, kT,
+    def __init__(self, custom_integrator, nsteps, variable, mass, kT,
                  time_scale=None, lower_limit=0, upper_limit=1, wall_stiffness=100000000):
-        step_size = 2*steps*nvt_integrator.getStepSize()
-        tau = 10*step_size if time_scale is None else time_scale
 
-        super().__init__(step_size)
+        overall_step_size = 2*nsteps*custom_integrator.getStepSize()
+        tau = 10*overall_step_size if time_scale is None else time_scale
+
+        super().__init__(overall_step_size)
 
         self._x = variable
         self._lower_limit = lower_limit
         self._upper_limit = upper_limit
         self._K_wall = wall_stiffness
-        self._initialize_function = self._copy_function(nvt_integrator.initialize)
 
         self.addGlobalVariable(self._v, 0)
         self.addGlobalVariable(self._m, mass)
         self.addGlobalVariable(self._kT, kT)
         self.addGlobalVariable(self._v_eta, 0)
         self.addGlobalVariable(self._Q_eta, kT*tau**2)
-        if steps > 1:
+        if nsteps > 1:
             self.addGlobalVariable(self._counter, 0)
 
-        self._import_variables(nvt_integrator, steps)
+        self._import_variables_and_initializer(custom_integrator)
 
-        self._add_physical_steps(nvt_integrator, steps)
+        self._add_physical_steps(custom_integrator, nsteps)
         self._add_extended_space_steps()
-        self._add_physical_steps(nvt_integrator, steps)
+        self._add_physical_steps(custom_integrator, nsteps)
 
     def _add_extended_space_steps(self):
         move = f'{self._x} + 0.5*dt*{self._v}'
-        kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
-        scale = f'{self._v}*exp(-dt*{self._v_eta})'
+        thermostat_kick = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
+        velocity_scale = f'{self._v}*exp(-dt*{self._v_eta})'
 
         self.addComputeGlobal(self._x, move)
-        self.addComputeGlobal(self._v_eta, kick)
-        self.addComputeGlobal(self._v, scale)
-        self.addComputeGlobal(self._v_eta, kick)
+        self.addComputeGlobal(self._v_eta, thermostat_kick)
+        self.addComputeGlobal(self._v, velocity_scale)
+        self.addComputeGlobal(self._v_eta, thermostat_kick)
         self.addComputeGlobal(self._x, move)
 
-    def _add_physical_steps(self, integrator, steps):
-        if steps > 1:
+    def _add_physical_steps(self, integrator, nsteps):
+        if nsteps > 1:
             self.addComputeGlobal(self._counter, '0')
-            self.beginWhileBlock(f'{self._counter} < {steps}')
+            self.beginWhileBlock(f'{self._counter} < {nsteps}')
         lower = f' - {self._K_wall}*step(y)*y' if self._lower_limit is not None else ''
         upper = f' + {self._K_wall}*step(z)*z' if self._upper_limit is not None else ''
-        boost = f'{self._v} - {0.25/steps}*dt*dEdx/{self._m}'
+        boost = f'{self._v} - {0.25/nsteps}*dt*dEdx/{self._m}'
         boost += f'; dEdx = deriv(energy,{self._x}) {upper} {lower}'
         if self._lower_limit is not None:
             boost += f'; y = ({self._lower_limit}) - {self._x}'
         if self._upper_limit is not None:
             boost += f'; z = {self._x} - ({self._upper_limit})'
         self.addComputeGlobal(self._v, boost)
-        self._import_computations(integrator, steps)
+        self._import_computations(integrator, nsteps)
         self.addComputeGlobal(self._v, boost)
-        if steps > 1:
+        if nsteps > 1:
             self.addComputeGlobal(self._counter, f'{self._counter} + 1')
             self.endBlock()
 
-    @staticmethod
-    def _copy_function(f):
-        g = types.FunctionType(f.__code__, f.__globals__)
-        return functools.update_wrapper(g, f)
-
-    def _import_computations(self, integrator, steps):
+    def _import_computations(self, integrator, nsteps):
         regex = re.compile(r'\bdt\b')
         for index in range(integrator.getNumComputations()):
             computation, variable, expression = integrator.getComputationStep(index)
-            expression = regex.sub(f'(dt/{2*steps})', expression)
+            expression = regex.sub(f'(dt/{2*nsteps})', expression)
             if computation == openmm.CustomIntegrator.ComputeGlobal:
                 self.addComputeGlobal(variable, expression)
             elif computation == openmm.CustomIntegrator.ComputePerDof:
@@ -771,18 +781,28 @@ class AdiabaticFreeEnergyDynamicsIntegrator(_AtomsMM_Integrator):
             elif computation == openmm.CustomIntegrator.BlockEnd:
                 self.endBlock()
 
-    def _import_variables(self, integrator, steps):
+    def _import_variables_and_initializer(self, integrator):
+        # Import all global variables except `mvv` and `NDOF`:
         for index in range(integrator.getNumGlobalVariables()):
             name = integrator.getGlobalVariableName(index)
             if name not in ['mvv', 'NDOF']:
                 value = integrator.getGlobalVariable(index)
                 self.addGlobalVariable(name, value)
+
+        # Import all per-dof variables except `ndof`:
         for index in range(integrator.getNumPerDofVariables()):
             name = integrator.getPerDofVariableName(index)
             if name != 'ndof':
                 values = integrator.getPerDofVariable(index)
                 self.addPerDofVariable(name, 0)
                 self.setPerDofVariableByName(name, values)
+
+        # Import `initialize` method:
+        def copy_function(f):
+            g = types.FunctionType(f.__code__, f.__globals__)
+            return functools.update_wrapper(g, f)
+
+        self._initialize_function = copy_function(integrator.initialize)
 
     def initialize(self):
         self._initialize_function(self)
