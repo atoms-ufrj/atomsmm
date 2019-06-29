@@ -15,6 +15,7 @@ import types
 
 import numpy as np
 from simtk import openmm
+from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -850,3 +851,8 @@ class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
 
     def initialize(self):
         self._initialize_function(self)
+        for variable in self._variables:
+            sigma_v = unit.sqrt(variable._kT_value/variable._m_value)
+            self.setGlobalVariableByName(variable._v, sigma_v*self._random.normal())
+            sigma_v_eta = unit.sqrt(variable._kT_value/variable._Q_eta_value)
+            self.setGlobalVariableByName(variable._v_eta, sigma_v_eta*self._random.normal())
