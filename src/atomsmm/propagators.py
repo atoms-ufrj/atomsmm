@@ -1001,14 +1001,10 @@ class UnconstrainedVelocityVerletPropagator(Propagator):
         version of the Verlet method.
 
     """
-    def __init__(self):
-        super().__init__()
-
     def addSteps(self, integrator, fraction=1.0, force='f'):
-        Dt = '; Dt=%s*dt' % fraction
-        integrator.addComputePerDof('v', 'v+0.5*Dt*f/m' + Dt)
-        integrator.addComputePerDof('x', 'x+Dt*v' + Dt)
-        integrator.addComputePerDof('v', 'v+0.5*Dt*f/m' + Dt)
+        integrator.addComputePerDof('v', f'v+0.5*{fraction}*dt*f/m')
+        integrator.addComputePerDof('x', f'x+{fraction}*dt*v')
+        integrator.addComputePerDof('v', f'v+0.5*{fraction}*dt*f/m')
 
 
 class VelocityRescalingPropagator(Propagator):

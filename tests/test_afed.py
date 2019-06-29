@@ -19,17 +19,17 @@ def readSystem(case, constraints=app.HBonds):
 
 
 def test_AdiabaticFreeEnergyDynamicsIntegrator():
-    nvt_integrator = atomsmm.GlobalThermostatIntegrator(
-        1*unit.femtoseconds,
-        atomsmm.propagators.UnconstrainedVelocityVerletPropagator(),
-        atomsmm.propagators.MassiveNoseHooverPropagator(
+    system, positions, topology = readSystem('methane-in-water')
+    nvt_integrator = atomsmm.propagators.TrotterSuzukiPropagator(
+        atomsmm.propagators.VelocityVerletPropagator(),
+        atomsmm.propagators.NoseHooverPropagator(
             300*unit.kelvin,
+            atomsmm.countDegreesOfFreedom(system),
             10*unit.femtoseconds,
         ),
-    )
-    system, positions, topology = readSystem('hydroxyethylaminoanthraquinone-in-water')
+    ).integrator(1*unit.femtosecond)
     residues = [atom.residue.name for atom in topology.atoms()]
-    solute = set(i for (i, name) in enumerate(residues) if name == 'aaa')
+    solute = set(i for (i, name) in enumerate(residues) if name == 'C1')
     solvation_system = atomsmm.AlchemicalSystem(system, solute)
     integrator = atomsmm.integrators.AdiabaticFreeEnergyDynamicsIntegrator(
         nvt_integrator, 2, 'lambda_vdw', 1000, 5,
@@ -42,4 +42,4 @@ def test_AdiabaticFreeEnergyDynamicsIntegrator():
     simulation.step(5)
     state = simulation.context.getState(getEnergy=True)
     potential = state.getPotentialEnergy()
-    assert potential/potential.unit == pytest.approx(-15727.875731174101)
+    assert potential/potential.unit == pytest.approx(-23132.97706420563)
