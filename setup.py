@@ -67,6 +67,7 @@ setup(
         'scipy>=1.1.0',
         'sympy>=1.1.1',
         'pandas>=0.23',
+        'future-fstrings>=1.2.0',
         # eg: 'aspectlib==1.1.1', 'six>=1.7',
     ],
     extras_require={
