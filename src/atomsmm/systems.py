@@ -332,32 +332,44 @@ class AlchemicalSystem(openmm.System):
             A set containing the indexes of all solute atoms.
         coupling : str, optional, default='softcore'
             The model used for coupling the alchemical atoms to the system. The options are
-            `softcore` for using the model of Beutler et al. (1994), `linear` for using a simple
-            linear coupling, and `art` for using the model of Abrams, Rosso, and Tuckerman (2006).
+            `softcore`, `linear`, `art`, `spline`, or some function of `lambda_vdw`. Use `softcore`
+            for the model of Beutler et al. (1994), `linear` for a simple linear coupling, `art` for
+            the sine-based coupling model of Abrams, Rosso, and Tuckerman (2006), and `spline` for
+            multiplying the solute-solvent interactions by
+            :math:`\\lambda_\\mathrm{vdw}^3(10 - 15 \\lambda_\\mathrm{vdw} + 6 \\lambda_\\mathrm{vdw}^2)`.
+            Alternatively, you can enter any other valid function of `lambda_vdw`.
         group : int, optional, default=0
             The force group to be assigned to the solute-solvent softcore interactions, if any.
+        use_lrc : bool, optional, defaul=False
+            Whether to use long-range (dispersion) correction in solute-solvent interactions.
 
     """
-    def __init__(self, system, atoms, coupling='softcore', group=0):
+    def __init__(self, system, atoms, coupling='softcore', group=0, use_lrc=False):
         self.this = copy.deepcopy(system).this
         nonbonded = self.getForce(atomsmm.findNonbondedForce(self))
 
-        potential = 'U_{}'.format(coupling)
         if coupling == 'softcore':  # Beutler et al. (1994)
+            potential = 'U_softcore'
             potential += '; U_softcore = 4*lambda_vdw*epsilon*(1 - x)/x^2'
             potential += '; x = (r/sigma)^6 + 0.5*(1 - lambda_vdw)'
-        elif coupling in ['linear', 'spline', 'art']:
-            potential += '; U_{} = 4*g*epsilon*x*(x - 1)'.format(coupling)
-            potential += '; x = (sigma/r)^6'
-            if coupling == 'linear':
-                potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
-            elif coupling == 'spline':
-                potential += '; g = lambda_vdw^3*(10 - 15*lambda_vdw + 6*lambda_vdw^2)'
-            elif coupling == 'art':  # Abrams, Rosso, and Tuckerman (2006)
-                potential += '; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
-                potential += '; two_pi = 6.28318530717958'
         else:
-            raise InputError('Unknown alchemical coupling model')
+            if coupling in ['linear', 'spline', 'art']:
+                potential = 'U_{}'.format(coupling)
+            else:
+                potential = 'U_general'
+            potential += '; {} = 4*((gt0-gt1)*S + gt1)*epsilon*x*(x - 1)'.format(potential)
+            potential += '; x = (sigma/r)^6'
+            potential += '; gt0 = step(lambda_vdw)'
+            potential += '; gt1 = step(lambda_vdw-1)'
+            if coupling == 'linear':
+                potential += '; S = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
+            elif coupling == 'spline':
+                potential += '; S = lambda_vdw^3*(10 - 15*lambda_vdw + 6*lambda_vdw^2)'
+            elif coupling == 'art':  # Abrams, Rosso, and Tuckerman (2006)
+                potential += '; S = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi'
+                potential += '; two_pi = 6.28318530717958'
+            else:
+                potential += '; S = {}'.format(coupling)
         potential += '; sigma = 0.5*(sigma1 + sigma2)'
         potential += '; epsilon = sqrt(epsilon1*epsilon2)'
         softcore = openmm.CustomNonbondedForce(potential)
@@ -369,7 +381,7 @@ class AlchemicalSystem(openmm.System):
         softcore.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
         softcore.setSwitchingDistance(nonbonded.getSwitchingDistance())
         # softcore.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        softcore.setUseLongRangeCorrection(False)
+        softcore.setUseLongRangeCorrection(use_lrc)
         softcore.addGlobalParameter('lambda_vdw', 1.0)
         softcore.addPerParticleParameter('sigma')
         softcore.addPerParticleParameter('epsilon')
