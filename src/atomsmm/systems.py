@@ -19,7 +19,6 @@ from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
 import atomsmm
-from atomsmm.utils import InputError
 
 
 class _AtomsMM_System(openmm.System):
@@ -81,23 +80,17 @@ class RESPASystem(openmm.System):
                     self._addCustomBondForce(minus_near_potential, 31, force)
             elif isinstance(force, openmm.CustomNonbondedForce):
                 potential = force.getEnergyFunction().split(';')
-                if potential[0] in ['U_linear', 'U_spline', 'U_art']:
+                if potential[0] in ['U_linear', 'U_spline', 'U_art', 'U_general']:
                     force.setForceGroup(2)
                     near_potential = atomsmm.forces.nearLJForceExpressions(rcutIn, rswitchIn, adjustment)
-                    near_potential[0] = 'g*({})'.format(near_potential[0])
-                    if potential[0] == 'U_linear':
-                        near_potential += ['; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi']
-                    elif potential[0] == 'U_spline':
-                        near_potential += ['; g = lambda_vdw^3*(10 - 15*lambda_vdw + 6*lambda_vdw^2)']
-                    elif potential[0] == 'U_art':  # Abrams, Rosso, and Tuckerman (2006)
-                        near_potential += ['; g = lambda_vdw - sin(two_pi*lambda_vdw)/two_pi',
-                                           '; two_pi = 6.28318530717958']
-                    near_potential += ['; sigma = 0.5*(sigma1 + sigma2)',
-                                       '; epsilon = sqrt(epsilon1*epsilon2)']
+                    near_potential[0] = '((gt0-gt1)*S + gt1)*({})'.format(near_potential[0])
+                    near_potential += ['gt0 = step(lambda_vdw)', 'gt1 = step(lambda_vdw-1)']
+                    while not potential[0].startswith(' S ='):
+                        potential.pop(0)
+                    near_potential += potential
                     self._addCustomNonbondedForce(near_potential, rcutIn, 1, force)
-                    minus_near_potential = copy.deepcopy(near_potential)
-                    minus_near_potential[0] = '-step(rc0-r)*{}'.format(near_potential[0])
-                    self._addCustomNonbondedForce(minus_near_potential, rcutIn, 31, force)
+                    near_potential[0] = '-step(rc0-r)*{}'.format(near_potential[0])
+                    self._addCustomNonbondedForce(near_potential, rcutIn, 31, force)
 
     def _addCustomNonbondedForce(self, expressions, rcut, group, source):
         energy = ';'.join(expressions)
