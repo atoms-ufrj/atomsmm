@@ -681,27 +681,36 @@ class ExtendedSystemVariable(object):
             then hard, ellastic walls will be considered instead.
 
     """
-    def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False):
+    def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False,
+                 thermostat='Nose-Hoover'):
         self._m_value = mass
         self._kT_value = kT
         self._Q_eta_value = kT*time_scale**2
         self._lower_limit = lower_limit
         self._upper_limit = upper_limit
         self._periodic = periodic
+        self._gamma_value = 1/time_scale
+        self._thermostat = thermostat
 
         self._x = name
         self._v = f'_v_{name}'
         self._m = f'_m_{name}'
         self._kT = f'_kT_{name}'
+        self._kTbym = f'_kTbym_{name}'
         self._v_eta = f'_v_eta_{name}'
         self._Q_eta = f'_Q_eta_{name}'
+        self._gamma = f'_gamma_{name}'
 
     def add_global_variables(self, integrator):
         integrator.addGlobalVariable(self._v, 0.0)
         integrator.addGlobalVariable(self._m, self._m_value)
-        integrator.addGlobalVariable(self._kT, self._kT_value)
-        integrator.addGlobalVariable(self._v_eta, 0.0)
-        integrator.addGlobalVariable(self._Q_eta, self._Q_eta_value)
+        if self._thermostat == 'Nose-Hoover':
+            integrator.addGlobalVariable(self._v_eta, 0.0)
+            integrator.addGlobalVariable(self._kT, self._kT_value)
+            integrator.addGlobalVariable(self._Q_eta, self._Q_eta_value)
+        elif self._thermostat == 'Langevin':
+            integrator.addGlobalVariable(self._kTbym, self._kT_value/self._m_value)
+            integrator.addGlobalVariable(self._gamma, self._gamma_value)
 
     def _apply_boundary_conditions(self, integrator):
         above_lower = f'step({self._x}-({self._lower_limit}))'
@@ -720,20 +729,33 @@ class ExtendedSystemVariable(object):
 
     def add_integration_steps(self, integrator):
         move = f'{self._x} + 0.5*dt*{self._v}'
-        kick_thermostat = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
-        scale_velocity = f'{self._v}*exp(-dt*{self._v_eta})'
+        if self._thermostat == 'Nose-Hoover':
+            kick_thermostat = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
+            scale_velocity = f'{self._v}*exp(-dt*{self._v_eta})'
+        elif self._thermostat == 'Langevin':
+            boost = f'z*{self._v}+sqrt((1-z*z)*{self._kTbym})*gaussian; z=exp(-dt*{self._gamma})'
 
         integrator.addComputeGlobal(self._x, move)
         self._apply_boundary_conditions(integrator)
-        integrator.addComputeGlobal(self._v_eta, kick_thermostat)
-        integrator.addComputeGlobal(self._v, scale_velocity)
-        integrator.addComputeGlobal(self._v_eta, kick_thermostat)
+        if self._thermostat == 'Nose-Hoover':
+            integrator.addComputeGlobal(self._v_eta, kick_thermostat)
+            integrator.addComputeGlobal(self._v, scale_velocity)
+            integrator.addComputeGlobal(self._v_eta, kick_thermostat)
+        elif self._thermostat == 'Langevin':
+            integrator.addComputeGlobal(self._v, boost)
         integrator.addComputeGlobal(self._x, move)
         self._apply_boundary_conditions(integrator)
 
     def update_velocity(self, integrator, fraction):
         boost = f'{self._v} - {fraction}*dt*deriv(energy,{self._x})/{self._m}'
         integrator.addComputeGlobal(self._v, boost)
+
+    def initialize(self, integrator):
+        sigma_v = unit.sqrt(self._kT_value/self._m_value)
+        integrator.setGlobalVariableByName(self._v, sigma_v*integrator._random.normal())
+        if self._thermostat == 'Nose-Hoover':
+            sigma_v_eta = unit.sqrt(self._kT_value/self._Q_eta_value)
+            integrator.setGlobalVariableByName(self._v_eta, sigma_v_eta*integrator._random.normal())
 
 
 class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
@@ -848,7 +870,4 @@ class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
     def initialize(self):
         self._initialize_function(self)
         for variable in self._variables:
-            sigma_v = unit.sqrt(variable._kT_value/variable._m_value)
-            self.setGlobalVariableByName(variable._v, sigma_v*self._random.normal())
-            sigma_v_eta = unit.sqrt(variable._kT_value/variable._Q_eta_value)
-            self.setGlobalVariableByName(variable._v_eta, sigma_v_eta*self._random.normal())
+            variable.initialize(self)
