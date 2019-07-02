@@ -703,32 +703,33 @@ class ExtendedSystemVariable(object):
         integrator.addGlobalVariable(self._v_eta, 0.0)
         integrator.addGlobalVariable(self._Q_eta, self._Q_eta_value)
 
+    def _apply_boundary_conditions(self, integrator):
+        above_lower = f'step({self._x}-({self._lower_limit}))'
+        below_upper = f'step({self._upper_limit}-{self._x})'
+        integrator.beginIfBlock(f'{above_lower}*{below_upper} < 0.5')
+        if self._periodic:
+            L = self._upper_limit - self._lower_limit
+            jump = f'{self._x} + select({above_lower},{-L},{L})'
+            integrator.addComputeGlobal(self._x, jump)
+        else:
+            bounce = f'select({above_lower},{2*self._upper_limit},{2*self._lower_limit})-{self._x}'
+            flip_velocity = f'-{self._v}'
+            integrator.addComputeGlobal(self._x, bounce)
+            integrator.addComputeGlobal(self._v, flip_velocity)
+        integrator.endBlock()
+
     def add_integration_steps(self, integrator):
         move = f'{self._x} + 0.5*dt*{self._v}'
         kick_thermostat = f'{self._v_eta} + 0.5*dt*({self._m}*{self._v}^2-{self._kT})/{self._Q_eta}'
         scale_velocity = f'{self._v}*exp(-dt*{self._v_eta})'
 
         integrator.addComputeGlobal(self._x, move)
+        self._apply_boundary_conditions(integrator)
         integrator.addComputeGlobal(self._v_eta, kick_thermostat)
         integrator.addComputeGlobal(self._v, scale_velocity)
         integrator.addComputeGlobal(self._v_eta, kick_thermostat)
         integrator.addComputeGlobal(self._x, move)
-
-        check_bounds = '; is_inside = above_lower*below_upper'
-        check_bounds += f'; above_lower = step({self._x}-({self._lower_limit}))'
-        check_bounds += f'; below_upper = step({self._upper_limit}-{self._x})'
-        if self._periodic:
-            L = self._upper_limit - self._lower_limit
-            jump = f'select(is_inside, {self._x}, xb)'
-            jump += f'; xb = {self._x} + select(above_lower,{-L},{L})'
-            integrator.addComputeGlobal(self._x, jump + check_bounds)
-        else:
-            flip_velocity = f'select(is_inside,{self._v},-{self._v})'
-            integrator.addComputeGlobal(self._v, flip_velocity + check_bounds)
-
-            bounce = f'select(is_inside, {self._x}, xb)'
-            bounce += f'; xb = 2*select(above_lower,{self._upper_limit},{self._lower_limit})-{self._x}'
-            integrator.addComputeGlobal(self._x, bounce + check_bounds)
+        self._apply_boundary_conditions(integrator)
 
     def update_velocity(self, integrator, fraction):
         boost = f'{self._v} - {fraction}*dt*deriv(energy,{self._x})/{self._m}'
