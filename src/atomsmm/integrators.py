@@ -682,14 +682,14 @@ class ExtendedSystemVariable(object):
 
     """
     def __init__(self, name, mass, kT, time_scale, lower_limit=0, upper_limit=1, periodic=False,
-                 thermostat='Nose-Hoover'):
+                 thermostat='Nose-Hoover', friction_constant=0.1/unit.femtoseconds):
         self._m_value = mass
         self._kT_value = kT
         self._Q_eta_value = kT*time_scale**2
         self._lower_limit = lower_limit
         self._upper_limit = upper_limit
         self._periodic = periodic
-        self._gamma_value = 1/time_scale
+        self._gamma_value = friction_constant
         self._thermostat = thermostat
 
         self._x = name
