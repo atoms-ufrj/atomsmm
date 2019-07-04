@@ -433,9 +433,9 @@ class AlchemicalRespaSystem(openmm.System):
             Whether to use long-range (dispersion) correction in solute-solvent interactions.
 
     """
-    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda', group=0):
+    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda'):
         self.this = copy.deepcopy(system).this
-        Kc = 138.935456
+        Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
@@ -478,18 +478,8 @@ class AlchemicalRespaSystem(openmm.System):
 
                 # Add force-switched potential with internal cutoff:
                 near_force = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
-                if force.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
-                    near_force.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
-                else:
-                    near_force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-                near_force.setCutoffDistance(rcutIn)
-                near_force.setUseSwitchingFunction(False)
-                near_force.setUseLongRangeCorrection(False)
+                self._import_from_nonbonded(near_force, force, rcut=rcutIn)
                 near_force.addGlobalParameter('respa_switch', 0)
-                for parameter in ['charge', 'sigma', 'epsilon']:
-                    near_force.addPerParticleParameter(parameter)
-                for i in range(force.getNumParticles()):
-                    near_force.addParticle(force.getParticleParameters(i))
                 near_force.setForceGroup(1)
                 self.addForce(near_force)
 
@@ -552,28 +542,15 @@ class AlchemicalRespaSystem(openmm.System):
 
         # Solute-solvent interactions (considering that there are no exceptions):
         short_range = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
+        self._import_from_nonbonded(short_range, nonbonded, rcut=rcutIn)
         short_range.addGlobalParameter('respa_switch', 0)
-        short_range.setCutoffDistance(rcutIn)
-        short_range.setUseSwitchingFunction(False)
-        short_range.setUseLongRangeCorrection(False)
         short_range.setForceGroup(1)
 
         full_range = openmm.CustomNonbondedForce(f'{ljc}; x = (sigma/r)^6' + mixing_rules)
-        full_range.setCutoffDistance(nonbonded.getCutoffDistance())
-        full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
-        full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
-        full_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+        self._import_from_nonbonded(full_range, nonbonded)
         full_range.setForceGroup(2)
 
         for force in [short_range, full_range]:
-            if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
-                force.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
-            else:
-                force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
-            for parameter in ['charge', 'sigma', 'epsilon']:
-                force.addPerParticleParameter(parameter)
-            for i in range(nonbonded.getNumParticles()):
-                force.addParticle(nonbonded.getParticleParameters(i))
             force.addInteractionGroup(solute_atoms, solvent_atoms)
             cv_force = openmm.CustomCVForce(potential)
             cv_force.addCollectiveVariable('alchemical_energy', force)
@@ -586,6 +563,25 @@ class AlchemicalRespaSystem(openmm.System):
 
     def get_alchemical_force(self):
         return self._alchemical_force
+
+    def _import_from_nonbonded(self, force, nonbonded, rcut=None):
+        if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
+            force.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
+        else:
+            force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+        for parameter in ['charge', 'sigma', 'epsilon']:
+            force.addPerParticleParameter(parameter)
+        for i in range(nonbonded.getNumParticles()):
+            force.addParticle(nonbonded.getParticleParameters(i))
+        if rcut is None:
+            force.setCutoffDistance(nonbonded.getCutoffDistance())
+            force.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+            force.setSwitchingDistance(nonbonded.getSwitchingDistance())
+            force.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+        else:
+            force.setCutoffDistance(rcut)
+            force.setUseSwitchingFunction(False)
+            force.setUseLongRangeCorrection(False)
 
 
 class ComputingSystem(_AtomsMM_System):
