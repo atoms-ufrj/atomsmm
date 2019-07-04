@@ -15,6 +15,7 @@ import re
 
 import numpy as np
 from simtk import openmm
+from simtk import unit
 from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
@@ -390,9 +391,9 @@ class AlchemicalSystem(openmm.System):
         softcore.addEnergyParameterDerivative('lambda_vdw')
         self.addForce(softcore)
 
-        parameters = []
+        parameters = []  # BUG
         for index in atoms:
-            parameters.append(nonbonded.getParticleParameters(index))
+            parameters.append(nonbonded.getParticleParameters(index))  # BUG
             nonbonded.setParticleParameters(index, 0.0, 1.0, 0.0)
 
         exception_pairs = []
@@ -402,10 +403,174 @@ class AlchemicalSystem(openmm.System):
                 exception_pairs.append(set([i, j]))
         for i, j in itertools.combinations(atoms, 2):
             if set([i, j]) not in exception_pairs:
-                q1, sig1, eps1 = parameters[i]
-                q2, sig2, eps2 = parameters[j]
+                q1, sig1, eps1 = parameters[i]  # BUG
+                q2, sig2, eps2 = parameters[j]  # BUG
                 nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
                 softcore.addExclusion(i, j)  # Needed for matching exception number
+
+
+class AlchemicalRespaSystem(openmm.System):
+    """
+    An OpenMM System_ prepared for solvation free-energy calculations.
+
+    Parameters
+    ----------
+        system : openmm.System
+            The original system from which to generate the SolvationSystem.
+        atoms : list(int)
+            A set containing the indexes of all solute atoms.
+        coupling : str, optional, default='softcore'
+            The model used for coupling the alchemical atoms to the system. The options are
+            `softcore`, `linear`, `art`, `spline`, or some function of `lambda_vdw`. Use `softcore`
+            for the model of Beutler et al. (1994), `linear` for a simple linear coupling, `art` for
+            the sine-based coupling model of Abrams, Rosso, and Tuckerman (2006), and `spline` for
+            multiplying the solute-solvent interactions by
+            :math:`\\lambda_\\mathrm{vdw}^3(10 - 15 \\lambda_\\mathrm{vdw} + 6 \\lambda_\\mathrm{vdw}^2)`.
+            Alternatively, you can enter any other valid function of `lambda_vdw`.
+        group : int, optional, default=0
+            The force group to be assigned to the solute-solvent softcore interactions, if any.
+        use_lrc : bool, optional, defaul=False
+            Whether to use long-range (dispersion) correction in solute-solvent interactions.
+
+    """
+    def __init__(self, system, atoms, rcutIn, rswitchIn, coupling='spline', group=0, use_lrc=False):
+        self.this = copy.deepcopy(system).this
+        Kc = 138.935456
+
+        # Define specific sets of atoms:
+        all_atoms = set(range(self.getNumParticles()))
+        solute_atoms = set(atoms)
+        solvent_atoms = all_atoms - solute_atoms
+
+        # Define force-switched potential expressions:
+        rci = rcutIn.value_in_unit(unit.nanometer)
+        rsi = rswitchIn.value_in_unit(unit.nanometer)
+        factors = dict(f12='(6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7',
+                       f6='(6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5',
+                       f1='5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2')
+
+        near_fsp = f'4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + {Kc}*chargeprod*f1/r'
+        for variable, expression in factors.items():
+            near_fsp += f'; {variable} = 1 + step(u)*({expression})'
+        near_fsp += '; R = u/b + 1'
+        near_fsp += f'; b = {rsi/(rci - rsi)}'
+        near_fsp += f'; u = {1/(rci - rsi)}*(r-{rsi})'
+
+        # TODO: Apply switch in long-range forces
+
+        far_fsp = f'4*epsilon*((sigma/r)^12-(sigma/r)^6) + {Kc}*chargeprod/r - step({rci}-r)*U_near'
+        far_fsp += f'; U_near = {near_fsp}'
+
+        mixing_rules = '; chargeprod = charge1*charge2'
+        mixing_rules += '; sigma = 0.5*(sigma1 + sigma2)'
+        mixing_rules += '; epsilon = sqrt(epsilon1*epsilon2)'
+
+        # Nonbonded force will only account for solvent-solvent interactions:
+        for force in self.getForces():
+            if isinstance(force, openmm.NonbondedForce):
+                # Copy nonbonded force, place it at group 2, delete all solute interactions:
+                nonbonded = copy.deepcopy(force)
+                force.setForceGroup(2)
+                force.setReciprocalSpaceForceGroup(2)
+                for i in solute_atoms:
+                    force.setParticleParameters(i, 0.0, 1.0, 0.0)
+                for index in range(force.getNumExceptions()):
+                    i, j, _, _, _ = force.getExceptionParameters(index)
+                    if i in solute_atoms or j in solute_atoms:
+                        force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+
+                # Add force-switched potential with internal cutoff:
+                near_force = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
+                if force.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
+                    near_force.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
+                else:
+                    near_force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+                near_force.setCutoffDistance(rcutIn)
+                near_force.setUseSwitchingFunction(False)
+                near_force.setUseLongRangeCorrection(False)
+                for parameter in ['charge', 'sigma', 'epsilon']:
+                    near_force.addPerParticleParameter(parameter)
+                for i in range(force.getNumParticles()):
+                    near_force.addParticle(force.getParticleParameters(i))
+                near_force.setForceGroup(31)
+                self.addForce(near_force)
+
+                # Capture all exceptions into a custom bonded force:
+                exceptions = openmm.CustomBondForce(f'step({rci}-r)*U; U = {near_fsp}')
+                for parameter in ['chargeprod', 'sigma', 'epsilon']:
+                    exceptions.addPerBondParameter(parameter)
+                for index in range(force.getNumExceptions()):
+                    i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+                    near_force.addExclusion(i, j)
+                    if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
+                        exceptions.addBond(i, j, (chargeprod, sigma, epsilon))
+                if exceptions.getNumBonds() > 0:
+                    exceptions.setForceGroup(31)
+                    self.addForce(exceptions)
+            else:
+                # Place all other forces at group 0:
+                force.setForceGroup(0)
+
+        # Solute-solute interactions:
+        rc = nonbonded.getCutoffDistance().value_in_unit(unit.nanometers)
+        rs = nonbonded.getSwitchingDistance().value_in_unit(unit.nanometers)
+
+        short_range = openmm.CustomBondForce(f'step({rci}-r)*U; U = {near_fsp}')
+        short_range.setForceGroup(1)
+
+        long_range = openmm.CustomBondForce(f'step({rc}-r)*U; U = {far_fsp}')
+        long_range.setForceGroup(2)
+
+        for force in [short_range, long_range]:
+            self.addForce(force)
+            for parameter in ['chargeprod', 'sigma', 'epsilon']:
+                force.addPerBondParameter(parameter)
+
+        # Manage all solute-solute exceptions:
+        exception_pairs = []
+        for index in range(nonbonded.getNumExceptions()):
+            i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
+            pair = set([i, j])
+            if pair.issubset(solute_atoms):
+                exception_pairs.append(pair)
+                for force in [short_range, long_range]:
+                    force.addBond(i, j, (chargeprod, sigma, epsilon))
+
+        # Manage other solute-solute pairs:
+        for i, j in itertools.combinations(solute_atoms, 2):
+            if set([i, j]) not in exception_pairs:
+                q1, sig1, eps1 = nonbonded.getParticleParameters(i)
+                q2, sig2, eps2 = nonbonded.getParticleParameters(j)
+                for force in [short_range, long_range]:
+                    force.addBond(i, j, (q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2)))
+
+        # Solute-solvent interactions (considering that there are no exceptions):
+        short_range = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
+        long_range = openmm.CustomNonbondedForce(far_fsp + mixing_rules)
+        for force in [short_range, long_range]:
+            if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:
+                force.setNonbondedMethod(openmm.CustomNonbondedForce.NoCutoff)
+            else:
+                force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+
+        short_range.setForceGroup(1)
+        short_range.setCutoffDistance(rcutIn)
+        short_range.setUseSwitchingFunction(False)
+        short_range.setUseLongRangeCorrection(False)
+
+        long_range.setForceGroup(2)
+        long_range.setCutoffDistance(nonbonded.getCutoffDistance())
+        long_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+        long_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
+        long_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+
+        for force in [short_range, long_range]:
+            for parameter in ['charge', 'sigma', 'epsilon']:
+                force.addPerParticleParameter(parameter)
+            for i in range(nonbonded.getNumParticles()):
+                force.addParticle(nonbonded.getParticleParameters(i))
+            force.addInteractionGroup(solute_atoms, solvent_atoms)
+            self.addForce(force)
 
 
 class ComputingSystem(_AtomsMM_System):
