@@ -553,12 +553,12 @@ class AlchemicalRespaSystem(openmm.System):
             else:
                 force.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
 
-        short_range.setForceGroup(1)
+        # short_range.setForceGroup(1)
         short_range.setCutoffDistance(rcutIn)
         short_range.setUseSwitchingFunction(False)
         short_range.setUseLongRangeCorrection(False)
 
-        long_range.setForceGroup(2)
+        # long_range.setForceGroup(2)
         long_range.setCutoffDistance(nonbonded.getCutoffDistance())
         long_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
         long_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
@@ -570,8 +570,28 @@ class AlchemicalRespaSystem(openmm.System):
             for i in range(nonbonded.getNumParticles()):
                 force.addParticle(nonbonded.getParticleParameters(i))
             force.addInteractionGroup(solute_atoms, solvent_atoms)
-            self.addForce(force)
+            # self.addForce(force)
 
+        # Add solute-solvent interactions as collective variables:
+        potential = '((gt0-gt1)*S + gt1)*U'
+        potential += '; gt0 = step(lambda)'
+        potential += '; gt1 = step(lambda-1)'
+        if coupling == 'linear':
+            potential += '; S = lambda - sin(two_pi*lambda)/two_pi'
+        elif coupling == 'spline':
+            potential += '; S = lambda^3*(10 - 15*lambda + 6*lambda^2)'
+        elif coupling == 'art':  # Abrams, Rosso, and Tuckerman (2006)
+            potential += '; S = lambda - sin(two_pi*lambda)/two_pi'
+            potential += '; two_pi = 6.28318530717958'
+        else:
+            potential += '; S = {}'.format(coupling)
+
+        for force, group in zip([short_range, long_range], [1, 2]):
+            cv_force = openmm.CustomCVForce(potential)
+            cv_force.addCollectiveVariable('U', force)
+            cv_force.addGlobalParameter('lambda', 1.0)
+            cv_force.setForceGroup(group)
+            self.addForce(cv_force)
 
 class ComputingSystem(_AtomsMM_System):
     """
