@@ -391,10 +391,10 @@ class AlchemicalSystem(openmm.System):
         softcore.addEnergyParameterDerivative('lambda_vdw')
         self.addForce(softcore)
 
-        parameters = []  # BUG
-        for index in atoms:
-            parameters.append(nonbonded.getParticleParameters(index))  # BUG
-            nonbonded.setParticleParameters(index, 0.0, 1.0, 0.0)
+        parameters = {}
+        for i in atoms:
+            parameters[i] = nonbonded.getParticleParameters(i)
+            nonbonded.setParticleParameters(i, 0.0, 1.0, 0.0)
 
         exception_pairs = []
         for index in range(nonbonded.getNumExceptions()):
@@ -403,8 +403,8 @@ class AlchemicalSystem(openmm.System):
                 exception_pairs.append(set([i, j]))
         for i, j in itertools.combinations(atoms, 2):
             if set([i, j]) not in exception_pairs:
-                q1, sig1, eps1 = parameters[i]  # BUG
-                q2, sig2, eps2 = parameters[j]  # BUG
+                q1, sig1, eps1 = parameters[i]
+                q2, sig2, eps2 = parameters[j]
                 nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
                 softcore.addExclusion(i, j)  # Needed for matching exception number
 
