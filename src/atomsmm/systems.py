@@ -433,7 +433,7 @@ class AlchemicalRespaSystem(openmm.System):
             Whether to use long-range (dispersion) correction in solute-solvent interactions.
 
     """
-    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling='spline', group=0):
+    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda', group=0):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456
 
@@ -545,16 +545,10 @@ class AlchemicalRespaSystem(openmm.System):
                 full_range.addBond(i, j, (chargeprod, sigma, epsilon))
 
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
-        potential = '(step(lambda)*step(1-lambda)*S + step(lambda-1))*U_cv'
-        if coupling == 'linear':
-            potential += '; S = lambda - sin(two_pi*lambda)/two_pi'
-        elif coupling == 'spline':
-            potential += '; S = lambda^3*(10 - 15*lambda + 6*lambda^2)'
-        elif coupling == 'art':  # Abrams, Rosso, and Tuckerman (2006)
-            potential += '; S = lambda - sin(two_pi*lambda)/two_pi'
-            potential += '; two_pi = 6.28318530717958'
-        else:
-            potential += '; S = {}'.format(coupling)
+        potential = '((gt0-gt1)*S + gt1)*U_cv'
+        potential += '; gt0 = step(lambda)'
+        potential += '; gt1 = step(lambda-1)'
+        potential += f'; S = {coupling_function}'
 
         # Solute-solvent interactions (considering that there are no exceptions):
         short_range = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
