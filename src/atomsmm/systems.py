@@ -445,20 +445,20 @@ class AlchemicalRespaSystem(openmm.System):
         # Define force-switched potential expressions:
         rci = rcutIn.value_in_unit(unit.nanometer)
         rsi = rswitchIn.value_in_unit(unit.nanometer)
-        factors = dict(f12='(6*b^2-21*b+28)*(b^3*(R^12-1)-12*b^2*u-66*b*u^2-220*u^3)/462+45*(7-2*b)*u^4/14-72*u^5/7',
-                       f6='(6*b^2-3*b+1)*(b^3*(R^6-1)-6*b^2*u-15*b*u^2-20*u^3)+45*(1-2*b)*u^4-36*u^5',
-                       f1='5*(b+1)^2*(6*b^3*R*log(R)-6*b^2*u-3*b*u^2+u^3)+u^4*(3*u-5*b-10)/2')
-
-        near_fsp = f'4*epsilon*(f12*(sigma/r)^12-f6*(sigma/r)^6) + {Kc}*chargeprod*f1/r'
+        b = rsi/(rci - rsi)
+        factors = dict(f12=f'{(6*b**2-21*b+28)/462}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5',
+                       f6=f'{6*b**2-3*b+1}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5',
+                       f1=f'{5*(b+1)**2}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5')
+        ljc = f'4*epsilon*x*(x-1) + {Kc}*chargeprod/r'
+        near_fsp = f'{ljc} + step(r-{rsi})*perturbation'
+        near_fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
+        near_fsp += '; x = (sigma/r)^6'
         for variable, expression in factors.items():
-            near_fsp += f'; {variable} = 1 + step(u)*({expression})'
-        near_fsp += '; R = u/b + 1'
-        near_fsp += f'; b = {rsi/(rci - rsi)}'
+            near_fsp += f'; {variable} = {expression}'
+        near_fsp += f'; R = 1 + {1/b}*u'
         near_fsp += f'; u = {1/(rci - rsi)}*(r-{rsi})'
 
-        # TODO: Apply switch in long-range forces
-
-        far_fsp = f'4*epsilon*((sigma/r)^12-(sigma/r)^6) + {Kc}*chargeprod/r - step({rci}-r)*U_near'
+        far_fsp = f'{ljc} - step({rci}-r)*U_near'
         far_fsp += f'; U_near = {near_fsp}'
 
         mixing_rules = '; chargeprod = charge1*charge2'
@@ -513,7 +513,7 @@ class AlchemicalRespaSystem(openmm.System):
 
         # Solute-solute interactions:
         rc = nonbonded.getCutoffDistance().value_in_unit(unit.nanometers)
-        rs = nonbonded.getSwitchingDistance().value_in_unit(unit.nanometers)
+        # rs = nonbonded.getSwitchingDistance().value_in_unit(unit.nanometers)
 
         short_range = openmm.CustomBondForce(f'step({rci}-r)*U; U = {near_fsp}')
         short_range.setForceGroup(1)
@@ -592,6 +592,7 @@ class AlchemicalRespaSystem(openmm.System):
             cv_force.addGlobalParameter('lambda', 1.0)
             cv_force.setForceGroup(group)
             self.addForce(cv_force)
+
 
 class ComputingSystem(_AtomsMM_System):
     """
