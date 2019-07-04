@@ -885,7 +885,7 @@ class RespaPropagator(Propagator):
             time-reversal symmetric.
 
     """
-    def __init__(self, loops, move=None, boost=None, core=None, shell=None, has_memory=False):
+    def __init__(self, loops, move=None, boost=None, core=None, shell=None, **kwargs):
         super().__init__()
         self.loops = loops
         self.N = len(loops)
@@ -910,7 +910,7 @@ class RespaPropagator(Propagator):
             self.expr[group] += '-f{}'.format(group-1)
         self.force = self.expr.copy()
 
-        self._has_memory = has_memory
+        self._has_memory = kwargs.pop('has_memory', False)
         if self._has_memory:
             for group in range(1, self.N):
                 self.perDofVariables['fm{}'.format(group)] = 0.0
@@ -918,8 +918,14 @@ class RespaPropagator(Propagator):
                 self.force[group] += '-fm{}'.format(group)
         self.force = ['({})'.format(force) for force in self.force]
 
+        self._use_respa_switch = kwargs.pop('use_respa_switch', False)
+
     def addSteps(self, integrator, fraction=1.0, force='f'):
+        if self._use_respa_switch:
+            integrator.addComputeGlobal('respa_switch', '1')
         self._addSubsteps(integrator, self.N-1, fraction)
+        if self._use_respa_switch:
+            integrator.addComputeGlobal('respa_switch', '0')
 
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         shell and shell.addSteps(integrator, 0.5*fraction)

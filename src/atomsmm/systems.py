@@ -450,7 +450,7 @@ class AlchemicalRespaSystem(openmm.System):
                        f6=f'{6*b**2-3*b+1}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5',
                        f1=f'{5*(b+1)**2}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5')
         ljc = f'4*epsilon*x*(x-1) + {Kc}*chargeprod/r'
-        near_fsp = f'respa*({ljc} + step(r-{rsi})*perturbation)'
+        near_fsp = f'respa_switch*({ljc} + step(r-{rsi})*perturbation)'
         near_fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
         near_fsp += '; x = (sigma/r)^6'
         for variable, expression in factors.items():
@@ -485,7 +485,7 @@ class AlchemicalRespaSystem(openmm.System):
                 near_force.setCutoffDistance(rcutIn)
                 near_force.setUseSwitchingFunction(False)
                 near_force.setUseLongRangeCorrection(False)
-                near_force.addGlobalParameter('respa', 0)
+                near_force.addGlobalParameter('respa_switch', 0)
                 for parameter in ['charge', 'sigma', 'epsilon']:
                     near_force.addPerParticleParameter(parameter)
                 for i in range(force.getNumParticles()):
@@ -495,7 +495,7 @@ class AlchemicalRespaSystem(openmm.System):
 
                 # Capture all exceptions into a custom bonded force:
                 exceptions = openmm.CustomBondForce(f'step({rci}-r)*U; U = {near_fsp}')
-                exceptions.addGlobalParameter('respa', 0)
+                exceptions.addGlobalParameter('respa_switch', 0)
                 for parameter in ['chargeprod', 'sigma', 'epsilon']:
                     exceptions.addPerBondParameter(parameter)
                 for index in range(force.getNumExceptions()):
@@ -512,7 +512,7 @@ class AlchemicalRespaSystem(openmm.System):
 
         # Solute-solute interactions:
         short_range = openmm.CustomBondForce(f'step({rci}-r)*U; U = {near_fsp}')
-        short_range.addGlobalParameter('respa', 0)
+        short_range.addGlobalParameter('respa_switch', 0)
         short_range.setForceGroup(1)
 
         full_range = openmm.CustomBondForce(f'{ljc}; x = (sigma/r)^6')
@@ -552,7 +552,7 @@ class AlchemicalRespaSystem(openmm.System):
 
         # Solute-solvent interactions (considering that there are no exceptions):
         short_range = openmm.CustomNonbondedForce(near_fsp + mixing_rules)
-        short_range.addGlobalParameter('respa', 0)
+        short_range.addGlobalParameter('respa_switch', 0)
         short_range.setCutoffDistance(rcutIn)
         short_range.setUseSwitchingFunction(False)
         short_range.setUseLongRangeCorrection(False)
