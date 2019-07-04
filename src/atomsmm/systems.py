@@ -545,7 +545,7 @@ class AlchemicalRespaSystem(openmm.System):
                 full_range.addBond(i, j, (chargeprod, sigma, epsilon))
 
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
-        potential = '((gt0-gt1)*S + gt1)*U_cv'
+        potential = '((gt0-gt1)*S + gt1)*alchemical_energy'
         potential += '; gt0 = step(lambda)'
         potential += '; gt1 = step(lambda-1)'
         potential += f'; S = {coupling_function}'
@@ -576,10 +576,16 @@ class AlchemicalRespaSystem(openmm.System):
                 force.addParticle(nonbonded.getParticleParameters(i))
             force.addInteractionGroup(solute_atoms, solvent_atoms)
             cv_force = openmm.CustomCVForce(potential)
-            cv_force.addCollectiveVariable('U_cv', force)
+            cv_force.addCollectiveVariable('alchemical_energy', force)
             cv_force.addGlobalParameter('lambda', 1.0)
             cv_force.setForceGroup(force.getForceGroup())
+            cv_force.addEnergyParameterDerivative('lambda')
             self.addForce(cv_force)
+
+        self._alchemical_force = cv_force
+
+    def get_alchemical_force(self):
+        return self._alchemical_force
 
 
 class ComputingSystem(_AtomsMM_System):
