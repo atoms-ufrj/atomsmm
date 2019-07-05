@@ -476,7 +476,7 @@ class AlchemicalRespaSystem(openmm.System):
 
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda',
-                 dieletric=1):
+                 middle_scale=True, dieletric=1):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637/dieletric  # Coulomb constant in kJ.nm/mol.e^2
 
@@ -508,10 +508,10 @@ class AlchemicalRespaSystem(openmm.System):
         # Nonbonded force will only account for solvent-solvent interactions:
         for force in self.getForces():
             if isinstance(force, openmm.NonbondedForce):
-                # Copy nonbonded force, place it at group 2, delete all solute interactions:
+                # Copy nonbonded force, place it at due group, delete all solute interactions:
                 nonbonded = copy.deepcopy(force)
-                force.setForceGroup(2)
-                force.setReciprocalSpaceForceGroup(2)
+                force.setForceGroup(2 if middle_scale else 1)
+                force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
                 for i in solute_atoms:
                     force.setParticleParameters(i, 0.0, 1.0, 0.0)
                 for index in range(force.getNumExceptions()):
@@ -519,45 +519,50 @@ class AlchemicalRespaSystem(openmm.System):
                     if i in solute_atoms or j in solute_atoms:
                         force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
 
-                # Add force-switched potential with internal cutoff:
-                near_force = openmm.CustomNonbondedForce(fsp + mixing_rules)
-                self._import_from_nonbonded(near_force, force)
-                near_force.setCutoffDistance(rcutIn)
-                near_force.setUseSwitchingFunction(False)
-                near_force.setUseLongRangeCorrection(False)
-                near_force.addGlobalParameter('respa_switch', 0)
-                near_force.setForceGroup(1)
-                self.addForce(near_force)
+                if middle_scale:
+                    # Add force-switched potential with internal cutoff:
+                    near_force = openmm.CustomNonbondedForce(fsp + mixing_rules)
+                    self._import_from_nonbonded(near_force, force)
+                    near_force.setCutoffDistance(rcutIn)
+                    near_force.setUseSwitchingFunction(False)
+                    near_force.setUseLongRangeCorrection(False)
+                    near_force.addGlobalParameter('respa_switch', 0)
+                    near_force.setForceGroup(1)
+                    self.addForce(near_force)
 
-                # Capture all exceptions into a custom bonded force:
-                exceptions = openmm.CustomBondForce(f'step({rci}-r)*U; U = {fsp}')
-                exceptions.addGlobalParameter('respa_switch', 0)
-                for parameter in ['chargeprod', 'sigma', 'epsilon']:
-                    exceptions.addPerBondParameter(parameter)
-                for index in range(force.getNumExceptions()):
-                    i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
-                    near_force.addExclusion(i, j)
-                    if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
-                        exceptions.addBond(i, j, (chargeprod, sigma, epsilon))
-                if exceptions.getNumBonds() > 0:
-                    exceptions.setForceGroup(1)
-                    self.addForce(exceptions)
+                    # Capture all exceptions into a custom bonded force:
+                    exceptions = openmm.CustomBondForce(f'step({rci}-r)*U; U = {fsp}')
+                    exceptions.addGlobalParameter('respa_switch', 0)
+                    for parameter in ['chargeprod', 'sigma', 'epsilon']:
+                        exceptions.addPerBondParameter(parameter)
+                    for index in range(force.getNumExceptions()):
+                        i, j, chargeprod, sigma, epsilon = force.getExceptionParameters(index)
+                        near_force.addExclusion(i, j)
+                        if chargeprod/chargeprod.unit != 0.0 or epsilon/epsilon.unit != 0.0:
+                            exceptions.addBond(i, j, (chargeprod, sigma, epsilon))
+                    if exceptions.getNumBonds() > 0:
+                        exceptions.setForceGroup(1)
+                        self.addForce(exceptions)
             else:
                 # Place all other forces at group 0:
                 force.setForceGroup(0)
 
         # Solute-solute interactions (without cut-off):
-        short_range = openmm.CustomBondForce(fsp)
-        short_range.addGlobalParameter('respa_switch', 0)
-        short_range.setForceGroup(1)
+        forces = []
+        if middle_scale:
+            short_range = openmm.CustomBondForce(fsp)
+            short_range.addGlobalParameter('respa_switch', 0)
+            short_range.setForceGroup(1)
+            forces.append(short_range)
 
         full_range = openmm.CustomBondForce(f'{ljc}; x = (sigma/r)^6')
-        full_range.setForceGroup(2)
+        full_range.setForceGroup(2 if middle_scale else 1)
+        forces.append(full_range)
 
-        for force in [short_range, full_range]:
-            self.addForce(force)
+        for force in forces:
             for parameter in ['chargeprod', 'sigma', 'epsilon']:
                 force.addPerBondParameter(parameter)
+            self.addForce(force)
 
         # Add interactions due to solute-solute exceptions:
         exception_pairs = []
@@ -566,8 +571,8 @@ class AlchemicalRespaSystem(openmm.System):
             pair = set([i, j])
             if pair.issubset(solute_atoms):
                 exception_pairs.append(pair)
-                short_range.addBond(i, j, (chargeprod, sigma, epsilon))
-                full_range.addBond(i, j, (chargeprod, sigma, epsilon))
+                for force in forces:
+                    force.addBond(i, j, (chargeprod, sigma, epsilon))
 
         # Add interactions due to all other solute-solute pairs:
         for i, j in itertools.combinations(solute_atoms, 2):
@@ -577,8 +582,8 @@ class AlchemicalRespaSystem(openmm.System):
                 chargeprod = q1*q2
                 sigma = (sig1 + sig2)/2
                 epsilon = np.sqrt(eps1*eps2)
-                short_range.addBond(i, j, (chargeprod, sigma, epsilon))
-                full_range.addBond(i, j, (chargeprod, sigma, epsilon))
+                for force in forces:
+                    force.addBond(i, j, (chargeprod, sigma, epsilon))
 
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
         potential = '((gt0-gt1)*S + gt1)*alchemical_energy'
@@ -587,13 +592,16 @@ class AlchemicalRespaSystem(openmm.System):
         potential += f'; S = {coupling_function}'
 
         # Solute-solvent interactions (considering that there are no exceptions):
-        short_range = openmm.CustomNonbondedForce(fsp + mixing_rules)
-        self._import_from_nonbonded(short_range, nonbonded)
-        short_range.setCutoffDistance(rcutIn)
-        short_range.setUseSwitchingFunction(False)
-        short_range.setUseLongRangeCorrection(False)
-        short_range.addGlobalParameter('respa_switch', 0)
-        short_range.setForceGroup(1)
+        forces = []
+        if middle_scale:
+            short_range = openmm.CustomNonbondedForce(fsp + mixing_rules)
+            self._import_from_nonbonded(short_range, nonbonded)
+            short_range.setCutoffDistance(rcutIn)
+            short_range.setUseSwitchingFunction(False)
+            short_range.setUseLongRangeCorrection(False)
+            short_range.addGlobalParameter('respa_switch', 0)
+            short_range.setForceGroup(1)
+            forces.append(short_range)
 
         full_range = openmm.CustomNonbondedForce(f'{ljc}; x = (sigma/r)^6' + mixing_rules)
         self._import_from_nonbonded(full_range, nonbonded)
@@ -601,9 +609,10 @@ class AlchemicalRespaSystem(openmm.System):
         full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
         full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
         full_range.setUseLongRangeCorrection(False)  # Would not converge due to the Coulomb term
-        full_range.setForceGroup(2)
+        full_range.setForceGroup(2 if middle_scale else 1)
+        forces.append(full_range)
 
-        for force in [short_range, full_range]:
+        for force in forces:
             force.addInteractionGroup(solute_atoms, solvent_atoms)
             cv_force = openmm.CustomCVForce(potential)
             cv_force.addCollectiveVariable('alchemical_energy', force)

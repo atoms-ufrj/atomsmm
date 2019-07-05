@@ -179,3 +179,30 @@ def test_AlchemicalRespaSystem():
     potential['Total'] = -17907.298993850385  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
+
+
+def test_AlchemicalRespaSystem_without_middle_scale():
+    system, positions, topology, solute = readSystem('phenol-in-water')
+    respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
+    solvation_system = atomsmm.systems.AlchemicalRespaSystem(
+        system,
+        *respa_info.values(),
+        solute,
+        coupling_function='lambda^4*(5-4*lambda)',
+        middle_scale=False,
+    )
+    state = {'lambda': 0.5}
+    components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
+    for item in components.items():
+        print(*item)
+    potential = {}
+    potential['HarmonicBondForce'] = 2621.3223922886677  # kJ/mol
+    potential['HarmonicAngleForce'] = 1525.1006876561419  # kJ/mol
+    potential['PeriodicTorsionForce'] = 18.767576693568476  # kJ/mol
+    potential['Real-Space'] = 80089.51116719692  # kJ/mol
+    potential['Reciprocal-Space'] = -107038.52551657759  # kJ/mol
+    potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
+    potential['CustomCVForce'] = -38.63243387457868  # kJ/mol
+    potential['Total'] = -22875.982573340003  # kJ/mol
+    for term, value in components.items():
+        assert value/value.unit == pytest.approx(potential[term])
