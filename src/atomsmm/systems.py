@@ -488,18 +488,7 @@ class AlchemicalRespaSystem(openmm.System):
         # Define force-switched potential expressions:
         rci = rcutIn.value_in_unit(unit.nanometer)
         rsi = rswitchIn.value_in_unit(unit.nanometer)
-        b = rsi/(rci - rsi)
-        factors = dict(f12=f'{(6*b**2-21*b+28)/462}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5',
-                       f6=f'{6*b**2-3*b+1}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5',
-                       f1=f'{5*(b+1)**2}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5')
-        ljc = f'4*epsilon*x*(x-1) + {Kc}*chargeprod/r'
-        fsp = f'respa_switch*({ljc} + step(r-{rsi})*perturbation)'
-        fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
-        fsp += '; x = (sigma/r)^6'
-        for variable, expression in factors.items():
-            fsp += f'; {variable} = {expression}'
-        fsp += f'; R = 1 + {1/b}*u'
-        fsp += f'; u = {1/(rci - rsi)}*(r-{rsi})'
+        fsp = self._force_switched_potential(rci, rsi, Kc)
 
         mixing_rules = '; chargeprod = charge1*charge2'
         mixing_rules += '; sigma = 0.5*(sigma1 + sigma2)'
@@ -548,16 +537,16 @@ class AlchemicalRespaSystem(openmm.System):
                 force.setForceGroup(0)
 
         # Solute-solute interactions (without cut-off):
-        forces = []
+        ljc = f'4*epsilon*x*(x - 1) + {Kc}*chargeprod/r; x = (sigma/r)^6'
+        full_range = openmm.CustomBondForce(ljc)
+        full_range.setForceGroup(2 if middle_scale else 1)
+        forces = [full_range]
+
         if middle_scale:
-            short_range = openmm.CustomBondForce(fsp)
+            short_range = openmm.CustomBondForce(f'step({rci}-r)*U; U = {fsp}')
             short_range.addGlobalParameter('respa_switch', 0)
             short_range.setForceGroup(1)
             forces.append(short_range)
-
-        full_range = openmm.CustomBondForce(f'{ljc}; x = (sigma/r)^6')
-        full_range.setForceGroup(2 if middle_scale else 1)
-        forces.append(full_range)
 
         for force in forces:
             for parameter in ['chargeprod', 'sigma', 'epsilon']:
@@ -592,7 +581,15 @@ class AlchemicalRespaSystem(openmm.System):
         potential += f'; S = {coupling_function}'
 
         # Solute-solvent interactions (considering that there are no exceptions):
-        forces = []
+        full_range = openmm.CustomNonbondedForce(ljc + mixing_rules)
+        self._import_from_nonbonded(full_range, nonbonded)
+        full_range.setCutoffDistance(nonbonded.getCutoffDistance())
+        full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+        full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
+        full_range.setUseLongRangeCorrection(False)  # Would not converge due to the Coulomb term
+        full_range.setForceGroup(2 if middle_scale else 1)
+        forces = [full_range]
+
         if middle_scale:
             short_range = openmm.CustomNonbondedForce(fsp + mixing_rules)
             self._import_from_nonbonded(short_range, nonbonded)
@@ -602,15 +599,6 @@ class AlchemicalRespaSystem(openmm.System):
             short_range.addGlobalParameter('respa_switch', 0)
             short_range.setForceGroup(1)
             forces.append(short_range)
-
-        full_range = openmm.CustomNonbondedForce(f'{ljc}; x = (sigma/r)^6' + mixing_rules)
-        self._import_from_nonbonded(full_range, nonbonded)
-        full_range.setCutoffDistance(nonbonded.getCutoffDistance())
-        full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
-        full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
-        full_range.setUseLongRangeCorrection(False)  # Would not converge due to the Coulomb term
-        full_range.setForceGroup(2 if middle_scale else 1)
-        forces.append(full_range)
 
         for force in forces:
             force.addInteractionGroup(solute_atoms, solvent_atoms)
@@ -625,6 +613,25 @@ class AlchemicalRespaSystem(openmm.System):
 
     def get_alchemical_force(self):
         return self._alchemical_force
+
+    def _force_switched_potential(self, rc, rs, Kc):
+        b = rs/(rc - rs)
+        a12 = (6*b**2-21*b+28)/462
+        a6 = 6*b**2-3*b+1
+        a1 = 5*(b+1)**2
+        factors = dict(
+            f12=f'{a12}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5',
+            f6=f'{a6}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5',
+            f1=f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5',
+        )
+        fsp = f'respa_switch*(4*epsilon*x*(x-1) + {Kc}*chargeprod/r + step(r-{rs})*perturbation)'
+        fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
+        fsp += '; x = (sigma/r)^6'
+        for variable, expression in factors.items():
+            fsp += f'; {variable} = {expression}'
+        fsp += f'; R = {1/b}*u + 1'
+        fsp += f'; u = {b/rs}*r - {b}'
+        return fsp
 
     def _import_from_nonbonded(self, force, nonbonded):
         if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:

@@ -172,10 +172,10 @@ def test_AlchemicalRespaSystem():
     potential['Real-Space'] = 80089.51116719692  # kJ/mol
     potential['Reciprocal-Space'] = -107038.52551657759  # kJ/mol
     potential['CustomNonbondedForce'] = 5037.152491644808  # kJ/mol
-    potential['CustomBondForce'] = -53.37467532565058  # kJ/mol
-    potential['CustomBondForce(1)'] = -53.526446723139806  # kJ/mol
-    potential['CustomCVForce'] = -15.094236829540925  # kJ/mol
-    potential['CustomCVForce(1)'] = -38.63243387457868  # kJ/mol
+    potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
+    potential['CustomBondForce(1)'] = -53.37467532565058  # kJ/mol
+    potential['CustomCVForce'] = -38.63243387457868  # kJ/mol
+    potential['CustomCVForce(1)'] = -15.094236829540925  # kJ/mol
     potential['Total'] = -17907.298993850385  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
