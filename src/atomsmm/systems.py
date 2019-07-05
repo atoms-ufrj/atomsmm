@@ -471,11 +471,14 @@ class AlchemicalRespaSystem(openmm.System):
             A function :math:`f(\\lambda)` used for coupling the alchemical atoms to the system.
             This must be a function of a single variable named `lambda`. It is expected that
             :math:`f(0) = 0` and :math:`f(1) = 1`.
+        dieletric : Number, optional, default=1
+            The dieletric constant of the medium.
 
     """
-    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda'):
+    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda',
+                 dieletric=1):
         self.this = copy.deepcopy(system).this
-        Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
+        Kc = 138.935456637/dieletric  # Coulomb constant in kJ.nm/mol.e^2
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
