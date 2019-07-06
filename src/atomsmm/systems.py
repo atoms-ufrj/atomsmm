@@ -471,14 +471,17 @@ class AlchemicalRespaSystem(openmm.System):
             A function :math:`f(\\lambda)` used for coupling the alchemical atoms to the system.
             This must be a function of a single variable named `lambda`. It is expected that
             :math:`f(0) = 0` and :math:`f(1) = 1`.
-        dieletric : Number, optional, default=1
-            The dieletric constant of the medium.
+        middle_scale : bool, optional, default=True
+            Whether to use an intermediate time scale in the RESPA integration.
+        electrostatics : bool, optional, default=True
+            Whether to consider electrostatic interactions between alchemical and non-alchemical
+            atoms.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda',
-                 middle_scale=True, dieletric=1):
+                 middle_scale=True, electrostatics=True):
         self.this = copy.deepcopy(system).this
-        Kc = 138.935456637/dieletric  # Coulomb constant in kJ.nm/mol.e^2
+        Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
@@ -618,17 +621,20 @@ class AlchemicalRespaSystem(openmm.System):
         b = rs/(rc - rs)
         a12 = (6*b**2-21*b+28)/462
         a6 = 6*b**2-3*b+1
-        a1 = 5*(b+1)**2
-        factors = dict(
-            f12=f'{a12}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5',
-            f6=f'{a6}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5',
-            f1=f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5',
-        )
-        fsp = f'respa_switch*(4*epsilon*x*(x-1) + {Kc}*chargeprod/r + step(r-{rs})*perturbation)'
-        fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
+        f = {}
+        f[12]=f'{a12}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5'
+        f[6]=f'{a6}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5'
+        if Kc == 0.0:
+            fsp = f'respa_switch*(4*epsilon*x*(x-1) + step(r-{rs})*perturbation)'
+            fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6)'
+        else:
+            a1 = 5*(b+1)**2
+            f[1]=f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5'
+            fsp = f'respa_switch*(4*epsilon*x*(x-1) + {Kc}*chargeprod/r + step(r-{rs})*perturbation)'
+            fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
         fsp += '; x = (sigma/r)^6'
-        for variable, expression in factors.items():
-            fsp += f'; {variable} = {expression}'
+        for variable, expression in f.items():
+            fsp += f'; f{variable} = {expression}'
         fsp += f'; R = {1/b}*u + 1'
         fsp += f'; u = {b/rs}*r - {b}'
         return fsp
