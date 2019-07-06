@@ -607,6 +607,7 @@ class AlchemicalRespaSystem(openmm.System):
             short_range.setForceGroup(1)
             forces.append(short_range)
 
+        cv_forces = []
         for force in forces:
             force.addInteractionGroup(solute_atoms, solvent_atoms)
             cv_force = openmm.CustomCVForce(potential)
@@ -615,8 +616,9 @@ class AlchemicalRespaSystem(openmm.System):
             cv_force.setForceGroup(force.getForceGroup())
             cv_force.addEnergyParameterDerivative('lambda')
             self.addForce(cv_force)
+            cv_forces.append(cv_force)
 
-        self._alchemical_force = cv_force
+        self._alchemical_force = cv_forces[0]
 
     def get_alchemical_force(self):
         return self._alchemical_force
