@@ -583,6 +583,10 @@ class AlchemicalRespaSystem(openmm.System):
         potential += '; gt1 = step(lambda-1)'
         potential += f'; S = {coupling_function}'
 
+        if not electrostatics:
+            ljc = f'4*epsilon*x*(x - 1); x = (sigma/r)^6'
+            fsp = self._force_switched_potential(rci, rsi, 0.0)
+
         # Solute-solvent interactions (considering that there are no exceptions):
         full_range = openmm.CustomNonbondedForce(ljc + mixing_rules)
         self._import_from_nonbonded(full_range, nonbonded)
