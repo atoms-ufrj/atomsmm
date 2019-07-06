@@ -467,9 +467,12 @@ class AlchemicalRespaSystem(openmm.System):
             application of a switching function.
         alchemical_atoms : list(int), optional, default=[]
             A set containing the indexes of all alchemical atoms.
+        coupling_parameter : str, optional, defaul='lambda'
+            The name of the coupling parameter.
         coupling_function : str, optional, default='lambda'
-            A function :math:`f(\\lambda)` used for coupling the alchemical atoms to the system.
-            This must be a function of a single variable named `lambda`. It is expected that
+            A function :math:`f(\\lambda)` used for coupling the alchemical atoms to the system,
+            where :math:`\\lambda` is the coupling parameter. This must be a function of a single
+            variable named as in argument `coupling_parameter` (see above). It is expected that
             :math:`f(0) = 0` and :math:`f(1) = 1`.
         middle_scale : bool, optional, default=True
             Whether to use an intermediate time scale in the RESPA integration.
@@ -478,7 +481,8 @@ class AlchemicalRespaSystem(openmm.System):
             atoms.
 
     """
-    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[], coupling_function='lambda',
+    def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
+                 coupling_parameter='lambda', coupling_function='lambda',
                  middle_scale=True, electrostatics=True):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
@@ -579,8 +583,8 @@ class AlchemicalRespaSystem(openmm.System):
 
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
         potential = '((gt0-gt1)*S + gt1)*alchemical_energy'
-        potential += '; gt0 = step(lambda)'
-        potential += '; gt1 = step(lambda-1)'
+        potential += f'; gt0 = step({coupling_parameter})'
+        potential += f'; gt1 = step({coupling_parameter}-1)'
         potential += f'; S = {coupling_function}'
 
         if not electrostatics:
@@ -612,9 +616,9 @@ class AlchemicalRespaSystem(openmm.System):
             force.addInteractionGroup(solute_atoms, solvent_atoms)
             cv_force = openmm.CustomCVForce(potential)
             cv_force.addCollectiveVariable('alchemical_energy', force)
-            cv_force.addGlobalParameter('lambda', 1.0)
+            cv_force.addGlobalParameter(coupling_parameter, 1.0)
             cv_force.setForceGroup(force.getForceGroup())
-            cv_force.addEnergyParameterDerivative('lambda')
+            cv_force.addEnergyParameterDerivative(coupling_parameter)
             self.addForce(cv_force)
             cv_forces.append(cv_force)
 
