@@ -714,7 +714,7 @@ class ExtendedSystemVariable(object):
     def _apply_boundary_conditions(self, integrator):
         above_lower = f'step({self._x}-({self._lower_limit}))'
         below_upper = f'step({self._upper_limit}-{self._x})'
-        integrator.beginIfBlock(f'{above_lower}*{below_upper} < 0.5')
+        integrator.beginIfBlock(f'{above_lower}*{below_upper} = 0')
         if self._periodic:
             L = self._upper_limit - self._lower_limit
             jump = f'{self._x} + select({above_lower},{-L},{L})'
@@ -745,8 +745,8 @@ class ExtendedSystemVariable(object):
         integrator.addComputeGlobal(self._x, move)
         self._apply_boundary_conditions(integrator)
 
-    def update_velocity(self, integrator, fraction):
-        boost = f'{self._v} - {fraction}*dt*deriv(energy,{self._x})/{self._m}'
+    def update_velocity(self, integrator, divisor):
+        boost = f'{self._v} - 0.5*(dt/{divisor})*deriv(energy,{self._x})/{self._m}'
         integrator.addComputeGlobal(self._v, boost)
 
     def initialize(self, integrator):
@@ -801,6 +801,7 @@ class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
         for variable in self._variables:
             variable.add_global_variables(self)
         self._import_variables_and_initializer(custom_integrator)
+        self.addUpdateContextState()
         self._add_physical_steps(custom_integrator, nsteps)
         for variable in self._variables:
             variable.add_integration_steps(self)
@@ -811,10 +812,10 @@ class AdiabaticDynamicsIntegrator(_AtomsMM_Integrator):
             self.addComputeGlobal(self._counter, '0')
             self.beginWhileBlock(f'{self._counter} < {nsteps}')
         for variable in self._variables:
-            variable.update_velocity(self, 0.25/nsteps)
+            variable.update_velocity(self, 2*nsteps)
         self._import_computations(integrator, nsteps)
         for variable in self._variables:
-            variable.update_velocity(self, 0.25/nsteps)
+            variable.update_velocity(self, 2*nsteps)
         if nsteps > 1:
             self.addComputeGlobal(self._counter, f'{self._counter} + 1')
             self.endBlock()

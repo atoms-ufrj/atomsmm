@@ -632,14 +632,14 @@ class AlchemicalRespaSystem(openmm.System):
         a12 = (6*b**2-21*b+28)/462
         a6 = 6*b**2-3*b+1
         f = {}
-        f[12]=f'{a12}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5'
-        f[6]=f'{a6}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5'
+        f[12] = f'{a12}*({b**3}*(R^12-1)-{12*b**2}*u-{66*b}*u^2-220*u^3)+({45*(7-2*b)/14})*u^4-{72/7}*u^5'
+        f[6] = f'{a6}*({b**3}*(R^6-1)-{6*b**2}*u-{15*b}*u^2-20*u^3)+({45*(1-2*b)})*u^4-36*u^5'
         if Kc == 0.0:
             fsp = f'respa_switch*(4*epsilon*x*(x-1) + step(r-{rs})*perturbation)'
             fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6)'
         else:
             a1 = 5*(b+1)**2
-            f[1]=f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5'
+            f[1] = f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5'
             fsp = f'respa_switch*(4*epsilon*x*(x-1) + {Kc}*chargeprod/r + step(r-{rs})*perturbation)'
             fsp += f'; perturbation = 4*epsilon*x*(f12*x-f6) + {Kc}*f1*chargeprod/r'
         fsp += '; x = (sigma/r)^6'
