@@ -483,7 +483,7 @@ class AlchemicalRespaSystem(openmm.System):
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
                  coupling_parameter='lambda', coupling_function='lambda',
-                 middle_scale=True, electrostatics=True):
+                 middle_scale=True, electrostatics=False):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
@@ -587,17 +587,16 @@ class AlchemicalRespaSystem(openmm.System):
         potential += f'; gt1 = step({coupling_parameter}-1)'
         potential += f'; S = {coupling_function}'
 
-        if not electrostatics:
-            ljc = f'4*epsilon*x*(x - 1); x = (sigma/r)^6'
-            fsp = self._force_switched_potential(rci, rsi, 0.0)
+        lj = f'4*epsilon*x*(x - 1); x = (sigma/r)^6'
+        fsp = self._force_switched_potential(rci, rsi, 0.0)
 
         # Solute-solvent interactions (considering that there are no exceptions):
-        full_range = openmm.CustomNonbondedForce(ljc + mixing_rules)
+        full_range = openmm.CustomNonbondedForce(lj + mixing_rules)
         self._import_from_nonbonded(full_range, nonbonded)
         full_range.setCutoffDistance(nonbonded.getCutoffDistance())
         full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
         full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
-        full_range.setUseLongRangeCorrection(False)  # Would not converge due to the Coulomb term
+        full_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
         full_range.setForceGroup(2 if middle_scale else 1)
         forces = [full_range]
 
