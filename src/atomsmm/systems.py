@@ -571,7 +571,7 @@ class AlchemicalRespaSystem(openmm.System):
                         exceptions.setForceGroup(1)
                         self.addForce(exceptions)
 
-                    self._nonbonded_force = force
+                self._nonbonded_force = force
             else:
                 # Place all other forces at group 0:
                 force.setForceGroup(0)
