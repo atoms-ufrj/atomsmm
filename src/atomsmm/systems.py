@@ -534,7 +534,7 @@ class AlchemicalRespaSystem(openmm.System):
                 # Store a copy of the nonbonded force before changes are made:
                 nonbonded = copy.deepcopy(force)
 
-                # Place it at due group, delete all solute interactions:
+                # Place it at due group, delete all solute interaction parameters:
                 force.setForceGroup(2 if middle_scale else 1)
                 force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
                 self._solute_charges = {}
@@ -542,10 +542,24 @@ class AlchemicalRespaSystem(openmm.System):
                     charge, _, _ = force.getParticleParameters(i)
                     self._solute_charges[i] = charge
                     force.setParticleParameters(i, 0.0, 1.0, 0.0)
+
+                # Identify solute-solute exceptions and turn all of them into exclusions:
+                exception_pairs = []
                 for index in range(force.getNumExceptions()):
-                    i, j, _, _, _ = force.getExceptionParameters(index)
-                    if i in solute_atoms or j in solute_atoms:
+                    i, j, _, _, _ = nonbonded.getExceptionParameters(index)
+                    if set([i, j]).issubset(solute_atoms):
+                        exception_pairs.append(set([i, j]))
                         force.setExceptionParameters(index, i, j, 0.0, 1.0, 0.0)
+
+                # Identify all other solute-solute interactions. In the system's nonbonded force,
+                # turn them into exclusion exceptions. In the stored copy, turn them into general
+                # exceptions for the sake of forthcoming imports:
+                for i, j in itertools.combinations(solute_atoms, 2):
+                    if set([i, j]) not in exception_pairs:
+                        force.addException(i, j, 0.0, 1.0, 0.0)
+                        q1, sig1, eps1 = nonbonded.getParticleParameters(i)
+                        q2, sig2, eps2 = nonbonded.getParticleParameters(j)
+                        nonbonded.addException(i, j, q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2))
 
                 # Add a force-switched potential with internal cutoff if a RESPA-related
                 # middle scale has been requested:
@@ -598,25 +612,12 @@ class AlchemicalRespaSystem(openmm.System):
                 force.addPerBondParameter(parameter)
             self.addForce(force)
 
-        # Add interactions due to solute-solute pairs treated as exceptions:
-        exception_pairs = []
+        # Add interactions due to solute-solute pairs previously treated as exceptions:
         for index in range(nonbonded.getNumExceptions()):
             i, j, chargeprod, sigma, epsilon = nonbonded.getExceptionParameters(index)
-            pair = set([i, j])
-            if pair.issubset(solute_atoms):
-                exception_pairs.append(pair)
+            if set([i, j]).issubset(solute_atoms):
                 for force in intrasolute_forces:
                     force.addBond(i, j, (chargeprod, sigma, epsilon))
-
-        # Add interactions due to all other solute-solute pairs. Also exclude them from the
-        # system's nonbonded force:
-        for i, j in itertools.combinations(solute_atoms, 2):
-            if set([i, j]) not in exception_pairs:
-                q1, sig1, eps1 = nonbonded.getParticleParameters(i)
-                q2, sig2, eps2 = nonbonded.getParticleParameters(j)
-                for force in intrasolute_forces:
-                    force.addBond(i, j, (q1*q2, (sig1 + sig2)/2, np.sqrt(eps1*eps2)))
-                self._nonbonded_force.addException(i, j, 0.0, 1.0, 0.0)
 
         # NOTE: if Coulomb scaling treatment was requested, the electrostatic part of full-ranged
         # solute-solvent interactions will be enabled by reactivating solute charges while keeping
