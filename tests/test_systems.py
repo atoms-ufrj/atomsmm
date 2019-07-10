@@ -227,7 +227,7 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     potential['HarmonicBondForce'] = 2621.3223922886677  # kJ/mol
     potential['HarmonicAngleForce'] = 1525.1006876561419  # kJ/mol
     potential['PeriodicTorsionForce'] = 18.767576693568476  # kJ/mol
-    potential['Real-Space'] = 80088.80483999196  # kJ/mol
+    potential['Real-Space'] = 80078.91697014398  # kJ/mol
     potential['Reciprocal-Space'] = -107074.49398119976  # kJ/mol
     potential['CustomNonbondedForce'] = 5037.152491649265  # kJ/mol
     potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
@@ -235,7 +235,7 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     potential['CustomNonbondedForce(1)'] = -23.447733015522058  # kJ/mol
     potential['CustomCVForce'] = -7.114065227572182  # kJ/mol
     potential['CustomCVForce(1)'] = -6.301336948673654  # kJ/mol
-    potential['Total'] = -17927.110250160702  # kJ/mol
+    potential['Total'] = -17936.998120008684  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
 
@@ -243,7 +243,7 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     platform = openmm.Platform.getPlatformByName('Reference')
     simulation = openmm.app.Simulation(topology, solvation_system, integrator, platform)
     simulation.context.setPositions(positions)
-    force = solvation_system.get_coulomb_alchemical_force()
+    force = solvation_system.get_alchemical_coul_force()
     ecoul = force.getCollectiveVariableValues(simulation.context)[0]
-    print('Ecoul = ', ecoul)
-    assert ecoul == pytest.approx(-53.58912598717143)
+    print('Ecoul', ecoul)
+    assert ecoul == pytest.approx(-93.14060537915793)

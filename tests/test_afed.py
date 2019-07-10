@@ -1,11 +1,11 @@
 from __future__ import print_function
 
-import pytest
-from simtk import openmm
-from simtk import unit
+# import pytest
+# from simtk import openmm
+# from simtk import unit
 from simtk.openmm import app
 
-import atomsmm
+# import atomsmm
 
 
 def readSystem(case, constraints=app.HBonds):
