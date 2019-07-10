@@ -18,28 +18,28 @@ def readSystem(case, constraints=app.HBonds):
     return system, pdb.positions, pdb.topology
 
 
-def test_AdiabaticFreeEnergyDynamicsIntegrator():
-    system, positions, topology = readSystem('methane-in-water')
-    nvt_integrator = atomsmm.propagators.TrotterSuzukiPropagator(
-        atomsmm.propagators.VelocityVerletPropagator(),
-        atomsmm.propagators.NoseHooverPropagator(
-            300*unit.kelvin,
-            atomsmm.countDegreesOfFreedom(system),
-            10*unit.femtoseconds,
-        ),
-    ).integrator(1*unit.femtosecond)
-    residues = [atom.residue.name for atom in topology.atoms()]
-    solute = set(i for (i, name) in enumerate(residues) if name == 'C1')
-    solvation_system = atomsmm.AlchemicalSystem(system, solute)
-    lambda_vdw = atomsmm.ExtendedSystemVariable('lambda_vdw', 1000, 5, 40*unit.femtoseconds)
-    integrator = atomsmm.AdiabaticDynamicsIntegrator(nvt_integrator, 2, [lambda_vdw])
-    print(integrator)
-    integrator.setRandomNumberSeed(1234)
-    platform = openmm.Platform.getPlatformByName('Reference')
-    simulation = app.Simulation(topology, solvation_system, integrator, platform)
-    simulation.context.setPositions(positions)
-    simulation.context.setVelocitiesToTemperature(300*unit.kelvin, 1234)
-    simulation.step(5)
-    state = simulation.context.getState(getEnergy=True)
-    potential = state.getPotentialEnergy()
-    assert potential/potential.unit == pytest.approx(-23132.97706420563)
+# def test_AdiabaticFreeEnergyDynamicsIntegrator():
+#     system, positions, topology = readSystem('methane-in-water')
+#     nvt_integrator = atomsmm.propagators.TrotterSuzukiPropagator(
+#         atomsmm.propagators.VelocityVerletPropagator(),
+#         atomsmm.propagators.NoseHooverPropagator(
+#             300*unit.kelvin,
+#             atomsmm.countDegreesOfFreedom(system),
+#             10*unit.femtoseconds,
+#         ),
+#     ).integrator(1*unit.femtosecond)
+#     residues = [atom.residue.name for atom in topology.atoms()]
+#     solute = set(i for (i, name) in enumerate(residues) if name == 'C1')
+#     solvation_system = atomsmm.AlchemicalSystem(system, solute)
+#     lambda_vdw = atomsmm.ExtendedSystemVariable('lambda_vdw', 1000, 5, 40*unit.femtoseconds)
+#     integrator = atomsmm.AdiabaticDynamicsIntegrator(nvt_integrator, 2, [lambda_vdw])
+#     print(integrator)
+#     integrator.setRandomNumberSeed(1234)
+#     platform = openmm.Platform.getPlatformByName('Reference')
+#     simulation = app.Simulation(topology, solvation_system, integrator, platform)
+#     simulation.context.setPositions(positions)
+#     simulation.context.setVelocitiesToTemperature(300*unit.kelvin, 1234)
+#     simulation.step(5)
+#     state = simulation.context.getState(getEnergy=True)
+#     potential = state.getPotentialEnergy()
+#     assert potential/potential.unit == pytest.approx(-23132.97706420563)
