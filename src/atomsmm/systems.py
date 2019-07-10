@@ -476,14 +476,14 @@ class AlchemicalRespaSystem(openmm.System):
             :math:`f(0) = 0` and :math:`f(1) = 1`.
         middle_scale : bool, optional, default=True
             Whether to use an intermediate time scale in the RESPA integration.
-        electrostatics : bool, optional, default=True
-            Whether to consider electrostatic interactions between alchemical and non-alchemical
-            atoms.
+        lambda_coul : float, optional, default=0
+            A scaling factor to be applied to all electrostatic interactions between alchemical and
+            non-alchemical atoms.
 
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
                  coupling_parameter='lambda', coupling_function='lambda',
-                 middle_scale=True, electrostatics=False):
+                 middle_scale=True, lambda_coul=0):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
@@ -509,7 +509,8 @@ class AlchemicalRespaSystem(openmm.System):
                 force.setForceGroup(2 if middle_scale else 1)
                 force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
                 for i in solute_atoms:
-                    force.setParticleParameters(i, 0.0, 1.0, 0.0)
+                    charge, _, _ = force.getParticleParameters(i)
+                    force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
                 for index in range(force.getNumExceptions()):
                     i, j, _, _, _ = force.getExceptionParameters(index)
                     if i in solute_atoms or j in solute_atoms:
@@ -581,6 +582,19 @@ class AlchemicalRespaSystem(openmm.System):
                 for force in forces:
                     force.addBond(i, j, (chargeprod, sigma, epsilon))
 
+        # Short-range solute-solvent electrostatic integrations:
+        if lambda_coul > 0 and middle_scale:
+            fsep = self._force_switched_eletrostatic_potential(rci, rsi, Kc*lambda_coul)
+            short_range = openmm.CustomNonbondedForce(fsep + mixing_rules)
+            self._import_from_nonbonded(short_range, nonbonded)
+            short_range.setCutoffDistance(rcutIn)
+            short_range.setUseSwitchingFunction(False)
+            short_range.setUseLongRangeCorrection(False)
+            short_range.addGlobalParameter('respa_switch', 0)
+            short_range.setForceGroup(1)
+            short_range.addInteractionGroup(solute_atoms, solvent_atoms)
+            self.addForce(short_range)
+
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
         potential = '((gt0-gt1)*S + gt1)*alchemical_energy'
         potential += f'; gt0 = step({coupling_parameter})'
@@ -647,6 +661,16 @@ class AlchemicalRespaSystem(openmm.System):
         fsp += f'; R = {1/b}*u + 1'
         fsp += f'; u = {b/rs}*r - {b}'
         return fsp
+
+    def _force_switched_eletrostatic_potential(self, rc, rs, Kc):
+        b = rs/(rc - rs)
+        a1 = 5*(b+1)**2
+        f1 = f'{a1}*({6*b**3}*R*log(R)-{6*b**2}*u-{3*b}*u^2+u^3)-{5*(b/2+1)}*u^4+{3/2}*u^5'
+        fsep = f'respa_switch*(1 + step(r-{rs})*f1)*{Kc}*chargeprod/r'
+        fsep += f'; f1 = {f1}'
+        fsep += f'; R = {1/b}*u + 1'
+        fsep += f'; u = {b/rs}*r - {b}'
+        return fsep
 
     def _import_from_nonbonded(self, force, nonbonded):
         if nonbonded.getNonbondedMethod() == openmm.NonbondedForce.NoCutoff:

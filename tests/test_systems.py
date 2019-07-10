@@ -160,7 +160,6 @@ def test_AlchemicalRespaSystem():
         *respa_info.values(),
         solute,
         coupling_function='lambda^4*(5-4*lambda)',
-        electrostatics=False,
     )
     state = {'lambda': 0.5, 'respa_switch': 1}
     components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
