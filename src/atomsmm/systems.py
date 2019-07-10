@@ -508,9 +508,11 @@ class AlchemicalRespaSystem(openmm.System):
                 nonbonded = copy.deepcopy(force)
                 force.setForceGroup(2 if middle_scale else 1)
                 force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
+                solute_charges = {}
                 for i in solute_atoms:
                     charge, _, _ = force.getParticleParameters(i)
-                    force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
+                    solute_charges[i] = charge
+                    force.setParticleParameters(i, 0.0, 1.0, 0.0)
                 for index in range(force.getNumExceptions()):
                     i, j, _, _, _ = force.getExceptionParameters(index)
                     if i in solute_atoms or j in solute_atoms:
@@ -540,6 +542,11 @@ class AlchemicalRespaSystem(openmm.System):
                     if exceptions.getNumBonds() > 0:
                         exceptions.setForceGroup(1)
                         self.addForce(exceptions)
+
+                    # Rectivate solute charges with scaling factor:
+                    for i, charge in solute_charges.items():
+                        force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
+
             else:
                 # Place all other forces at group 0:
                 force.setForceGroup(0)
