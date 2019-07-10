@@ -238,3 +238,12 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     potential['Total'] = -17927.110250160702  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
+
+    integrator = openmm.CustomIntegrator(0)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    simulation = openmm.app.Simulation(topology, solvation_system, integrator, platform)
+    simulation.context.setPositions(positions)
+    force = solvation_system.get_coulomb_alchemical_force()
+    ecoul = force.getCollectiveVariableValues(simulation.context)[0]
+    print('Ecoul = ', ecoul)
+    assert ecoul == pytest.approx(-53.58912598717143)

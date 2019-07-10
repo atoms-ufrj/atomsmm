@@ -410,6 +410,26 @@ class AlchemicalSystem(openmm.System):
                 softcore.addExclusion(i, j)  # Needed for matching exception number
 
 
+class AlchemicalCoulombForce(object):
+    def __init__(self, alchemical_system):
+        self._system = alchemical_system
+
+    def getNumCollectiveVariables(self):
+        return 1
+
+    def getCollectiveVariableName(self, index):
+        return 'alchemical_coulomb_energy'
+
+    def getCollectiveVariableValues(self, context):
+        lambda_coul = self._system._lambda_coul
+        self._system.reset_coulomb_scaling_factor(0, context)
+        E0 = context.getState(getEnergy=True).getPotentialEnergy()
+        self._system.reset_coulomb_scaling_factor(1, context)
+        E1 = context.getState(getEnergy=True).getPotentialEnergy()
+        self._system.reset_coulomb_scaling_factor(lambda_coul, context)
+        return [(E1-E0).value_in_unit(unit.kilojoules_per_mole)]
+
+
 class AlchemicalRespaSystem(openmm.System):
     """
     An OpenMM System_ prepared for Multiple Time-Scale Integration with RESPA and for alchemical
@@ -493,6 +513,7 @@ class AlchemicalRespaSystem(openmm.System):
 
         self._coulomb_scaling = coulomb_scaling
         self._middle_scale = middle_scale
+        self._lambda_coul = 0
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
@@ -650,8 +671,29 @@ class AlchemicalRespaSystem(openmm.System):
 
         self.reset_coulomb_scaling_factor(lambda_coul)
 
+        # # Set up collective variables for computing alchemical electrostatics:
+        # coupled = copy.deepcopy(self._nonbonded_force)
+        # for i in range(coupled.getNumParticles()):
+        #     charge, _, _ = coupled.getParticleParameters(i)
+        #     coupled.setParticleParameters(i, charge, 1.0, 0.0)
+        # for index in range(coupled.getNumExceptions()):
+        #     i, j, charge, _, _ = coupled.getExceptionParameters(index)
+        #     coupled.setExceptionParameters(index, i, j, charge, 1.0, 0.0)
+        # uncoupled = copy.deepcopy(coupled)
+        # for i, charge in self._solute_charges.items():
+        #     coupled.setParticleParameters(i, charge, 1.0, 0.0)
+        #     uncoupled.setParticleParameters(i, 0.0, 1.0, 0.0)
+        # cv_force = openmm.CustomCVForce('E_coupled - E_uncoupled')
+        # cv_force.addCollectiveVariable('E_coupled', coupled)
+        # cv_force.addCollectiveVariable('E_uncoupled', uncoupled)
+        # self._coulomb_alchemical_force = cv_force
+        self._coulomb_alchemical_force = AlchemicalCoulombForce(self)
+
     def get_alchemical_force(self):
         return self._alchemical_force
+
+    def get_coulomb_alchemical_force(self):
+        return self._coulomb_alchemical_force
 
     def reset_coulomb_scaling_factor(self, lambda_coul, context=None):
         """
@@ -665,7 +707,7 @@ class AlchemicalRespaSystem(openmm.System):
                 A context in which the particle parameters should be updated.
 
         """
-        if self._coulomb_scaling:
+        if self._coulomb_scaling and lambda_coul != self._lambda_coul:
             for i, charge in self._solute_charges.items():
                 self._nonbonded_force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
                 if self._middle_scale:
@@ -674,6 +716,7 @@ class AlchemicalRespaSystem(openmm.System):
                 self._nonbonded_force.updateParametersInContext(context)
                 if self._middle_scale:
                     self._fsep_force.updateParametersInContext(context)
+            self._lambda_coul = lambda_coul
 
     def _force_switched_potential(self, rc, rs, Kc):
         b = rs/(rc - rs)
