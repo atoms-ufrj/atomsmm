@@ -6,6 +6,7 @@
 .. moduleauthor:: Charlles R. A. Abreu <abreu@eq.ufrj.br>
 
 .. _System: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.System.html
+.. _Context: http://docs.openmm.org/latest/api-python/generated/simtk.openmm.openmm.Context.html
 
 """
 
@@ -476,6 +477,9 @@ class AlchemicalRespaSystem(openmm.System):
             :math:`f(0) = 0` and :math:`f(1) = 1`.
         middle_scale : bool, optional, default=True
             Whether to use an intermediate time scale in the RESPA integration.
+        coulomb_scaling : bool, optional, default=False
+            Whether to consider scaling of electrostatic interactions between alchemical and
+            non-alchemical atoms. Otherwise, these interactions will not exist.
         lambda_coul : float, optional, default=0
             A scaling factor to be applied to all electrostatic interactions between alchemical and
             non-alchemical atoms.
@@ -483,9 +487,12 @@ class AlchemicalRespaSystem(openmm.System):
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
                  coupling_parameter='lambda', coupling_function='lambda',
-                 middle_scale=True, lambda_coul=0):
+                 middle_scale=True, coulomb_scaling=False, lambda_coul=0):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
+
+        self._coulomb_scaling = coulomb_scaling
+        self._middle_scale = middle_scale
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
@@ -508,10 +515,10 @@ class AlchemicalRespaSystem(openmm.System):
                 nonbonded = copy.deepcopy(force)
                 force.setForceGroup(2 if middle_scale else 1)
                 force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
-                solute_charges = {}
+                self._solute_charges = {}
                 for i in solute_atoms:
                     charge, _, _ = force.getParticleParameters(i)
-                    solute_charges[i] = charge
+                    self._solute_charges[i] = charge
                     force.setParticleParameters(i, 0.0, 1.0, 0.0)
                 for index in range(force.getNumExceptions()):
                     i, j, _, _, _ = force.getExceptionParameters(index)
@@ -543,10 +550,7 @@ class AlchemicalRespaSystem(openmm.System):
                         exceptions.setForceGroup(1)
                         self.addForce(exceptions)
 
-                    # Rectivate solute charges with scaling factor:
-                    for i, charge in solute_charges.items():
-                        force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
-
+                    self._nonbonded_force = force
             else:
                 # Place all other forces at group 0:
                 force.setForceGroup(0)
@@ -590,8 +594,8 @@ class AlchemicalRespaSystem(openmm.System):
                     force.addBond(i, j, (chargeprod, sigma, epsilon))
 
         # Short-range solute-solvent electrostatic integrations:
-        if lambda_coul > 0 and middle_scale:
-            fsep = self._force_switched_eletrostatic_potential(rci, rsi, Kc*lambda_coul)
+        if coulomb_scaling and middle_scale:
+            fsep = self._force_switched_eletrostatic_potential(rci, rsi, Kc)
             short_range = openmm.CustomNonbondedForce(fsep + mixing_rules)
             self._import_from_nonbonded(short_range, nonbonded)
             short_range.setCutoffDistance(rcutIn)
@@ -601,6 +605,7 @@ class AlchemicalRespaSystem(openmm.System):
             short_range.setForceGroup(1)
             short_range.addInteractionGroup(solute_atoms, solvent_atoms)
             self.addForce(short_range)
+            self._fsep_force = short_range
 
         # Solute-solvent interactions are collective variables multiplied by a coupling function:
         potential = '((gt0-gt1)*S + gt1)*alchemical_energy'
@@ -641,11 +646,34 @@ class AlchemicalRespaSystem(openmm.System):
             cv_force.addEnergyParameterDerivative(coupling_parameter)
             self.addForce(cv_force)
             cv_forces.append(cv_force)
-
         self._alchemical_force = cv_forces[0]
+
+        self.reset_coulomb_scaling_factor(lambda_coul)
 
     def get_alchemical_force(self):
         return self._alchemical_force
+
+    def reset_coulomb_scaling_factor(self, lambda_coul, context=None):
+        """
+        Resets the scaling factor of the solute-solvent electrostatic interactions.
+
+        Parameters
+        ----------
+            lambda_coul : float
+                The scaling factor value.
+            context : Context_, optional, default=None
+                A context in which the particle parameters should be updated.
+
+        """
+        if self._coulomb_scaling:
+            for i, charge in self._solute_charges.items():
+                self._nonbonded_force.setParticleParameters(i, lambda_coul*charge, 1.0, 0.0)
+                if self._middle_scale:
+                    self._fsep_force.setParticleParameters(i, (lambda_coul*charge, 1.0, 0.0))
+            if context is not None:
+                self._nonbonded_force.updateParametersInContext(context)
+                if self._middle_scale:
+                    self._fsep_force.updateParametersInContext(context)
 
     def _force_switched_potential(self, rc, rs, Kc):
         b = rs/(rc - rs)

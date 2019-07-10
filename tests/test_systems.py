@@ -216,6 +216,7 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
         *respa_info.values(),
         solute,
         coupling_function='lambda^4*(5-4*lambda)',
+        coulomb_scaling=True,
         lambda_coul=0.5,
     )
     state = {'lambda': 0.5, 'respa_switch': 1}
