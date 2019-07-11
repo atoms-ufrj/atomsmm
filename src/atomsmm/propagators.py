@@ -1,4 +1,3 @@
-# -*- coding: future_fstrings -*-
 """
 .. module:: propagators
    :platform: Unix, Windows

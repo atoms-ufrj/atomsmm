@@ -9,7 +9,7 @@ goto :end
 conda create --prefix=$1 --yes python=3.7
 conda install --prefix=$1 --yes -c omnia openmm
 conda install --prefix=$1 --yes pytest pytest-cov sphinx sphinx_rtd_theme
-conda install --prefix=$1 --yes -c conda-forge future_fstrings sphinxcontrib-bibtex
+conda install --prefix=$1 --yes -c conda-forge sphinxcontrib-bibtex
 pip install ${@:2}
 exit $?
 :<<"::done"
