@@ -410,26 +410,6 @@ class AlchemicalSystem(openmm.System):
                 softcore.addExclusion(i, j)  # Needed for matching exception number
 
 
-class AlchemicalCoulombForce(object):
-    def __init__(self, alchemical_system):
-        self._system = alchemical_system
-
-    def getNumCollectiveVariables(self):
-        return 1
-
-    def getCollectiveVariableName(self, index):
-        return 'alchemical_coulomb_energy'
-
-    def getCollectiveVariableValues(self, context):
-        lambda_coul = self._system._lambda_coul
-        self._system.reset_coulomb_scaling_factor(0, context)
-        E0 = context.getState(getEnergy=True).getPotentialEnergy()
-        self._system.reset_coulomb_scaling_factor(1, context)
-        E1 = context.getState(getEnergy=True).getPotentialEnergy()
-        self._system.reset_coulomb_scaling_factor(lambda_coul, context)
-        return [(E1-E0).value_in_unit(unit.kilojoules_per_mole)]
-
-
 class AlchemicalRespaSystem(openmm.System):
     """
     An OpenMM System_ prepared for Multiple Time-Scale Integration with RESPA and for alchemical
@@ -683,15 +663,33 @@ class AlchemicalRespaSystem(openmm.System):
         self._lambda_coul = 0
         self.reset_coulomb_scaling_factor(lambda_coul)
 
-        # Store force objects related to alchemical coupling/decoupling:
+        # Store force object related to alchemical coupling/decoupling:
         self._alchemical_vdw_force = full_range_cv_force
-        self._alchemical_coul_force = AlchemicalCoulombForce(self)
 
     def get_alchemical_vdw_force(self):
         return self._alchemical_vdw_force
 
     def get_alchemical_coul_force(self):
-        return self._alchemical_coul_force
+        class AlchemicalCoulombForce(object):
+            def __init__(self, system):
+                self._system = system
+
+            def getNumCollectiveVariables(self):
+                return 1
+
+            def getCollectiveVariableName(self, index):
+                return 'alchemical_coulomb_energy'
+
+            def getCollectiveVariableValues(self, context):
+                lambda_coul = self._system._lambda_coul
+                self._system.reset_coulomb_scaling_factor(0.0, context)
+                E0 = context.getState(getEnergy=True, groups=1 << 2).getPotentialEnergy()
+                self._system.reset_coulomb_scaling_factor(1.0, context)
+                E1 = context.getState(getEnergy=True, groups=1 << 2).getPotentialEnergy()
+                self._system.reset_coulomb_scaling_factor(lambda_coul, context)
+                return [(E1 - E0).value_in_unit(unit.kilojoules_per_mole)]
+
+        return AlchemicalCoulombForce(self)
 
     def reset_coulomb_scaling_factor(self, lambda_coul, context=None):
         """
