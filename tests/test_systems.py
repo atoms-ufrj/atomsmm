@@ -247,3 +247,31 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     ecoul = force.getCollectiveVariableValues(simulation.context)[0]
     print('Ecoul', ecoul)
     assert ecoul == pytest.approx(-93.14060537915793)
+
+
+def test_AlchemicalRespaSystem_with_softcore():
+    system, positions, topology, solute = readSystem('phenol-in-water')
+    respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
+    solvation_system = atomsmm.systems.AlchemicalRespaSystem(
+        system,
+        *respa_info.values(),
+        solute,
+        use_softcore=True,
+    )
+    state = {'lambda': 0.5, 'respa_switch': 1}
+    components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
+    for item in components.items():
+        print(*item)
+    potential = {}
+    potential['HarmonicBondForce'] = 2621.3223922886677  # kJ/mol
+    potential['HarmonicAngleForce'] = 1525.1006876561419  # kJ/mol
+    potential['PeriodicTorsionForce'] = 18.767576693568476  # kJ/mol
+    potential['Real-Space'] = 80089.51116719692  # kJ/mol
+    potential['Reciprocal-Space'] = -107038.52551657759  # kJ/mol
+    potential['CustomNonbondedForce'] = 5037.152491649265  # kJ/mol
+    potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
+    potential['CustomBondForce(1)'] = -53.374675325650806  # kJ/mol
+    potential['CustomNonbondedForce(1)'] = -24.140118811594814  # kJ/mol
+    potential['Total'] = -17877.712441953405  # kJ/mol
+    for term, value in components.items():
+        assert value/value.unit == pytest.approx(potential[term])

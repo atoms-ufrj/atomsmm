@@ -487,12 +487,14 @@ class AlchemicalRespaSystem(openmm.System):
     """
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
                  coupling_parameter='lambda', coupling_function='lambda',
-                 middle_scale=True, coulomb_scaling=False, lambda_coul=0):
+                 middle_scale=True, coulomb_scaling=False, lambda_coul=0,
+                 use_softcore=False):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
         self._coulomb_scaling = coulomb_scaling
         self._middle_scale = middle_scale
+        self._use_softcore = use_softcore
 
         # Define specific sets of atoms:
         all_atoms = set(range(self.getNumParticles()))
@@ -619,52 +621,70 @@ class AlchemicalRespaSystem(openmm.System):
             self.addForce(short_range)
             self._fsep_force = short_range
 
-        # The van der Waals part of solute-solvent interactions are defined as collective variables
-        # multiplied by a coupling function:
-        potential = '((gt0-gt1)*S + gt1)*alchemical_vdw_energy'
-        potential += f'; gt0 = step({coupling_parameter})'
-        potential += f'; gt1 = step({coupling_parameter}-1)'
-        potential += f'; S = {coupling_function}'
-        cv_force = openmm.CustomCVForce(potential)
-        cv_force.addGlobalParameter(coupling_parameter, 1.0)
-        cv_force.addEnergyParameterDerivative(coupling_parameter)
+        if use_softcore:
+            # Softcore potential is fully considered in the middle time scale:
+            ljsoft = f'4*{coupling_function}*epsilon*x*(x - 1)'
+            ljsoft += f'; x = sigma^6/(r^6 + 0.5*(1-{coupling_parameter})*sigma^6)'
+            full_range = openmm.CustomNonbondedForce(ljsoft + mixing_rules)
+            self._import_from_nonbonded(full_range, nonbonded)
+            full_range.setCutoffDistance(nonbonded.getCutoffDistance())
+            full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+            full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
+            full_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+            full_range.addInteractionGroup(solute_atoms, solvent_atoms)
+            full_range.addGlobalParameter(coupling_parameter, 1.0)
+            full_range.addEnergyParameterDerivative(coupling_parameter)
+            full_range.setForceGroup(1)
+            self.addForce(full_range)
+            self._alchemical_vdw_force = full_range
 
-        # For the van der Waals part of solute-solvent interactions, it is considered that no
-        # exceptions exist which involve a solute atom and a solvent atom (this might be reviewed
-        # in future versions):
-        lj = f'4*epsilon*x*(x - 1); x = (sigma/r)^6'
-        full_range = openmm.CustomNonbondedForce(lj + mixing_rules)
-        self._import_from_nonbonded(full_range, nonbonded)
-        full_range.setCutoffDistance(nonbonded.getCutoffDistance())
-        full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
-        full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
-        full_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
-        full_range.addInteractionGroup(solute_atoms, solvent_atoms)
-        full_range_cv_force = copy.deepcopy(cv_force)
-        full_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', full_range)
-        full_range_cv_force.setForceGroup(2 if middle_scale else 1)
-        self.addForce(full_range_cv_force)
+        else:
+            # The van der Waals part of solute-solvent interactions are defined as collective
+            # variables multiplied by a coupling function:
+            potential = '((gt0-gt1)*S + gt1)*alchemical_vdw_energy'
+            potential += f'; gt0 = step({coupling_parameter})'
+            potential += f'; gt1 = step({coupling_parameter}-1)'
+            potential += f'; S = {coupling_function}'
+            cv_force = openmm.CustomCVForce(potential)
+            cv_force.addGlobalParameter(coupling_parameter, 1.0)
+            cv_force.addEnergyParameterDerivative(coupling_parameter)
 
-        if middle_scale:
-            fsljp = self._force_switched_potential(rci, rsi, 0.0)
-            short_range = openmm.CustomNonbondedForce(fsljp + mixing_rules)
-            self._import_from_nonbonded(short_range, nonbonded)
-            short_range.setCutoffDistance(rcutIn)
-            short_range.setUseSwitchingFunction(False)
-            short_range.setUseLongRangeCorrection(False)
-            short_range.addGlobalParameter('respa_switch', 0)
-            short_range.addInteractionGroup(solute_atoms, solvent_atoms)
-            short_range_cv_force = cv_force
-            short_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', short_range)
-            short_range_cv_force.setForceGroup(1)
-            self.addForce(short_range_cv_force)
+            # For the van der Waals part of solute-solvent interactions, it is considered that no
+            # exceptions exist which involve a solute atom and a solvent atom (this might be
+            # reviewed in future versions):
+            lj = f'4*epsilon*x*(x - 1); x = (sigma/r)^6'
+            full_range = openmm.CustomNonbondedForce(lj + mixing_rules)
+            self._import_from_nonbonded(full_range, nonbonded)
+            full_range.setCutoffDistance(nonbonded.getCutoffDistance())
+            full_range.setUseSwitchingFunction(nonbonded.getUseSwitchingFunction())
+            full_range.setSwitchingDistance(nonbonded.getSwitchingDistance())
+            full_range.setUseLongRangeCorrection(nonbonded.getUseDispersionCorrection())
+            full_range.addInteractionGroup(solute_atoms, solvent_atoms)
+            full_range_cv_force = copy.deepcopy(cv_force)
+            full_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', full_range)
+            full_range_cv_force.setForceGroup(2 if middle_scale else 1)
+            self.addForce(full_range_cv_force)
+
+            if middle_scale:
+                fsljp = self._force_switched_potential(rci, rsi, 0.0)
+                short_range = openmm.CustomNonbondedForce(fsljp + mixing_rules)
+                self._import_from_nonbonded(short_range, nonbonded)
+                short_range.setCutoffDistance(rcutIn)
+                short_range.setUseSwitchingFunction(False)
+                short_range.setUseLongRangeCorrection(False)
+                short_range.addGlobalParameter('respa_switch', 0)
+                short_range.addInteractionGroup(solute_atoms, solvent_atoms)
+                short_range_cv_force = cv_force
+                short_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', short_range)
+                short_range_cv_force.setForceGroup(1)
+                self.addForce(short_range_cv_force)
+
+                # Store force object related to alchemical coupling/decoupling:
+                self._alchemical_vdw_force = full_range_cv_force
 
         # Store Coulomb scaling constant as zero, but reset it if a different value has been passed:
         self._lambda_coul = 0
         self.reset_coulomb_scaling_factor(lambda_coul)
-
-        # Store force object related to alchemical coupling/decoupling:
-        self._alchemical_vdw_force = full_range_cv_force
 
     def get_alchemical_vdw_force(self):
         return self._alchemical_vdw_force
