@@ -419,14 +419,14 @@ class AlchemicalSoftcoreCVForce(object):
         self._context = None
         self._numForces = len(grid)
         original = alchemical_system._alchemical_vdw_force
-        nonbonded = openmm.NonbondedForce()
-        for i in range(original.getNumParticles()):
-            nonbonded.addParticle(*original.getParticleParameters(i))
-        nonbonded.setForceGroup(31)
-        self._system.addForce(nonbonded)  # For keeping neighbor list
+        # nonbonded = openmm.NonbondedForce()
+        # for i in range(original.getNumParticles()):
+        #     nonbonded.addParticle(*original.getParticleParameters(i))
+        # nonbonded.setForceGroup(31)
+        # self._system.addForce(nonbonded)  # For keeping neighbor list
         for index, value in enumerate(grid):
             ljsoft = f'4*lambda*epsilon*x*(x - 1)'
-            ljsoft += f'; x = sigma^6/(r^6 + 0.5*(1-lambda)*sigma^6)'
+            ljsoft += f'; x = 1/((r/sigma)^6 + 0.5*(1-lambda))'
             ljsoft += f'; lambda = {value}'
             ljsoft += f'; sigma = 0.5*(sigma1 + sigma2)'
             ljsoft += f'; epsilon = sqrt(epsilon1*epsilon2)'
@@ -469,8 +469,8 @@ class AlchemicalSoftcoreCVForce(object):
 
 
 class AlchemicalCoulombCVForce(object):
-    def __init__(self, system):
-        self._system = system
+    def __init__(self, alchemical_system):
+        self._system = alchemical_system
 
     def getNumCollectiveVariables(self):
         return 1
@@ -481,9 +481,10 @@ class AlchemicalCoulombCVForce(object):
     def getCollectiveVariableValues(self, context):
         lambda_coul = self._system._lambda_coul
         self._system.reset_coulomb_scaling_factor(0.0, context)
-        E0 = context.getState(getEnergy=True, groups=1 << 2).getPotentialEnergy()
+        group = 2 if self._system._middle_scale else 1
+        E0 = context.getState(getEnergy=True, groups=2**group).getPotentialEnergy()
         self._system.reset_coulomb_scaling_factor(1.0, context)
-        E1 = context.getState(getEnergy=True, groups=1 << 2).getPotentialEnergy()
+        E1 = context.getState(getEnergy=True, groups=2**group).getPotentialEnergy()
         self._system.reset_coulomb_scaling_factor(lambda_coul, context)
         return [(E1 - E0).value_in_unit(unit.kilojoules_per_mole)]
 
@@ -702,8 +703,8 @@ class AlchemicalRespaSystem(openmm.System):
 
         if use_softcore:
             # Softcore potential is fully considered in the middle time scale:
-            ljsoft = f'4*{coupling_function}*epsilon*x*(x - 1)'
-            ljsoft += f'; x = sigma^6/(r^6 + 0.5*(1-{coupling_parameter})*sigma^6)'
+            ljsoft = f'4*{coupling_parameter}*epsilon*x*(x - 1)'
+            ljsoft += f'; x = 1/((r/sigma)^6 + 0.5*(1-{coupling_parameter}))'
             full_range = openmm.CustomNonbondedForce(ljsoft + mixing_rules)
             self._import_from_nonbonded(full_range, nonbonded, import_globals=True)
             full_range.addInteractionGroup(solute_atoms, solvent_atoms)
@@ -750,8 +751,8 @@ class AlchemicalRespaSystem(openmm.System):
                 short_range_cv_force.setForceGroup(1)
                 self.addForce(short_range_cv_force)
 
-                # Store force object related to alchemical coupling/decoupling:
-                self._alchemical_vdw_force = full_range_cv_force
+            # Store force object related to alchemical coupling/decoupling:
+            self._alchemical_vdw_force = full_range_cv_force
 
         # Store Coulomb scaling constant as zero, but reset it if a different value has been passed:
         self._lambda_coul = 0
