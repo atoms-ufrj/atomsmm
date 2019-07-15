@@ -260,6 +260,14 @@ def test_AlchemicalRespaSystem_with_softcore():
     )
     state = {'lambda': 0.5, 'respa_switch': 1}
     components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    context = openmm.Context(system, openmm.CustomIntegrator(0), platform)
+    context.setPositions(positions)
+    force = solvation_system.get_alchemical_vdw_force([i/5 for i in range(6)])
+    values = force.getCollectiveVariableValues(context)*unit.kilojoules_per_mole
+    for index in range(force.getNumCollectiveVariables()):
+        name = force.getCollectiveVariableName(index)
+        components[name] = values[index]
     for item in components.items():
         print(*item)
     potential = {}
@@ -273,5 +281,11 @@ def test_AlchemicalRespaSystem_with_softcore():
     potential['CustomBondForce(1)'] = -53.374675325650806  # kJ/mol
     potential['CustomNonbondedForce(1)'] = -24.140118811594814  # kJ/mol
     potential['Total'] = -17877.712441953405  # kJ/mol
+    potential['E0'] = 0.0  # kJ/mol
+    potential['E1'] = -10.071581499620784  # kJ/mol
+    potential['E2'] = -19.66450283710424  # kJ/mol
+    potential['E3'] = -28.284595753200428  # kJ/mol
+    potential['E4'] = -35.004158250494505  # kJ/mol
+    potential['E5'] = -37.9416812137183  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
