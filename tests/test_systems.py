@@ -280,7 +280,8 @@ def test_AlchemicalRespaSystem_with_softcore():
     potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
     potential['CustomBondForce(1)'] = -53.374675325650806  # kJ/mol
     potential['CustomNonbondedForce(1)'] = -24.140118811594814  # kJ/mol
-    potential['Total'] = -17877.712441953405  # kJ/mol
+    potential['CustomNonbondedForce(2)'] = -24.140118811594814  # kJ/mol
+    potential['Total'] = -17901.852560765  # kJ/mol
     potential['E0'] = 0.0  # kJ/mol
     potential['E1'] = -10.071581499620784  # kJ/mol
     potential['E2'] = -19.66450283710424  # kJ/mol

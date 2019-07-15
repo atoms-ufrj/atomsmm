@@ -710,9 +710,21 @@ class AlchemicalRespaSystem(openmm.System):
             full_range.addInteractionGroup(solute_atoms, solvent_atoms)
             full_range.addGlobalParameter(coupling_parameter, 1.0)
             full_range.addEnergyParameterDerivative(coupling_parameter)
-            full_range.setForceGroup(1)
+            full_range.setForceGroup(2 if middle_scale else 1)
             self.addForce(full_range)
+
+            # Store force object related to alchemical coupling/decoupling:
             self._alchemical_vdw_force = full_range
+
+            if middle_scale:
+                # In the current version, the full softcore potential is allocated in the middle
+                # time scale because it would be difficult to apply the force-switch strategy. This
+                # might be reviewed in the future.
+                short_range = copy.deepcopy(full_range)
+                short_range.setEnergyFunction(f'respa_switch*{ljsoft}' + mixing_rules)
+                short_range.addGlobalParameter('respa_switch', 0)
+                short_range.setForceGroup(1)
+                self.addForce(short_range)
 
         else:
             # The van der Waals part of solute-solvent interactions are defined as collective
@@ -737,6 +749,9 @@ class AlchemicalRespaSystem(openmm.System):
             full_range_cv_force.setForceGroup(2 if middle_scale else 1)
             self.addForce(full_range_cv_force)
 
+            # Store force object related to alchemical coupling/decoupling:
+            self._alchemical_vdw_force = full_range_cv_force
+
             if middle_scale:
                 fsljp = self._force_switched_potential(rci, rsi, 0.0)
                 short_range = openmm.CustomNonbondedForce(fsljp + mixing_rules)
@@ -750,9 +765,6 @@ class AlchemicalRespaSystem(openmm.System):
                 short_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', short_range)
                 short_range_cv_force.setForceGroup(1)
                 self.addForce(short_range_cv_force)
-
-            # Store force object related to alchemical coupling/decoupling:
-            self._alchemical_vdw_force = full_range_cv_force
 
         # Store Coulomb scaling constant as zero, but reset it if a different value has been passed:
         self._lambda_coul = 0
