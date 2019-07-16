@@ -567,7 +567,7 @@ class AlchemicalRespaSystem(openmm.System):
     def __init__(self, system, rcutIn, rswitchIn, alchemical_atoms=[],
                  coupling_parameter='lambda', coupling_function='lambda',
                  middle_scale=True, coulomb_scaling=False, lambda_coul=0,
-                 use_softcore=False):
+                 use_softcore=False, split_alchemical=True):
         self.this = copy.deepcopy(system).this
         Kc = 138.935456637  # Coulomb constant in kJ.nm/mol.e^2
 
@@ -752,7 +752,7 @@ class AlchemicalRespaSystem(openmm.System):
             # Store force object related to alchemical coupling/decoupling:
             self._alchemical_vdw_force = full_range_cv_force
 
-            if middle_scale:
+            if middle_scale and split_alchemical:
                 fsljp = self._force_switched_potential(rci, rsi, 0.0)
                 short_range = openmm.CustomNonbondedForce(fsljp + mixing_rules)
                 self._import_from_nonbonded(short_range, nonbonded)
@@ -765,6 +765,12 @@ class AlchemicalRespaSystem(openmm.System):
                 short_range_cv_force.addCollectiveVariable('alchemical_vdw_energy', short_range)
                 short_range_cv_force.setForceGroup(1)
                 self.addForce(short_range_cv_force)
+            elif middle_scale:
+                short_range = copy.deepcopy(full_range)
+                short_range.setEnergyFunction(f'respa_switch*{lj}' + mixing_rules)
+                short_range.addGlobalParameter('respa_switch', 0)
+                short_range.setForceGroup(1)
+                self.addForce(short_range)
 
         # Store Coulomb scaling constant as zero, but reset it if a different value has been passed:
         self._lambda_coul = 0
