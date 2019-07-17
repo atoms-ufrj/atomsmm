@@ -218,9 +218,17 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
         coupling_function='lambda^4*(5-4*lambda)',
         coulomb_scaling=True,
         lambda_coul=0.5,
+        # middle_scale=True,
     )
     state = {'lambda': 0.5, 'respa_switch': 1}
     components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
+    integrator = openmm.CustomIntegrator(0)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    simulation = openmm.app.Simulation(topology, solvation_system, integrator, platform)
+    simulation.context.setPositions(positions)
+    force = solvation_system.get_alchemical_coul_force()
+    Ecoul = force.getCollectiveVariableValues(simulation.context)
+    components['Ecoul'] = Ecoul[0]*unit.kilojoule_per_mole
     for item in components.items():
         print(*item)
     potential = {}
@@ -236,14 +244,49 @@ def test_AlchemicalRespaSystem_with_coulomb_scaling():
     potential['CustomCVForce'] = -7.114065227572182  # kJ/mol
     potential['CustomCVForce(1)'] = -6.301336948673654  # kJ/mol
     potential['Total'] = -17936.998120008684  # kJ/mol
+    potential['Ecoul'] = -93.14060537915793  # kJ/mol
     for term, value in components.items():
         assert value/value.unit == pytest.approx(potential[term])
 
-    integrator = openmm.CustomIntegrator(0)
+
+def test_AlchemicalRespaSystem_with_softcore():
+    system, positions, topology, solute = readSystem('phenol-in-water')
+    respa_info = dict(rcutIn=7*unit.angstroms, rswitchIn=5*unit.angstroms)
+    solvation_system = atomsmm.systems.AlchemicalRespaSystem(
+        system,
+        *respa_info.values(),
+        solute,
+        use_softcore=True,
+    )
+    state = {'lambda': 0.5, 'respa_switch': 1}
+    components = atomsmm.splitPotentialEnergy(solvation_system, topology, positions, **state)
     platform = openmm.Platform.getPlatformByName('Reference')
-    simulation = openmm.app.Simulation(topology, solvation_system, integrator, platform)
-    simulation.context.setPositions(positions)
-    force = solvation_system.get_alchemical_coul_force()
-    ecoul = force.getCollectiveVariableValues(simulation.context)[0]
-    print('Ecoul', ecoul)
-    assert ecoul == pytest.approx(-93.14060537915793)
+    context = openmm.Context(system, openmm.CustomIntegrator(0), platform)
+    context.setPositions(positions)
+    force = solvation_system.get_alchemical_vdw_force([i/5 for i in range(6)])
+    values = force.getCollectiveVariableValues(context)*unit.kilojoules_per_mole
+    for index in range(force.getNumCollectiveVariables()):
+        name = force.getCollectiveVariableName(index)
+        components[name] = values[index]
+    for item in components.items():
+        print(*item)
+    potential = {}
+    potential['HarmonicBondForce'] = 2621.3223922886677  # kJ/mol
+    potential['HarmonicAngleForce'] = 1525.1006876561419  # kJ/mol
+    potential['PeriodicTorsionForce'] = 18.767576693568476  # kJ/mol
+    potential['Real-Space'] = 80089.51116719692  # kJ/mol
+    potential['Reciprocal-Space'] = -107038.52551657759  # kJ/mol
+    potential['CustomNonbondedForce'] = 5037.152491649265  # kJ/mol
+    potential['CustomBondForce'] = -53.526446723139806  # kJ/mol
+    potential['CustomBondForce(1)'] = -53.374675325650806  # kJ/mol
+    potential['CustomNonbondedForce(1)'] = -24.140118811594814  # kJ/mol
+    potential['CustomNonbondedForce(2)'] = -24.140118811594814  # kJ/mol
+    potential['Total'] = -17901.852560765  # kJ/mol
+    potential['E0'] = 0.0  # kJ/mol
+    potential['E1'] = -10.071581499620784  # kJ/mol
+    potential['E2'] = -19.66450283710424  # kJ/mol
+    potential['E3'] = -28.284595753200428  # kJ/mol
+    potential['E4'] = -35.004158250494505  # kJ/mol
+    potential['E5'] = -37.9416812137183  # kJ/mol
+    for term, value in components.items():
+        assert value/value.unit == pytest.approx(potential[term])
