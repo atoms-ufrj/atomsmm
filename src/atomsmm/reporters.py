@@ -392,24 +392,38 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
 class CenterOfMassReporter(_AtomsMM_Reporter):
     """
-    Outputs a series of frames containing the center-of-mass coordinates of all molecules from a
-    Simulation to an XYZ-format file.
+    Outputs a series of frames containing the center-of-mass coordinates (or the center-of-mass
+    velocities) of all molecules from a Simulation to an XYZ-format file.
+
+    .. note::
+        Coordinates are expressed in angstroms and velocities are expressed in angstroms per
+        picosecond.
 
     To use it, create a CenterOfMassReporter, then add it to the Simulation's list of reporters.
 
+    Keyword Args
+    ------------
+        velocities : bool, optional, default=False
+            Whether to write the center-of-mass velocities rather than coordinates.
+
     """
     def __init__(self, file, reportInterval, **kwargs):
+        self._velocities = kwargs.pop('velocities', False)
         super().__init__(file, reportInterval, **kwargs)
-        self._needsPositions = True
+        self._needsPositions = not self._velocities
+        self._needsVelocities = self._velocities
 
     def _initialize(self, simulation, state):
         self._mols = _MoleculeTotalizer(simulation.context, simulation.topology)
 
     def _generateReport(self, simulation, state):
-        positions = state.getPositions(asNumpy=True).value_in_unit(unit.nanometers)
-        cmPositions = self._mols.massFrac.dot(positions)
+        if self._velocities:
+            values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
+        else:
+            values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
+        cmValues = self._mols.massFrac.dot(values)
         print(self._mols.nmols, file=self._out)
-        pd.DataFrame(index=self._mols.residues, data=cmPositions).to_csv(self._out, sep='\t')
+        pd.DataFrame(index=self._mols.residues, data=cmValues).to_csv(self._out, sep='\t')
 
 
 class XYZReporter(_AtomsMM_Reporter):
