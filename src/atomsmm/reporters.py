@@ -392,12 +392,12 @@ class ExtendedStateDataReporter(app.StateDataReporter):
 
 class XYZReporter(_AtomsMM_Reporter):
     """
-    Outputs to an XYZ-format file a series of frames containing the coordinates, velocities, or
-    forces on all atoms in a Simulation.
+    Outputs to an XYZ-format file a series of frames containing the coordinates, velocities,
+    momenta, or forces on all atoms in a Simulation.
 
     .. note::
-        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, and forces in
-        dalton*nanometer/picosecond^2.
+        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, momenta in
+        dalton*nanometer/picosecond, and forces in dalton*nanometer/picosecond^2.
 
     To use this reporter, create an XYZReporter object and append it to the Simulation's list of
     reporters.
@@ -405,7 +405,8 @@ class XYZReporter(_AtomsMM_Reporter):
     Keyword Args
     ------------
         output : str, default='positions'
-            Which kind of info to report. Valid options are 'positions', 'velocities', and 'forces'.
+            Which kind of info to report. Valid options are 'positions', 'velocities', 'momenta' and
+            'forces'.
         groups : set(int), default=None
             Which force groups to consider in the force calculations. If this is `None`, then all
             force groups will be evaluated.
@@ -414,66 +415,89 @@ class XYZReporter(_AtomsMM_Reporter):
     def __init__(self, file, reportInterval, **kwargs):
         self._output = kwargs.get('output', 'positions')
         self._groups = kwargs.get('groups', None)
-        if self._output not in ['positions', 'velocities', 'forces']:
-            raise InputError('Unrecognizable keyword argument value')
+        if self._output == 'positions':
+            self._unit = unit.angstroms
+        elif self._output == 'velocities':
+            self._unit = unit.angstroms/unit.picoseconds
+        elif self._output == 'momenta':
+            self._unit = unit.dalton*unit.angstroms/unit.picoseconds
+        elif self._output == 'forces':
+            self._unit = unit.dalton*unit.angstroms/unit.picoseconds**2
+        else:
+            raise InputError('Unrecognizable keyword value')
         super().__init__(file, reportInterval, **kwargs)
         self._needsPositions = self._output == 'positions'
-        self._needsVelocities = self._output == 'velocities'
+        self._needsVelocities = self._output in ['velocities', 'momenta']
         self._needsForces = self._output == 'forces'
 
     def _initialize(self, simulation, state):
         self._symbols = [atom.element.symbol for atom in simulation.topology.atoms()]
-        self._N = len(self._atoms)
+        sys = simulation.system
+        self._N = sys.getNumParticles()
+        if self._output == 'momenta':
+            mass = [sys.getParticleMass(i).value_in_unit(unit.dalton) for i in range(self._N)]
+            self._mass = np.vstack([mass, mass, mass]).transpose()*unit.dalton
 
     def _get_values(self, simulation, state):
         if self._output == 'positions':
-            values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
+            values = state.getPositions(asNumpy=True)
         elif self._output == 'velocities':
-            values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
+            values = state.getVelocities(asNumpy=True)
+        elif self._output == 'momenta':
+            values = self._mass*state.getVelocities(asNumpy=True)
         elif self._groups is None:
-            values = state.getForces(asNumpy=True).value_in_unit(unit.dalton*unit.angstroms/unit.picosecond**2)
+            values = state.getForces(asNumpy=True)
         else:
             new_state = simulation.context.getState(getForces=True, groups=self._groups)
-            values = new_state.getForces(asNumpy=True).value_in_unit(unit.dalton*unit.angstroms/unit.picosecond**2)
-        return values
+            values = new_state.getForces(asNumpy=True)
+        return values.value_in_unit(self._unit)
+
+    def _write(self, step, N, names, values):
+        print(N, file=self._out)
+        pd.DataFrame(index=names, data=values).to_csv(
+            self._out,
+            sep='\t',
+            header=[f'{self._output} in {self._unit} at time step {step}', '', ''],
+        )
 
     def _generateReport(self, simulation, state):
         values = self._get_values(simulation, state)
-        print(self._N, file=self._out)
-        pd.DataFrame(index=self._symbols, data=values).to_csv(self._out, sep='\t',
-            header=[f'time step: {simulation.currentStep}', '', ''])
+        self._write(simulation.currentStep, self._N, self._symbols, values)
 
 
 class CenterOfMassReporter(XYZReporter):
     """
     Outputs to an XYZ-format file a series of frames containing the center-of-mass coordinates,
-    center-of-mass velocities, or resultant forces on all molecules in a Simulation.
+    center-of-mass velocities, total momenta, or resultant forces on all molecules in a Simulation.
 
     .. note::
-        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, and forces in
-        dalton*nanometer/picosecond^2.
+        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, momenta in
+        dalton*nanometer/picosecond, and forces in dalton*nanometer/picosecond^2.
 
-    To use this reporter, create a CenterOfMassReporter object and append it to the Simulation's
+    To use this reporter, create an CenterOfMassReporter object and append it to the Simulation's
     list of reporters.
 
     Keyword Args
     ------------
         output : str, default='positions'
-            Which kind of info to report. Valid options are 'positions', 'velocities', and 'forces'.
+            Which kind of info to report. Valid options are 'positions', 'velocities', 'momenta' and
+            'forces'.
         groups : set(int), default=None
             Which force groups to consider in the force calculations. If this is `None`, then all
             force groups will be evaluated.
 
     """
     def _initialize(self, simulation, state):
+        super()._initialize(simulation, state)
         self._mols = _MoleculeTotalizer(simulation.context, simulation.topology)
 
     def _generateReport(self, simulation, state):
         values = self._get_values(simulation, state)
-        cm_values = self._mols.massFrac.dot(values)
-        print(self._mols.nmols, file=self._out)
-        pd.DataFrame(index=self._mols.residues, data=cm_values).to_csv(self._out, sep='\t',
-            header=[f'time step: {simulation.currentStep}', '', ''])
+        if self._output in ['positions', 'velocities']:
+            cm_values = self._mols.massFrac.dot(values)
+        else:
+            cm_values = self._mols.selection.dot(values)
+        self._write(simulation.currentStep, self._mols.nmols, self._mols.residues, cm_values)
 
 
 class CustomIntegratorReporter(_AtomsMM_Reporter):
