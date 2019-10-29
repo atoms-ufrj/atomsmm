@@ -390,45 +390,28 @@ class ExtendedStateDataReporter(app.StateDataReporter):
         return values
 
 
-class CenterOfMassReporter(_AtomsMM_Reporter):
+class XYZReporter(_AtomsMM_Reporter):
     """
-    Outputs a series of frames containing the center-of-mass coordinates (or the center-of-mass
-    velocities) of all molecules from a Simulation to an XYZ-format file.
+    Outputs to an XYZ-format file a series of frames containing the coordinates, velocities, or
+    forces on all atoms in a Simulation.
 
     .. note::
-        Coordinates are expressed in angstroms and velocities are expressed in angstroms per
-        picosecond.
+        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, and forces in
+        dalton*nanometer/picosecond^2.
 
-    To use it, create a CenterOfMassReporter, then add it to the Simulation's list of reporters.
+    To use this reporter, create an XYZReporter object and append it to the Simulation's list of
+    reporters.
 
     Keyword Args
     ------------
-        velocities : bool, optional, default=False
-            Whether to write the center-of-mass velocities rather than coordinates.
+        output : str, default='positions'
+            Which kind of info to report. Valid options are 'positions', 'velocities', and 'forces'.
+        groups : set(int), default=None
+            Which force groups to consider in the force calculations. If this is `None`, then all
+            force groups will be evaluated.
 
     """
     def __init__(self, file, reportInterval, **kwargs):
-        self._velocities = kwargs.pop('velocities', False)
-        super().__init__(file, reportInterval, **kwargs)
-        self._needsPositions = not self._velocities
-        self._needsVelocities = self._velocities
-
-    def _initialize(self, simulation, state):
-        self._mols = _MoleculeTotalizer(simulation.context, simulation.topology)
-
-    def _generateReport(self, simulation, state):
-        if self._velocities:
-            values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
-        else:
-            values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
-        cmValues = self._mols.massFrac.dot(values)
-        print(self._mols.nmols, file=self._out)
-        pd.DataFrame(index=self._mols.residues, data=cmValues).to_csv(self._out, sep='\t')
-
-
-class XYZReporter(_AtomsMM_Reporter):
-    def __init__(self, file, reportInterval, **kwargs):
-        self._atoms = kwargs.get('atoms', 'all')
         self._output = kwargs.get('output', 'positions')
         self._groups = kwargs.get('groups', None)
         if self._output not in ['positions', 'velocities', 'forces']:
@@ -439,28 +422,58 @@ class XYZReporter(_AtomsMM_Reporter):
         self._needsForces = self._output == 'forces'
 
     def _initialize(self, simulation, state):
-        if self._atoms == 'all':
-            self._atoms = range(simulation.topology.getNumAtoms())
-        symbol = [atom.element.symbol for atom in simulation.topology.atoms()]
-        self._symbols = [symbol[i] for i in self._atoms]
+        self._symbols = [atom.element.symbol for atom in simulation.topology.atoms()]
         self._N = len(self._atoms)
 
-    def _generateReport(self, simulation, state):
+    def _get_values(self, simulation, state):
         if self._output == 'positions':
             values = state.getPositions(asNumpy=True).value_in_unit(unit.angstroms)
         elif self._output == 'velocities':
             values = state.getVelocities(asNumpy=True).value_in_unit(unit.angstroms/unit.picoseconds)
         elif self._groups is None:
-            values = state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+            values = state.getForces(asNumpy=True).value_in_unit(unit.dalton*unit.angstroms/unit.picosecond**2)
         else:
             new_state = simulation.context.getState(getForces=True, groups=self._groups)
-            values = new_state.getForces(asNumpy=True).value_in_unit(unit.kilojoules_per_mole/unit.nanometers)
+            values = new_state.getForces(asNumpy=True).value_in_unit(unit.dalton*unit.angstroms/unit.picosecond**2)
+        return values
 
+    def _generateReport(self, simulation, state):
+        values = self._get_values(simulation, state)
         print(self._N, file=self._out)
-        print('# timestep: {}'.format(simulation.currentStep), file=self._out)
-        for symbol, atom in zip(self._symbols, self._atoms):
-            xyz = '{:.4f} {:.4f} {:.4f}'.format(*values[atom, :])
-            print(symbol, xyz, file=self._out)
+        pd.DataFrame(index=self._symbols, data=values).to_csv(self._out, sep='\t',
+            header=[f'time step: {simulation.currentStep}', '', ''])
+
+
+class CenterOfMassReporter(XYZReporter):
+    """
+    Outputs to an XYZ-format file a series of frames containing the center-of-mass coordinates,
+    center-of-mass velocities, or resultant forces on all molecules in a Simulation.
+
+    .. note::
+        Coordinates are expressed in nanometers, velocities in nanometer/picosecond, and forces in
+        dalton*nanometer/picosecond^2.
+
+    To use this reporter, create a CenterOfMassReporter object and append it to the Simulation's
+    list of reporters.
+
+    Keyword Args
+    ------------
+        output : str, default='positions'
+            Which kind of info to report. Valid options are 'positions', 'velocities', and 'forces'.
+        groups : set(int), default=None
+            Which force groups to consider in the force calculations. If this is `None`, then all
+            force groups will be evaluated.
+
+    """
+    def _initialize(self, simulation, state):
+        self._mols = _MoleculeTotalizer(simulation.context, simulation.topology)
+
+    def _generateReport(self, simulation, state):
+        values = self._get_values(simulation, state)
+        cm_values = self._mols.massFrac.dot(values)
+        print(self._mols.nmols, file=self._out)
+        pd.DataFrame(index=self._mols.residues, data=cm_values).to_csv(self._out, sep='\t',
+            header=[f'time step: {simulation.currentStep}', '', ''])
 
 
 class CustomIntegratorReporter(_AtomsMM_Reporter):
