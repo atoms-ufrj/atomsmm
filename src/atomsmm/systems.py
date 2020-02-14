@@ -596,9 +596,11 @@ class AlchemicalRespaSystem(openmm.System):
                 # Store a copy of the nonbonded force before changes are made:
                 nonbonded = copy.deepcopy(force)
 
-                # Place it at due group, delete all solute interaction parameters:
+                # Place it at due group:
                 force.setForceGroup(2 if middle_scale else 1)
                 force.setReciprocalSpaceForceGroup(2 if middle_scale else 1)
+
+                # Delete all solute interaction parameters:
                 self._solute_charges = {}
                 for i in solute_atoms:
                     charge, _, _ = force.getParticleParameters(i)
@@ -655,8 +657,12 @@ class AlchemicalRespaSystem(openmm.System):
                 # Place bonded and other forces at group 0:
                 force.setForceGroup(0)
 
+        # Return if no solute atoms were specified:
+        if not solute_atoms:
+            return
+
         # To allow decoupling rather than annihilation, solute-solute interactions are handled
-        # by a custom bond force without cut-off:
+        # by a custom bond force without a cut-off:
         ljc = f'4*epsilon*x*(x - 1) + {Kc}*chargeprod/r; x = (sigma/r)^6'
         full_range = openmm.CustomBondForce(ljc)
         full_range.setForceGroup(2 if middle_scale else 1)
