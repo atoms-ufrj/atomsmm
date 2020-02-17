@@ -386,7 +386,7 @@ class NewMethodPropagator(Propagator):
         else:
             expression = 'vs*exp(-({}*dt)*v_eta)'.format(fraction)
         expression += '; vs = v/vmax'
-        expression += '; vmax = sqrt(LkT/m)'
+        expression += '; vmax=sqrt(LkT/m)'
         expression = 'select(step(vm-vlim),vlim,select(step(vm+vlim),vm,-vlim)); vm={}'.format(expression)
         # expression = 'max(-vlim,min(vm,vlim)); vlim=30; vm={}'.expression
         integrator.addComputePerDof('v', expression)
@@ -431,7 +431,7 @@ class RestrainedLangevinPropagator(Propagator):
         elif self.kind == 'damp':
             expression = 'vs*exp(-({}*dt)*friction)'.format(fraction)
         expression += '; vs = v/vmax'
-        expression += '; vmax = sqrt(LkT/m)'
+        expression += '; vmax=sqrt(LkT/m)'
         expression = 'select(step(vm-vlim),vlim,select(step(vm+vlim),vm,-vlim)); vm={}'.format(expression)
         # expression = 'max(-vlim,min(vm,vlim)); vlim=30; vm={}'.expression
         integrator.addComputePerDof('v', expression)
@@ -484,10 +484,6 @@ class LimitedSpeedLangevinPropagator(Propagator):
             #     ' v = tanh(p)',
             #     'p - (p + z*v - C)/(one + x*(one - v*v))'
             # ]
-            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
-            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
-            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
-            # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             # integrator.addComputePerDof('p', ';'.join(reversed(expressions)))
             n = 1
             expressions = [
@@ -666,7 +662,7 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
             integrator.addComputePerDof('x', 'x + v*{}*dt'.format(fraction))
         elif self.kind == 'boost':
             boost = [
-                ' vmax = sqrt(LkT/m)',
+                ' vmax=sqrt(LkT/m)',
                 ' z = {}*{}*dt/(m*vmax)'.format(force, fraction),
                 'v*cosh(z) + vmax*sinh(z)',
             ]
@@ -1218,6 +1214,96 @@ class MassiveGeneralizedGaussianMomentPropagator(Propagator):
             integrator.endBlock()
 
 
+class NoseHooverChainPropagator(Propagator):
+    """
+    This class implements a Nose-Hoover chain :cite:`Tuckerman_1992` with two global thermostats.
+
+    This propagator provides a solution for the following :term:`ODE` system:
+
+    .. math::
+        & \\frac{d\\mathbf{p}}{dt} = -\\frac{p_{\\eta,1}}{Q_1} \\mathbf{p} \\\\
+        & \\frac{dp_{\\eta,1}}{dt} = \\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p} - N_f k_B T
+                   - \\frac{p_{\\eta,2}}{Q_2} p_{\\eta,1} \\\\
+        & \\frac{dp_{\\eta,2}}{dt} = \\frac{p_{\\eta,1}^2}{Q_1} - k_B T
+
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{(\\delta t/2)\\mathcal{L}_{B2}}
+        e^{(\\delta t/2)\\mathcal{L}_{S1}}
+        e^{(\\delta t/2)\\mathcal{L}_{B1}}
+        e^{(\\delta t)\\mathcal{L}_{S}}
+        e^{(\\delta t/2)\\mathcal{L}_{B1}}
+        e^{(\\delta t/2)\\mathcal{L}_{S1}}
+        e^{(\\delta t/2)\\mathcal{L}_{B2}}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B2' is a boost of thermostat 2, whose solution is:
+
+    .. math::
+        p_{\\eta,2}(t) = p_{\\eta,2}^0 +\\left(\\frac{p_{\\eta,1}^2}{Q_1} - k_B T\\right) t
+
+    Equation 'S1' is a scaling of thermostat 1, whose solution is:
+
+    .. math::
+        p_{\\eta,1}(t) = p_{\\eta,1}^0 e^{-\\frac{p_{\\eta,2}}{Q_2} t}
+
+    Equation 'B1' is a boost of thermostat 1, whose solution is:
+
+    .. math::
+        p_{\\eta,1}(t) = p_{\\eta,1}^0 + \\left(\\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p} - N_f k_B T\\right) t
+
+    Equation 'S' is a scaling of particle momenta, whose solution is:
+
+    .. math::
+        \\mathbf{p}(t) = \\mathbf{p}_0 e^{-\\frac{p_{\\eta,1}}{Q_1} t}
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        degreesOfFreedom : int
+            The number of degrees of freedom in the system, which can be retrieved via function
+            :func:`~atomsmm.utils.countDegreesOfFreedom`.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    """
+    def __init__(self, temperature, degreesOfFreedom, timeScale, frictionConstant=None):
+        super().__init__()
+        self.temperature = temperature
+        self.degreesOfFreedom = degreesOfFreedom
+        self.timeScale = timeScale
+        if frictionConstant is None:
+            self.frictionConstant = 1/timeScale
+        else:
+            self.frictionConstant = frictionConstant
+        self.globalVariables['vscaling'] = 0
+        self.globalVariables['p_NHC_1'] = 0
+        self.globalVariables['p_NHC_2'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
+        kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
+        NkT = self.degreesOfFreedom*kT
+        tau = self.timeScale.value_in_unit(unit.picoseconds)
+        Q1 = NkT*tau**2
+        Q2 = kT*tau**2
+        integrator.addComputeGlobal('p_NHC_2', f'p_NHC_2 + (p_NHC_1^2/{Q1}-{kT})*{0.5*fraction}*dt')
+        integrator.addComputeGlobal('p_NHC_1', f'p_NHC_1*exp(-{0.5*fraction/Q2}*p_NHC_2*dt)')
+        integrator.addComputeGlobal('p_NHC_1', f'p_NHC_1 + (mvv-{NkT})*{0.5*fraction}*dt')
+        integrator.addComputeGlobal('vscaling', f'exp(-{fraction/Q1}*p_NHC_1*dt)')
+        integrator.addComputeGlobal('p_NHC_1', f'p_NHC_1 + (vscaling^2*mvv-{NkT})*{0.5*fraction}*dt')
+        integrator.addComputeGlobal('p_NHC_1', f'p_NHC_1*exp(-{0.5*fraction/Q2}*p_NHC_2*dt)')
+        integrator.addComputeGlobal('p_NHC_2', f'p_NHC_2 + (p_NHC_1^2/{Q1}-{kT})*{0.5*fraction}*dt')
+        integrator.addComputePerDof('v', 'vscaling*v')
+
+
 class NoseHooverLangevinPropagator(Propagator):
     """
     This class implements a Nose-Hoover-Langevin propagator :cite:`Samoletov_2007,Leimkuhler_2009`,
@@ -1227,30 +1313,40 @@ class NoseHooverLangevinPropagator(Propagator):
     This propagator provides a solution for the following :term:`SDE` system:
 
     .. math::
-        & \\frac{d\\mathbf{p}}{dt} = -\\frac{p_\\eta}{Q} \\mathbf{p} & \\qquad\\mathrm{(S)} \\\\
-        & dp_\\eta = (\\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p} - N_fk_BT)dt
-                   - \\gamma p_\\eta dt + \\sqrt{2\\gamma Qk_BT}dW & \\qquad\\mathrm{(O)}
+        & d\\mathbf{p} = -\\frac{p_\\eta}{Q} \\mathbf{p} dt & \\qquad\\mathrm{(S)} \\\\
+        & dp_\\eta = (\\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p} - N_f k_B T)dt
+                   - \\gamma p_\\eta dt + \\sqrt{2\\gamma Q k_B T}dW & \\qquad\\mathrm{(O)}
 
     As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
     :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
-    obtained by applying the Trotter-Suzuki splitting formula with the analytical solutions of the
-    two equations above taken as if they were independent.
-
-    The solution of Equation 'S' is a simple scaling:
+    obtained by applying the Trotter-Suzuki splitting formula:
 
     .. math::
-        \\mathbf{p}(t) = \\mathbf{p}_0 e^{-\\frac{p_\\eta}{Q}t} \\qquad\\mathrm{(S)}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
 
-    Equation 'O' represents an Ornstein–Uhlenbeck process, whose solution is:
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        p_\\eta(t) = {p_\\eta}_0 + (\\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p} - N_f k_B T) t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        \\mathbf{p}(t) = \\mathbf{p}_0 e^{-\\frac{p_\\eta}{Q} t}
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
         p_\\eta(t) = {p_\\eta}_0 e^{-\\gamma t}
-                   + \\frac{2K - N_fk_BT}{\\gamma}(1-e^{-\\gamma t})
-                   + \\tau k_B T \\sqrt{N_f(1-e^{-2\\gamma t})} R_N, \\qquad\\mathrm{(O)}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
 
-    where :math:`K = \\frac{1}{2} \\mathbf{p}^T\\mathbf{M}^{-1}\\mathbf{p}` and :math:`R_N` is a
-    normally distributed random number. The splitting solution is, then, given by
-    :math:`e^{(\\delta t/2)\\mathcal{L}_S}e^{\\delta t\\mathcal{L}_O}e^{(\\delta t/2)\\mathcal{L}_S}`.
+    where :math:`R_N` is a normally distributed random number.
 
     Parameters
     ----------
@@ -1280,13 +1376,362 @@ class NoseHooverLangevinPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         R = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
         kT = (R*self.temperature).value_in_unit(unit.kilojoules_per_mole)
-        N = self.degreesOfFreedom
+        NkT = self.degreesOfFreedom*kT
         tau = self.timeScale.value_in_unit(unit.picoseconds)
+        Q = NkT*tau**2
         gamma = self.frictionConstant.value_in_unit(unit.picoseconds**(-1))
-        Q = N*kT*tau**2
-        integrator.addComputeGlobal('vscaling', 'exp({}*p_NHL*dt)'.format(-0.5*fraction/Q))
-        expression = 'p_NHL*x+G*(1-x)+{}*sqrt(1-x^2)*gaussian'.format(tau*kT*math.sqrt(N))
-        expression += '; G = (vscaling^2*mvv-{})/{}'.format(N*kT, gamma)
-        expression += '; x = exp({}*dt)'.format(-gamma*fraction)
+        integrator.addComputeGlobal('p_NHL', f'p_NHL + (mvv-{NkT})*{0.5*fraction}*dt')
+        integrator.addComputeGlobal('vscaling', f'exp(-{0.5*fraction/Q}*p_NHL*dt)')
+        expression = f'p_NHL*x + sqrt({kT/Q}*(1-x^2))*gaussian; x = exp(-{gamma*fraction}*dt)'
         integrator.addComputeGlobal('p_NHL', expression)
-        integrator.addComputePerDof('v', 'vscaling*exp({}*p_NHL*dt)*v'.format(-0.5*fraction/Q))
+        integrator.addComputeGlobal('vscaling', f'vscaling*exp(-{0.5*fraction/Q}*p_NHL*dt)')
+        integrator.addComputeGlobal('p_NHL', f'p_NHL + (vscaling^2*mvv-{NkT})*{0.5*fraction}*dt')
+        integrator.addComputePerDof('v', 'vscaling*v')
+
+
+class RegulatedTranslationPropagator(Propagator):
+    """
+    An unconstrained, regulated translation propagator which provides, for every degree of freedom
+    in the system, a solution for the following :term:`ODE`:
+
+    .. math::
+        \\frac{dr_i}{dt} = v_i^\\mathrm{max} \\left(\\frac{p_i}{m_i v_i^\\mathrm{max}}\\right)
+
+    where :math:`v_i^\\mathrm{max} = \\sqrt{\\frac{L k_B T}{m_i}}` is the speed limit for such
+    degree of freedom. The exact solution for this equation is:
+
+    .. math::
+        r_i(t) = r_i^0 + v_i^\\mathrm{max} \\mathrm{tanh}\\left(\\frac{p}{m v_i^\\mathrm{max}}\\right) t
+
+    where :math:`r_i^0` is the initial coordinate.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        L : int or float
+            The governing parameter.
+
+    """
+    def __init__(self, temperature, L):
+        super().__init__()
+        self.globalVariables['LkT'] = L*kB*temperature
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        integrator.addComputePerDof('x', f'x + vmax*tanh(v/vmax)*{fraction}*dt; vmax=sqrt(LkT/m)')
+
+
+class RegulatedBoostPropagator(Propagator):
+    """
+    An unconstrained, regulated boost propagator which provides, for every degree of freedom
+    in the system, a solution for the following :term:`ODE`:
+
+    .. math::
+        \\frac{dp_i}{dt} = F_i
+
+    where :math:`F_i` is a constant force. The exact solution for this equation is:
+
+    .. math::
+        p_i(t) = p_i^0 + F_i t
+
+    where :math:`p_i^0` is the initial momentum.
+
+    """
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        integrator.addComputePerDof('v', f'v + {force}*{fraction}*dt/m')
+
+
+class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements a regulated version of the massive Nose-Hoover-Langevin propagator
+    :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
+    a solution for the following :term:`SDE` system:
+
+    .. math::
+        & dp_i = -v_{\\eta,i} p_i dt \\\\
+        & dv_{\\eta,i} = \\frac{p_i v_i - k_B T}{Q} dt
+                   - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}}dW_i,
+
+    where:
+
+    .. math::
+        v_i = v_i^\\mathrm{max} \\tanh \\left(\\frac{p_i}{m_i v_i^\\mathrm{max}}\\right).
+
+    Here, :math:`v_i^\\mathrm{max} = \\sqrt{L m_i k T}` is speed limit for such degree of freedom.
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{\\delta t\\mathcal{L}} =
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{p_i v_i - k_B T}{Q} t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        p_i(t) = p_i^0 e^{-v_{\\eta,i} t}
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_{N,i}
+
+    where :math:`R_{N,i}` is a normally distributed random number.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    """
+    def __init__(self, temperature, L, timeScale, frictionConstant):
+        super().__init__()
+        kT = kB*temperature
+        Q = kT*timeScale**2
+        self.globalVariables['kT'] = kT
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['Q'] = Q
+        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['p'] = 0
+        self.perDofVariables['v_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        boost = f'v_eta + (m*v*vmax*tanh(v/vmax) - kT)*{fraction}*dt/Q; vmax=sqrt(LkT/m)'
+        scaling = f'v*exp(-v_eta*{fraction}*dt)'
+        OU = f'v_eta*z + omega*sqrt(1-z^2)*gaussian; z=exp(-friction*{fraction}*dt)'
+        integrator.addComputePerDof('v_eta', boost)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', OU)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', boost)
+
+
+class TwiceRegulatedTranslationPropagator(Propagator):
+    """
+    An unconstrained, twice-regulated translation propagator which provides, for every degree of
+    freedom in the system, a solution for the following :term:`ODE`:
+
+    .. math::
+        \\frac{dr_i}{dt} = v_i
+
+    The exact solution for this equation is:
+
+    .. math::
+        r_i(t) = r_i^0 + v_i t
+
+    where :math:`r_i^0` is the initial coordinate.
+
+    """
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        integrator.addComputePerDof('x', f'x + v*{fraction}*dt')
+
+
+class TwiceRegulatedBoostPropagator(Propagator):
+    """
+    An unconstrained, twice-regulated boost propagator which provides, for every degree of freedom
+    in the system, a solution for the following :term:`ODE`:
+
+    .. math::
+        \\frac{dv_i}{dt} = \\frac{F_i}{m_i} \\left[1 - \\left(\\frac{v_i}{v_i^\\mathrm{max}}\\right)^2\\right]
+
+    where :math:`F_i` is a constant force and :math:`v_i^\\mathrm{max} = \\sqrt{\\frac{L k_B T}{m_i}}`
+    is the speed limit for such degree of freedom. The exact solution for this equation is:
+
+    .. math::
+        & v_{s,i}(t) = v_i^0 \\cosh\\left(\\frac{F_i t}{m_i v_i^\\mathrm{max}}\\right) +
+                     v_i^\\mathrm{max} \\sinh\\left(\\frac{F_i t}{m_i v_i^\\mathrm{max}}\\right) \\\\
+        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{v_i^\\mathrm{max}}\\right)^2 +
+                 \\left(\\frac{v_{s,i}(t)}{v_i^\\mathrm{max}}\\right)^2}}
+
+    where :math:`v_i^0` is the initial velocity.
+
+    """
+    def __init__(self, temperature, L):
+        super().__init__()
+        self.globalVariables['LkT'] = L*kB*temperature
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        boost = f'vmax*vs/sqrt(1-vr^2+vs^2)'
+        boost += '; vs=vr*cosh(z)+sinh(z)'
+        boost += f'; z={force}*{fraction}*dt/(m*vmax)'
+        boost += '; vr=v/vmax'
+        boost += '; vmax=sqrt(LkT/m)'
+        integrator.addComputePerDof('v', boost)
+
+
+class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements a doubly-regulated version of the massive Nose-Hoover-Langevin propagator
+    :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
+    a solution for the following :term:`SDE` system:
+
+    .. math::
+        & dv_i = -v_{\\eta,i} v_i \\left[1 - \\left(\\frac{v_i}{v_i^\\mathrm{max}}\\right)^2\\right] dt \\\\
+        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{L+1}{L} m_i v_i^2 - k_B T\\right) dt
+                - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+
+    where :math:`v_i^\\mathrm{max} = \\sqrt{L m_i k T}` is speed limit for such degree of freedom.
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{\\delta t\\mathcal{L}} =
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(\\frac{L+1}{L} m_i v_i^2 - k_B T\\right) t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        & v_{s,i}(t) = v_i^0 e^{-v_{\\eta,i} t} \\\\
+        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{v_i^\\mathrm{max}}\\right)^2 +
+                 \\left(\\frac{v_{s,i}(t)}{v_i^\\mathrm{max}}\\right)^2}}
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
+
+    where :math:`R_N` is a normally distributed random number.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    """
+    def __init__(self, temperature, L, timeScale, frictionConstant):
+        super().__init__()
+        kT = kB*temperature
+        Q = kT*timeScale**2
+        self._factor = (L+1)/L
+        self.globalVariables['kT'] = kT
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['Q'] = Q
+        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['v_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        boost = f'v_eta + ({self._factor}*m*v^2 - kT)*{fraction}*dt/Q'
+        scaling = f'vmax*vs/sqrt(1-vr^2+vs^2); vs=vr*exp(-v_eta*{fraction}*dt); vr=v/vmax; vmax=sqrt(LkT/m)'
+        OU = f'v_eta*z + omega*sqrt(1-z^2)*gaussian; z=exp(-friction*{fraction}*dt)'
+        integrator.addComputePerDof('v_eta', boost)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', OU)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', boost)
+
+
+class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements a doubly-regulated version of the global Nose-Hoover-Langevin propagator
+    :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
+    a solution for the following :term:`SDE` system:
+
+    .. math::
+        & dv_i = -v_{\\eta,i} v_i \\left[1 - \\left(\\frac{v_i}{v_i^\\mathrm{max}}\\right)^2\\right] dt \\\\
+        & dv_\\eta = \\frac{1}{Q}\\left(\\frac{L+1}{L} \\mathbf{v}^T \\mathbf{M} \\mathbf{v} -
+            N_f k_B T\\right) dt - \\gamma v_\\eta dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW,
+
+    where :math:`v_i^\\mathrm{max} = \\sqrt{L m_i k T}` is speed limit for such degree of freedom.
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = N_f k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{\\delta t\\mathcal{L}} =
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        v_\\eta(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(
+            \\frac{L+1}{L} \\mathbf{v}^T \\mathbf{M} \\mathbf{v}- N_f k_B T\\right) t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        & v_{s,i}(t) = v_i^0 e^{-v_\\eta t} \\\\
+        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{v_i^\\mathrm{max}}\\right)^2 +
+                 \\left(\\frac{v_{s,i}(t)}{v_i^\\mathrm{max}}\\right)^2}}
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
+
+    .. math::
+        v_\\eta(t) = v_\\eta^0 e^{-\\gamma t}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
+
+    where :math:`R_N` is a normally distributed random number.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    """
+    def __init__(self, temperature, L, degreesOfFreedom, timeScale, frictionConstant, momentum_based=True):
+        super().__init__()
+        self._momentum_based = momentum_based
+        kT = kB*temperature
+        Q = degreesOfFreedom*kT*timeScale**2
+        self._factor = (L+1)/L
+        self.globalVariables['kT'] = kT
+        self.globalVariables['NkT'] = degreesOfFreedom*kT
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['Q'] = Q
+        self.globalVariables['omega'] = unit.sqrt(kT/Q)
+        self.globalVariables['friction'] = frictionConstant
+        self.globalVariables['v_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        boost = f'v_eta + ({self._factor}*mvv - NkT)*{fraction}*dt/Q'
+        scaling = f'vmax*vs/sqrt(1-vr^2+vs^2); vs=vr*exp(-v_eta*{fraction}*dt); vr=v/vmax; vmax=sqrt(LkT/m)'
+        OU = f'v_eta*z + omega*sqrt(1-z^2)*gaussian; z=exp(-friction*{fraction}*dt)'
+        integrator.addComputeGlobal('v_eta', boost)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputeGlobal('v_eta', OU)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputeGlobal('v_eta', boost)
