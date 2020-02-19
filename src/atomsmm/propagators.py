@@ -1705,3 +1705,81 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
         integrator.addComputeGlobal('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
         integrator.addComputeGlobal('v_eta', boost)
+
+
+class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements a doubly-regulated version of the atomic Nose-Hoover-Langevin propagator
+    :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
+    a solution for the following :term:`SDE` system:
+
+    .. math::
+        & dv_i = -v_{\\eta,i} v_i \\left[1 - \\left(\\frac{v_i}{v_i^\\mathrm{max}}\\right)^2\\right] dt \\\\
+        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{L+1}{L} m_i v_i^2 - k_B T\\right) dt
+                - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+
+    where :math:`v_i^\\mathrm{max} = \\sqrt{L m_i k T}` is speed limit for such degree of freedom.
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{\\delta t\\mathcal{L}} =
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(\\frac{L+1}{L} m_i v_i^2 - k_B T\\right) t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        & v_{s,i}(t) = v_i^0 e^{-v_{\\eta,i} t} \\\\
+        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{v_i^\\mathrm{max}}\\right)^2 +
+                 \\left(\\frac{v_{s,i}(t)}{v_i^\\mathrm{max}}\\right)^2}}
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
+
+    where :math:`R_N` is a normally distributed random number.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    """
+    def __init__(self, temperature, L, timeScale, frictionConstant):
+        kT = kB*temperature
+        Q = kT*timeScale**2
+        self._factor = (L+1)/L
+        self.globalVariables['kT'] = kT
+        self.globalVariables['LkT'] = L*kT
+        self.globalVariables['Q'] = Q
+        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['v_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        boost = f'v_eta + ({self._factor}*dot(m*v,v) - 3*kT)*{fraction}*dt/Q'
+        scaling = f'vmax*vs/sqrt(1-vr^2+vs^2); vs=vr*exp(-v_eta*{fraction}*dt); vr=v/vmax; vmax=sqrt(LkT/m)'
+        OU = f'v_eta*z + omega*sqrt(1-z^2)*_x(gaussian); z=exp(-friction*{fraction}*dt)'
+        integrator.addComputePerDof('v_eta', boost)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', OU)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', boost)
