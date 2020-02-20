@@ -19,7 +19,6 @@ from sympy import Symbol
 from sympy.parsing.sympy_parser import parse_expr
 
 import atomsmm.propagators as propagators
-from atomsmm.propagators import Propagator as DummyPropagator
 from atomsmm.utils import InputError
 from atomsmm.utils import kB
 
@@ -181,19 +180,20 @@ class GlobalThermostatIntegrator(_AtomsMM_Integrator):
             The step size with which to integrate the system (in time unit).
         nveIntegrator : :class:`HamiltonianPropagator`
             The Hamiltonian propagator.
-        thermostat : :class:`ThermostatPropagator`, optional, default=DummyPropagator()
+        thermostat : :class:`ThermostatPropagator`, optional, default=None
             The thermostat propagator.
         randomSeed : int, optional, default=None
             A seed for random numbers.
 
     """
-    def __init__(self, stepSize, nveIntegrator, thermostat=DummyPropagator()):
-        super(GlobalThermostatIntegrator, self).__init__(stepSize)
-        for propagator in [nveIntegrator, thermostat]:
-            propagator.addVariables(self)
-        thermostat.addSteps(self, 1/2)
-        nveIntegrator.addSteps(self)
-        thermostat.addSteps(self, 1/2)
+    def __init__(self, stepSize, nveIntegrator, thermostat=None):
+        super().__init__(stepSize)
+        if thermostat is None:
+            propagator = nveIntegrator
+        else:
+            propagator = propagators.TrotterSuzukiPropagator(nveIntegrator, thermostat)
+        propagator.addVariables(self)
+        propagator.addSteps(self)
 
 
 class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
