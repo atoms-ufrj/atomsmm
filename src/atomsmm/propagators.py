@@ -1396,7 +1396,7 @@ class RegulatedTranslationPropagator(Propagator):
     """
     def __init__(self, temperature, n, alpha_n=None):
         self._alpha = (n+1)/n if alpha_n is None else alpha_n
-        self.globalVariables['nakT'] = alpha_n*n*kB*temperature
+        self.globalVariables['nakT'] = self._alpha*n*kB*temperature
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
@@ -1496,7 +1496,7 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         kT = kB*temperature
         Q = kT*timeScale**2
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = alpha_n*n*kT
+        self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
@@ -1569,7 +1569,7 @@ class TwiceRegulatedBoostPropagator(Propagator):
     """
     def __init__(self, temperature, n, alpha_n=None):
         self._alpha = (n+1)/n if alpha_n is None else alpha_n
-        self.globalVariables['ankT'] = alpha_n*n*kB*temperature
+        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
@@ -1650,9 +1650,9 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         self._alpha = (n+1)/n if alpha_n is None else alpha_n
         kT = kB*temperature
         Q = kT*timeScale**2
-        self._factor = (n+1)/(n*alpha_n)
+        self._factor = (n+1)/(n*self._alpha)
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = alpha_n*n*kT
+        self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
@@ -1745,9 +1745,9 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
         self._alpha = (n+1)/n if alpha_n is None else alpha_n
         kT = kB*temperature
         Q = 3*kT*timeScale**2
-        self._factor = (n+1)/(n*alpha_n)
+        self._factor = (n+1)/(n*self._alpha)
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = alpha_n*n*kT
+        self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
@@ -1838,11 +1838,11 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
     def __init__(self, degreesOfFreedom, temperature, n, timeScale, frictionConstant, alpha_n=None):
         self._alpha = (n+1)/n if alpha_n is None else alpha_n
         self._Nf = degreesOfFreedom
-        self._factor = (n+1)/(n*alpha_n)
+        self._factor = (n+1)/(n*self._alpha)
         kT = kB*temperature
         Q = degreesOfFreedom*kT*timeScale**2
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = alpha_n*n*kT
+        self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
