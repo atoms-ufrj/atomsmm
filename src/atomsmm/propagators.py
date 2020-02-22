@@ -1370,7 +1370,7 @@ class RegulatedTranslationPropagator(Propagator):
     in the system, a solution for the following :term:`ODE`:
 
     .. math::
-        \\frac{dr_i}{dt} = c_i \\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right)
+        \\frac{dr_i}{dt} = c_i \\tanh\\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right)
 
     where :math:`c_i = \\sqrt{\\frac{\\alpha_n n k_B T}{m_i}}` is the speed limit for such degree
     of freedom and, by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
@@ -1438,7 +1438,7 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     where:
 
     .. math::
-        v_i = c_i \\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right).
+        v_i = c_i \\tanh\\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right).
 
     Here, :math:`c_i = \\sqrt{\\frac{\\alpha_n n k_B T}{m_i}}` is the speed limit for such degree
     of freedom and, by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
@@ -1514,6 +1514,103 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         integrator.addComputePerDof('v_eta', boost)
 
 
+class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
+    """
+    This class implements a doubly-regulated version of the massive Nose-Hoover-Langevin propagator
+    :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
+    a solution for the following :term:`SDE` system:
+
+    .. math::
+        & dp_i = -v_{\\eta,i} m_i v_i dt \\\\
+        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
+                - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+
+    where:
+
+    .. math::
+        v_i = c_i \\tanh\\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right).
+
+    Here, :math:`c_i = \\sqrt{\\alpha_n n m_i k T}` is speed limit for such degree of freedom and,
+    by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
+    As usual, the inertial parameter :math:`Q` is defined as :math:`Q = k_B T \\tau^2`, with
+    :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
+    obtained by applying the Trotter-Suzuki splitting formula:
+
+    .. math::
+        e^{\\delta t\\mathcal{L}} =
+        e^{(\\delta t/2)\\mathcal{L}_B}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{\\delta t\\mathcal{L}_O}
+        e^{(\\delta t/2)\\mathcal{L}_S}
+        e^{(\\delta t/2)\\mathcal{L}_B}
+
+    Each exponential operator above is the solution of a differential equation.
+
+    Equation 'B' is a boost, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(
+                         \\frac{n+1}{\\alpha_n n} m_i v_i^2 - k_B T\\right) t
+
+    Equation 'S' is a scaling, whose solution is:
+
+    .. math::
+        p_i(t) = \\frac{m_i c_i}{\\alpha_n} \\mathrm{arcsinh}\\left[\\sinh\\left(
+                 \\frac{\\alpha_n p_i}{m_i c_i}\\right) e^{-\\alpha_n v_{\\eta,i} t}\\right]
+
+    Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
+
+    .. math::
+        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
+
+    where :math:`R_N` is a normally distributed random number.
+
+    Parameters
+    ----------
+        temperature : unit.Quantity
+            The temperature of the heat bath.
+        n : int or float
+            The regulating parameter.
+        timeScale : unit.Quantity (time)
+            The relaxation time of the Nose-Hoover thermostat.
+        frictionConstant : unit.Quantity (1/time)
+            The friction coefficient of the Langevin thermostat.
+
+    Keyword args
+    ------------
+        alpha_n : int or float, default=None
+            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+
+    """
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=None):
+        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+        self._n = n
+        self.globalVariables['kT'] = kB*temperature
+        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
+        self.globalVariables['Q'] = kB*temperature*timeScale**2
+        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['friction'] = frictionConstant
+        self.perDofVariables['v_eta'] = 0
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        n = self._n
+        alpha = self._alpha
+        boost = f'v_eta + ({(n+1)/(alpha*n)}*m*(c*tanh({alpha}*v/c))^2 - kT)*{fraction}*dt/Q'
+        boost += '; c=sqrt(ankT/m)'
+        scaling = f'{1/alpha}*c*asinhz'
+        scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
+        scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{fraction}*dt)'
+        scaling += '; c=sqrt(ankT/m)'
+        OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
+        OU += f'; z=exp(-friction*{fraction}*dt)'
+        integrator.addComputePerDof('v_eta', boost)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', OU)
+        integrator.addComputePerDof('v', scaling)
+        integrator.addComputePerDof('v_eta', boost)
+
+
 class TwiceRegulatedTranslationPropagator(Propagator):
     """
     An unconstrained, twice-regulated translation propagator which provides, for every degree of
@@ -1581,7 +1678,7 @@ class TwiceRegulatedBoostPropagator(Propagator):
         integrator.addComputePerDof('v', boost)
 
 
-class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
+class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     """
     This class implements a doubly-regulated version of the massive Nose-Hoover-Langevin propagator
     :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
@@ -1589,7 +1686,7 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     .. math::
         & dv_i = -\\alpha_n v_{\\eta,i} v_i \\left[1 - \\left(\\frac{v_i}{c_i}\\right)^2\\right] dt \\\\
-        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{n+1}{n} m_i v_i^2 - k_B T\\right) dt
+        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
                 - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
 
     where :math:`c_i = \\sqrt{\\alpha_n n m_i k T}` is speed limit for such degree of freedom and,
@@ -1661,9 +1758,10 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
         boost = f'v_eta + ({self._factor}*m*v^2 - kT)*{fraction}*dt/Q'
-        scaling = 'c*vs/sqrt(1-vr^2+vs^2)'
-        scaling += f'; vs=vr*exp(-{alpha}*v_eta*{fraction}*dt)'
-        scaling += '; vr=v/c'
+        scaling = 'v*a/sqrt(1+(a^2-1)*(v/c)^2)'
+        # scaling += '; vs=vr*a'
+        scaling += f'; a=exp(-{alpha}*v_eta*{fraction}*dt)'
+        # scaling += '; vr=v/c'
         scaling += '; c=sqrt(ankT/m)'
         OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
         OU += f'; z=exp(-friction*{fraction}*dt)'
