@@ -1390,12 +1390,12 @@ class RegulatedTranslationPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, alpha_n=1):
+        self._alpha = alpha_n
         self.globalVariables['nakT'] = self._alpha*n*kB*temperature
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
@@ -1487,12 +1487,12 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+        self._alpha = alpha_n
         kT = kB*temperature
         Q = kT*timeScale**2
         self.globalVariables['kT'] = kT
@@ -1579,12 +1579,12 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+        self._alpha = alpha_n
         self._n = n
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['ankT'] = self._alpha*n*kB*temperature
@@ -1660,12 +1660,12 @@ class TwiceRegulatedBoostPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, alpha_n=1):
+        self._alpha = alpha_n
         self.globalVariables['ankT'] = self._alpha*n*kB*temperature
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
@@ -1739,12 +1739,12 @@ class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+        self._alpha = alpha_n
         kT = kB*temperature
         Q = kT*timeScale**2
         self._factor = (n+1)/(n*self._alpha)
@@ -1835,12 +1835,12 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+        self._alpha = alpha_n
         kT = kB*temperature
         Q = 3*kT*timeScale**2
         self._factor = (n+1)/(n*self._alpha)
@@ -1929,12 +1929,12 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
 
     Keyword args
     ------------
-        alpha_n : int or float, default=None
-            Another regulating parameter. If this is `None`, then :math:`\\alpha_n = \\frac{n+1}{n}`.
+        alpha_n : int or float, default=1
+            Another regulating parameter.
 
     """
-    def __init__(self, degreesOfFreedom, temperature, n, timeScale, frictionConstant, alpha_n=None):
-        self._alpha = (n+1)/n if alpha_n is None else alpha_n
+    def __init__(self, degreesOfFreedom, temperature, n, timeScale, frictionConstant, alpha_n=1):
+        self._alpha = alpha_n
         self._Nf = degreesOfFreedom
         self._factor = (n+1)/(n*self._alpha)
         kT = kB*temperature
