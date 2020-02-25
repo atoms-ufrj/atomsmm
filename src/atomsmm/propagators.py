@@ -1491,8 +1491,9 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
         self._alpha = alpha_n
+        self._split = split
         kT = kB*temperature
         Q = kT*timeScale**2
         self.globalVariables['kT'] = kT
@@ -1504,14 +1505,20 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
-        boost = f'v_eta + (m*v*c*tanh({alpha}*v/c) - kT)*{fraction}*dt/Q; c=sqrt(ankT/m)'
-        scaling = f'v*exp(-v_eta*{fraction}*dt)'
-        OU = f'v_eta*z + omega*sqrt(1-z^2)*gaussian; z=exp(-friction*{fraction}*dt)'
-        integrator.addComputePerDof('v_eta', boost)
+        G_definition = f'; G=(m*v*c*tanh({alpha}*v/c) - kT)/Q'
+        G_definition += '; c=sqrt(ankT/m)'
+        boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
+        scaling = f'v*exp(-v_eta*{0.5*fraction}*dt)'
+        if self._split:
+            OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
+        else:
+            OU = 'v_eta*z + G*(1-z)/friction + omega*sqrt(1-z^2)*gaussian' + G_definition
+        OU += f'; z=exp(-friction*{fraction}*dt)'
+        self._split and integrator.addComputePerDof('v_eta', boost)
         integrator.addComputePerDof('v', scaling)
         integrator.addComputePerDof('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
 
 
 class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
@@ -1583,9 +1590,10 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
         self._alpha = alpha_n
         self._n = n
+        self._split = split
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['ankT'] = self._alpha*n*kB*temperature
         self.globalVariables['Q'] = kB*temperature*timeScale**2
@@ -1596,19 +1604,23 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         n = self._n
         alpha = self._alpha
-        boost = f'v_eta + ({(n+1)/(alpha*n)}*m*(c*tanh({alpha}*v/c))^2 - kT)*{fraction}*dt/Q'
-        boost += '; c=sqrt(ankT/m)'
+        G_definition = f'; G=({(n+1)/(alpha*n)}*m*(c*tanh({alpha}*v/c))^2 - kT)/Q'
+        G_definition += '; c=sqrt(ankT/m)'
+        boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'{1/alpha}*c*asinhz'
         scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
-        scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{fraction}*dt)'
+        scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{0.5*fraction}*dt)'
         scaling += '; c=sqrt(ankT/m)'
-        OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
+        if self._split:
+            OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
+        else:
+            OU = 'v_eta*z + G*(1-z)/friction + omega*sqrt(1-z^2)*gaussian' + G_definition
         OU += f'; z=exp(-friction*{fraction}*dt)'
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
         integrator.addComputePerDof('v', scaling)
         integrator.addComputePerDof('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
 
 
 class TwiceRegulatedTranslationPropagator(Propagator):
