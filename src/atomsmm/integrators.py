@@ -397,18 +397,23 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
         L = kwargs.pop('L', 1)
+        split = kwargs.pop('split', False)
         isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=True)
         isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=False)
         v1 = ['v1_{}'.format(i) for i in range(L)]
         v2 = ['v2_{}'.format(i) for i in range(L)]
-        DOU = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                      v2[0], 'Q2', 'Q1*{}^2 - kT'.format(v1[0]),
-                                                      Q2=kB*temperature*timeScale**2)
-        for i in range(1, L):
-            New = propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant,
-                                                          v2[i], 'Q2', 'Q1*{}^2 - kT'.format(v1[i]),
-                                                          Q2=kB*temperature*timeScale**2)
-            DOU = propagators.ChainedPropagator(DOU, New)
+        Q2 = kB*temperature*timeScale**2
+        OU = []
+        boost = []
+        for i in range(L):
+            OU.append(propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, v2[i], 'Q2',
+                                                              None if split else f'Q1*{v1[i]}^2 - kT', Q2=Q2))
+            if split:
+                boost.append(propagators.GenericBoostPropagator(v2[i], 'Q2', f'Q1*{v1[i]}^2 - kT', Q2=Q2))
+        DOU = propagators.ChainedPropagator(OU)
+        if split:
+            boost = propagators.ChainedPropagator(boost)
+            DOU = propagators.TrotterSuzukiPropagator(DOU, boost)
         bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
         super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
 

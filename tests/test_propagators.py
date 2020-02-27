@@ -63,7 +63,7 @@ def test_Chained():
     dof = atomsmm.countDegreesOfFreedom(system)
     NVE = atomsmm.VelocityVerletPropagator()
     thermostat = atomsmm.VelocityRescalingPropagator(300*unit.kelvin, dof, 0.1*unit.picoseconds)
-    integrator = atomsmm.ChainedPropagator(NVE, thermostat).integrator(1*unit.femtoseconds)
+    integrator = atomsmm.ChainedPropagator([NVE, thermostat]).integrator(1*unit.femtoseconds)
     integrator.setRandomNumberSeed(1)
     execute(integrator, -13063.68000796426)
 

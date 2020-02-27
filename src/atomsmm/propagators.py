@@ -74,7 +74,7 @@ class Propagator:
 
 class ChainedPropagator(Propagator):
     """
-    This class combines two propagators :math:`A = e^{\\delta t \\, iL_A}` and
+    This class combines a list of propagators :math:`A1 = e^{\\delta t \\, iL_{A1}}` and
     :math:`B = e^{\\delta t \\, iL_B}` by making :math:`C = A B`, that is,
 
     .. math::
@@ -100,15 +100,14 @@ class ChainedPropagator(Propagator):
             The firstly applied propagator in the chain.
 
     """
-    def __init__(self, A, B):
-        self.A = A
-        self.B = B
-        for propagator in [self.A, self.B]:
+    def __init__(self, propagators):
+        self.propagators = propagators
+        for propagator in propagators:
             self.absorbVariables(propagator)
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
-        self.B.addSteps(integrator, fraction)
-        self.A.addSteps(integrator, fraction)
+        for propagator in self.propagators:
+            propagator.addSteps(integrator, fraction)
 
 
 class SplitPropagator(Propagator):
@@ -1431,9 +1430,9 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     a solution for the following :term:`SDE` system:
 
     .. math::
-        & dp_i = -v_{\\eta,i} p_i dt \\\\
-        & dv_{\\eta,i} = \\frac{p_i v_i - k_B T}{Q} dt
-                   - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}}dW_i,
+        & dp_i = -v_{\\eta_i} p_i dt \\\\
+        & dv_{\\eta_i} = \\frac{p_i v_i - k_B T}{Q} dt
+                   - \\gamma v_{\\eta_i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}}dW_i,
 
     where:
 
@@ -1459,17 +1458,17 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     Equation 'B' is a boost, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{p_i v_i - k_B T}{Q} t
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 + \\frac{p_i v_i - k_B T}{Q} t
 
     Equation 'S' is a scaling, whose solution is:
 
     .. math::
-        p_i(t) = p_i^0 e^{-v_{\\eta,i} t}
+        p_i(t) = p_i^0 e^{-v_{\\eta_i} t}
 
     Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 e^{-\\gamma t}
                    + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_{N,i}
 
     where :math:`R_{N,i}` is a normally distributed random number.
@@ -1528,9 +1527,9 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     a solution for the following :term:`SDE` system:
 
     .. math::
-        & dp_i = -v_{\\eta,i} m_i v_i dt \\\\
-        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
-                - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+        & dp_i = -v_{\\eta_i} m_i v_i dt \\\\
+        & dv_{\\eta_i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
+                - \\gamma v_{\\eta_i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
 
     where:
 
@@ -1556,19 +1555,19 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     Equation 'B' is a boost, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 + \\frac{1}{Q}\\left(
                          \\frac{n+1}{\\alpha_n n} m_i v_i^2 - k_B T\\right) t
 
     Equation 'S' is a scaling, whose solution is:
 
     .. math::
         p_i(t) = \\frac{m_i c_i}{\\alpha_n} \\mathrm{arcsinh}\\left[\\sinh\\left(
-                 \\frac{\\alpha_n p_i}{m_i c_i}\\right) e^{-\\alpha_n v_{\\eta,i} t}\\right]
+                 \\frac{\\alpha_n p_i}{m_i c_i}\\right) e^{-\\alpha_n v_{\\eta_i} t}\\right]
 
     Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 e^{-\\gamma t}
                    + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
 
     where :math:`R_N` is a normally distributed random number.
@@ -1697,9 +1696,9 @@ class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     a solution for the following :term:`SDE` system:
 
     .. math::
-        & dv_i = -\\alpha_n v_{\\eta,i} v_i \\left[1 - \\left(\\frac{v_i}{c_i}\\right)^2\\right] dt \\\\
-        & dv_{\\eta,i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
-                - \\gamma v_{\\eta,i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+        & dv_i = -\\alpha_n v_{\\eta_i} v_i \\left[1 - \\left(\\frac{v_i}{c_i}\\right)^2\\right] dt \\\\
+        & dv_{\\eta_i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
+                - \\gamma v_{\\eta_i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
 
     where :math:`c_i = \\sqrt{\\alpha_n n m_i k T}` is speed limit for such degree of freedom and,
     by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
@@ -1720,20 +1719,20 @@ class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     Equation 'B' is a boost, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 + \\frac{1}{Q}\\left(
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 + \\frac{1}{Q}\\left(
                          \\frac{n+1}{\\alpha_n n} m_i v_i^2 - k_B T\\right) t
 
     Equation 'S' is a scaling, whose solution is:
 
     .. math::
-        & v_{s,i}(t) = v_i^0 e^{-\\alpha_n v_{\\eta,i} t} \\\\
+        & v_{s,i}(t) = v_i^0 e^{-\\alpha_n v_{\\eta_i} t} \\\\
         & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{c_i}\\right)^2 +
                  \\left(\\frac{v_{s,i}(t)}{c_i}\\right)^2}}
 
     Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 e^{-\\gamma t}
                    + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
 
     where :math:`R_N` is a normally distributed random number.
@@ -1822,14 +1821,14 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
     Equation 'S' is a scaling, whose solution is:
 
     .. math::
-        & v_{s,i}(t) = v_i^0 e^{-\\alpha_n v_{\\eta,i} t} \\\\
+        & v_{s,i}(t) = v_i^0 e^{-\\alpha_n v_{\\eta_i} t} \\\\
         & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{c_i}\\right)^2 +
                  \\left(\\frac{v_{s,i}(t)}{c_i}\\right)^2}}
 
     Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
-        v_{\\eta,i}(t) = v_{\\eta,i}^0 e^{-\\gamma t}
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 e^{-\\gamma t}
                    + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
 
     where :math:`R_N` is a normally distributed random number.
