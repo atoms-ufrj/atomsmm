@@ -1622,86 +1622,24 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         self._split and integrator.addComputePerDof('v_eta', boost)
 
 
-class TwiceRegulatedTranslationPropagator(Propagator):
+class RegulatedAtomicNoseHooverLangevinPropagator(Propagator):
     """
-    An unconstrained, twice-regulated translation propagator which provides, for every degree of
-    freedom in the system, a solution for the following :term:`ODE`:
-
-    .. math::
-        \\frac{dr_i}{dt} = v_i
-
-    The exact solution for this equation is:
-
-    .. math::
-        r_i(t) = r_i^0 + v_i t
-
-    where :math:`r_i^0` is the initial coordinate.
-
-    """
-    def addSteps(self, integrator, fraction=1.0, force='f'):
-        integrator.addComputePerDof('x', f'x + v*{fraction}*dt')
-
-
-class TwiceRegulatedBoostPropagator(Propagator):
-    """
-    An unconstrained, twice-regulated boost propagator which provides, for every degree of freedom
-    in the system, a solution for the following :term:`ODE`:
-
-    .. math::
-        \\frac{dv_i}{dt} = \\frac{\\alpha_n F_i}{m_i} \\left[1 - \\left(\\frac{v_i}{c_i}\\right)^2\\right]
-
-    where :math:`F_i` is a constant force and :math:`c_i = \\sqrt{\\frac{\\alpha_n n k_B T}{m_i}}`
-    is the speed limit for such degree of freedom and, by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
-    The exact solution for this equation is:
-
-    .. math::
-        & v_{s,i}(t) = v_i^0 \\cosh\\left(\\frac{\\alpha_n F_i t}{m_i c_i}\\right) +
-                     c_i \\sinh\\left(\\frac{\\alpha_n F_i t}{m_i c_i}\\right) \\\\
-        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{c_i}\\right)^2 +
-                 \\left(\\frac{v_{s,i}(t)}{c_i}\\right)^2}}
-
-    where :math:`v_i^0` is the initial velocity.
-
-    Parameters
-    ----------
-        temperature : unit.Quantity
-            The temperature of the heat bath.
-        n : int or float
-            The regulating parameter.
-
-    Keyword args
-    ------------
-        alpha_n : int or float, default=1
-            Another regulating parameter.
-
-    """
-    def __init__(self, temperature, n, alpha_n=1):
-        self._alpha = alpha_n
-        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
-
-    def addSteps(self, integrator, fraction=1.0, force='f'):
-        alpha = self._alpha
-        boost = f'c*vs/sqrt(1-vr^2+vs^2)'
-        boost += '; vs=vr*cosh(z)+sinh(z)'
-        boost += f'; z={alpha}*{force}*{fraction}*dt/(m*c)'
-        boost += '; vr=v/c'
-        boost += f'; c=sqrt(ankT/m)'
-        integrator.addComputePerDof('v', boost)
-
-
-class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
-    """
-    This class implements a doubly-regulated version of the massive Nose-Hoover-Langevin propagator
+    This class implements a regulated version of the massive Nose-Hoover-Langevin propagator
     :cite:`Samoletov_2007,Leimkuhler_2009`. It provides, for every degree of freedom in the system,
     a solution for the following :term:`SDE` system:
 
     .. math::
-        & dv_i = -\\alpha_n v_{\\eta_i} v_i \\left[1 - \\left(\\frac{v_i}{c_i}\\right)^2\\right] dt \\\\
-        & dv_{\\eta_i} = \\frac{1}{Q}\\left(\\frac{n+1}{n \\alpha_n} m_i v_i^2 - k_B T\\right) dt
-                - \\gamma v_{\\eta_i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}} dW_i,
+        & dp_i = -v_{\\eta_i} p_i dt \\\\
+        & dv_{\\eta_i} = \\frac{p_i v_i - k_B T}{Q} dt
+                   - \\gamma v_{\\eta_i} dt + \\sqrt{\\frac{2\\gamma k_B T}{Q}}dW_i,
 
-    where :math:`c_i = \\sqrt{\\alpha_n n m_i k T}` is speed limit for such degree of freedom and,
-    by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
+    where:
+
+    .. math::
+        v_i = c_i \\tanh\\left(\\frac{\\alpha_n p_i}{m_i c_i}\\right).
+
+    Here, :math:`c_i = \\sqrt{\\frac{\\alpha_n n k_B T}{m_i}}` is the speed limit for such degree
+    of freedom and, by default, :math:`\\alpha_n = \\frac{n+1}{n}`.
     As usual, the inertial parameter :math:`Q` is defined as :math:`Q = k_B T \\tau^2`, with
     :math:`\\tau` being a relaxation time :cite:`Tuckerman_1992`. An approximate solution is
     obtained by applying the Trotter-Suzuki splitting formula:
@@ -1719,23 +1657,20 @@ class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     Equation 'B' is a boost, whose solution is:
 
     .. math::
-        v_{\\eta_i}(t) = v_{\\eta_i}^0 + \\frac{1}{Q}\\left(
-                         \\frac{n+1}{\\alpha_n n} m_i v_i^2 - k_B T\\right) t
+        v_{\\eta_i}(t) = v_{\\eta_i}^0 + \\frac{p_i v_i - k_B T}{Q} t
 
     Equation 'S' is a scaling, whose solution is:
 
     .. math::
-        & v_{s,i}(t) = v_i^0 e^{-\\alpha_n v_{\\eta_i} t} \\\\
-        & v_i(t) = \\frac{v_{s,i}(t)}{\\sqrt{1 - \\left(\\frac{v_i^0}{c_i}\\right)^2 +
-                 \\left(\\frac{v_{s,i}(t)}{c_i}\\right)^2}}
+        p_i(t) = p_i^0 e^{-v_{\\eta_i} t}
 
     Equation 'O' is an Ornstein–Uhlenbeck process, whose solution is:
 
     .. math::
         v_{\\eta_i}(t) = v_{\\eta_i}^0 e^{-\\gamma t}
-                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_N
+                   + \\sqrt{\\frac{k_B T}{Q}(1-e^{-2\\gamma t})} R_{N,i}
 
-    where :math:`R_N` is a normally distributed random number.
+    where :math:`R_{N,i}` is a normally distributed random number.
 
     Parameters
     ----------
@@ -1754,33 +1689,34 @@ class OldTwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
         self._alpha = alpha_n
+        self._split = split
         kT = kB*temperature
-        Q = kT*timeScale**2
-        self._factor = (n+1)/(n*self._alpha)
+        Q = 3*kT*timeScale**2
         self.globalVariables['kT'] = kT
         self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
-        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['omega'] = unit.sqrt(kT/Q)
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['v_eta'] = 0
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
-        boost = f'v_eta + ({self._factor}*m*v^2 - kT)*{fraction}*dt/Q'
-        scaling = 'v*a/sqrt(1+(a^2-1)*(v/c)^2)'
-        # scaling += '; vs=vr*a'
-        scaling += f'; a=exp(-{alpha}*v_eta*{fraction}*dt)'
-        # scaling += '; vr=v/c'
-        scaling += '; c=sqrt(ankT/m)'
-        OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
+        G_definition = f'; G=(dot(m*v,c*tanh({alpha}*v/c)) - 3*kT)/Q'
+        G_definition += '; c=sqrt(ankT/m)'
+        boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
+        scaling = f'v*exp(-v_eta*{0.5*fraction}*dt)'
+        if self._split:
+            OU = 'v_eta*z + omega*sqrt(1-z^2)*_x(gaussian)'
+        else:
+            OU = 'v_eta*z + G*(1-z)/friction + omega*sqrt(1-z^2)*_x(gaussian)' + G_definition
         OU += f'; z=exp(-friction*{fraction}*dt)'
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
         integrator.addComputePerDof('v', scaling)
         integrator.addComputePerDof('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
 
 
 class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
@@ -1850,31 +1786,38 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
         self._alpha = alpha_n
-        kT = kB*temperature
-        Q = 3*kT*timeScale**2
-        self._factor = (n+1)/(n*self._alpha)
-        self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = self._alpha*n*kT
+        self._n = n
+        self._split = split
+        Q = 3*kB*temperature*timeScale**2
+        self.globalVariables['kT'] = kB*temperature
+        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
         self.globalVariables['Q'] = Q
-        self.globalVariables['omega'] = 1/timeScale
+        self.globalVariables['omega'] = unit.sqrt(kB*temperature/Q)
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['v_eta'] = 0
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
-        boost = f'v_eta + ({self._factor}*dot(m*v,v) - 3*kT)*{fraction}*dt/Q'
-        scaling = 'c*vs/sqrt(1-vr^2+vs^2)'
-        scaling += f'; vs=vr*exp(-{self._alpha}*v_eta*{fraction}*dt)'
-        scaling += '; vr=v/c'
+        n = self._n
+        alpha = self._alpha
+        G_definition = f'; G=({(n+1)/(alpha*n)}*dot(m*c*y,c*y) - 3*kT)/Q; y=tanh({alpha}*v/c)'
+        G_definition += '; c=sqrt(ankT/m)'
+        boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
+        scaling = f'{1/alpha}*c*asinhz'
+        scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
+        scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{0.5*fraction}*dt)'
         scaling += '; c=sqrt(ankT/m)'
-        OU = 'v_eta*z + omega*sqrt(1-z^2)*_x(gaussian)'
+        if self._split:
+            OU = 'v_eta*z + omega*sqrt(1-z^2)*_x(gaussian)'
+        else:
+            OU = 'v_eta*z + G*(1-z)/friction + omega*sqrt(1-z^2)*_x(gaussian)' + G_definition
         OU += f'; z=exp(-friction*{fraction}*dt)'
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
         integrator.addComputePerDof('v', scaling)
         integrator.addComputePerDof('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
-        integrator.addComputePerDof('v_eta', boost)
+        self._split and integrator.addComputePerDof('v_eta', boost)
 
 
 class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
