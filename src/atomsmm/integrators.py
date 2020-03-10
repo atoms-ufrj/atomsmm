@@ -45,6 +45,22 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
            A list of human-readable versions of each step of the integrator
 
         """
+        readable_lines = []
+
+        readable_lines.append('Per-dof variables:')
+        per_dof = []
+        for index in range(self.getNumPerDofVariables()):
+            per_dof.append(self.getPerDofVariableName(index))
+        readable_lines.append('  ' + ', '.join(per_dof))
+
+        readable_lines.append('Global variables:')
+        for index in range(self.getNumGlobalVariables()):
+            name = self.getGlobalVariableName(index)
+            value = self.getGlobalVariable(index)
+            readable_lines.append(f'  {name} = {value}')
+
+        readable_lines.append('Computation steps:')
+
         step_type_str = [
             '{target} <- {expr}',
             '{target} <- {expr}',
@@ -56,7 +72,6 @@ class _AtomsMM_Integrator(openmm.CustomIntegrator):
             'while ({expr}):',
             'end'
         ]
-        readable_lines = []
         indent_level = 0
         for step in range(self.getNumComputations()):
             line = ''
