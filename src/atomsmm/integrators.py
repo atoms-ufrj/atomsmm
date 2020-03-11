@@ -263,24 +263,8 @@ class MultipleTimeScaleIntegrator(_AtomsMM_Integrator):
 
     """
     def __init__(self, stepSize, loops, move=None, boost=None, bath=None, **kwargs):
-        scheme = kwargs.pop('scheme', 'middle')
-        location = kwargs.pop('location', 0)
-        nres = kwargs.pop('nres', 1)
-        nsy = kwargs.pop('nsy', 1)
         super().__init__(stepSize)
-        if nres > 1:
-            bath = propagators.SplitPropagator(bath, nres)
-        if nsy > 1:
-            bath = propagators.SuzukiYoshidaPropagator(bath, nsy)
-        if scheme == 'middle':
-            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, core=bath, **kwargs)
-        elif scheme == 'blitz':
-            propagator = propagators.BlitzRespaPropagator(loops, move=move, boost=boost, core=bath, **kwargs)
-        elif scheme in ['xi-respa', 'xo-respa', 'side']:
-            level = location if scheme == 'side' else (0 if scheme == 'xi-respa' else len(loops)-1)
-            propagator = propagators.RespaPropagator(loops, move=move, boost=boost, shell={level: bath}, **kwargs)
-        else:
-            raise InputError('wrong value of scheme parameter')
+        propagator = propagators.MultipleTimeScalePropagator(loops, move, boost, bath, **kwargs)
         propagator.addVariables(self)
         propagator.addSteps(self)
 
@@ -368,7 +352,7 @@ class Langevin_R_Integrator(MultipleTimeScaleIntegrator):
         super().__init__(stepSize, loops, None, None, bath, **kwargs)
 
 
-class SIN_R_Integrator(MultipleTimeScaleIntegrator):
+class SIN_R_Integrator(_AtomsMM_Integrator):
     """
     This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
     Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
@@ -411,26 +395,10 @@ class SIN_R_Integrator(MultipleTimeScaleIntegrator):
 
     """
     def __init__(self, stepSize, loops, temperature, timeScale, frictionConstant, **kwargs):
-        L = kwargs.pop('L', 1)
-        split = kwargs.pop('split', False)
-        isoF = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=True)
-        isoN = propagators.MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=False)
-        v1 = ['v1_{}'.format(i) for i in range(L)]
-        v2 = ['v2_{}'.format(i) for i in range(L)]
-        Q2 = kB*temperature*timeScale**2
-        OU = []
-        boost = []
-        for i in range(L):
-            OU.append(propagators.OrnsteinUhlenbeckPropagator(temperature, frictionConstant, v2[i], 'Q2',
-                                                              None if split else f'Q1*{v1[i]}^2 - kT', Q2=Q2))
-            if split:
-                boost.append(propagators.GenericBoostPropagator(v2[i], 'Q2', f'Q1*{v1[i]}^2 - kT', Q2=Q2))
-        DOU = propagators.ChainedPropagator(OU)
-        if split:
-            boost = propagators.ChainedPropagator(boost)
-            DOU = propagators.TrotterSuzukiPropagator(DOU, boost)
-        bath = propagators.TrotterSuzukiPropagator(DOU, isoN)
-        super().__init__(stepSize, loops, None, isoF, bath, **kwargs)
+        super().__init__(stepSize)
+        propagator = propagators.SIN_R_Propagator(loops, temperature, timeScale, frictionConstant, **kwargs)
+        propagator.addVariables(self)
+        propagator.addSteps(self)
 
     def initialize(self):
         kT = self.getGlobalVariableByName('kT')

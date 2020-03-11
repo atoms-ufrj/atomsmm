@@ -322,8 +322,8 @@ class MassiveIsokineticPropagator(Propagator):
         self.globalVariables['LkT'] = L*kB*temperature
         self.L = L
         for i in range(L):
-            self.perDofVariables['v1_{}'.format(i)] = 0
-            self.perDofVariables['v2_{}'.format(i)] = 0
+            self.perDofVariables['v1_{}'.format(i)] = 1/timeScale
+            self.perDofVariables['v2_{}'.format(i)] = 1/timeScale
         self.perDofVariables['H'] = 0
         self.forceDependent = forceDependent
 
@@ -908,6 +908,7 @@ class RespaPropagator(Propagator):
         self.force = ['({})'.format(force) for force in self.force]
 
         self._use_respa_switch = kwargs.pop('use_respa_switch', False)
+        self._blitz = kwargs.pop('blitz', False)
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         if self._use_respa_switch:
@@ -917,14 +918,21 @@ class RespaPropagator(Propagator):
             integrator.addComputeGlobal('respa_switch', '0')
 
     def _internalSplitting(self, integrator, timescale, fraction, shell):
-        shell and shell.addSteps(integrator, 0.5*fraction)
-        if self._has_memory and timescale > 0:
-            integrator.addComputePerDof('fm{}'.format(timescale), self.expr[timescale])
+        if self._blitz:
+            if self._has_memory and timescale > 0:
+                integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+            else:
+                self.boost.addSteps(integrator, fraction, self.force[timescale])
+            self._addSubsteps(integrator, timescale-1, fraction)
         else:
+            shell and shell.addSteps(integrator, 0.5*fraction)
+            if self._has_memory and timescale > 0:
+                integrator.addComputePerDof('fm{}'.format(timescale), self.expr[timescale])
+            else:
+                self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
+            self._addSubsteps(integrator, timescale-1, fraction)
             self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
-        self._addSubsteps(integrator, timescale-1, fraction)
-        self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
-        shell and shell.addSteps(integrator, 0.5*fraction)
+            shell and shell.addSteps(integrator, 0.5*fraction)
 
     def _addSubsteps(self, integrator, timescale, fraction):
         if timescale >= 0:
@@ -945,13 +953,136 @@ class RespaPropagator(Propagator):
             self.move.addSteps(integrator, 0.5*fraction)
 
 
-class BlitzRespaPropagator(RespaPropagator):
-    def _internalSplitting(self, integrator, timescale, fraction, shell):
-        if self._has_memory and timescale > 0:
-            integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+class MultipleTimeScalePropagator(RespaPropagator):
+    """
+    This class implements a Multiple Time-Scale (MTS) propagator using the RESPA method.
+
+    Parameters
+    ----------
+        loops : list(int)
+            A list of `N` integers. Assuming that force group `0` is composed of the fastest forces,
+            while group `N-1` is composed of the slowest ones, `loops[k]` determines how many steps
+            involving forces of group `k` are internally executed for every step involving those of
+            group `k+1`.
+        move : :class:`Propagator`, optional, default = None
+            A move propagator.
+        boost : :class:`Propagator`, optional, default = None
+            A boost propagator.
+        bath : :class:`Propagator`, optional, default = None
+            A bath propagator.
+
+    Keyword Args
+    ------------
+        scheme : str, optional, default = `middle`
+            The splitting scheme used to solve the equations of motion. Available options are
+            `middle`, `xi-respa`, `xo-respa`, `side`, and `blitz`.
+            If it is `middle` (default), then the bath propagator will be inserted between half-step
+            coordinate moves during the fastest-force loops.
+            If it is `xi-respa`, `xo-respa`, or `side`, then the bath propagator will be integrated
+            in both extremities of each loop concerning one of the `N` time scales, with `xi-respa`
+            referring to the time scale of fastest forces (force group `0`), `xo-respa` referring to
+            the time scale of the slowest forces (force group `N-1`), and `side` requiring the user
+            to select the time scale in which to locate the bath propagator via keyword argument
+            `location` (see below).
+            If it is `blitz`, then the force-related propagators will be fully integrated at the
+            outset of each loop in all time scales and the bath propagator will be integrated
+            between half-step coordinate moves during the fastest-force loops.
+        location : int, optional, default = None
+            The index of the force group (from `0` to `N-1`) that defines the time scale in which
+            the bath propagator will be located. This is only meaningful if keyword `scheme` is set
+            to `side` (see above).
+        nsy : int, optional, default = 1
+            The number of Suzuki-Yoshida terms to factorize the bath propagator. Valid options are
+            1, 3, 7, and 15.
+        nres : int, optional, default = 1
+            The number of RESPA-like subdivisions to factorize the bath propagator.
+
+    .. warning::
+        The `xo-respa` and `xi-respa` schemes implemented here are slightly different from the ones
+        described in the paper by Leimkuhler, Margul, and Tuckerman :cite:`Leimkuhler_2013`.
+
+    """
+    def __init__(self, loops, move=None, boost=None, bath=None, **kwargs):
+        scheme = kwargs.pop('scheme', 'middle')
+        location = kwargs.pop('location', 0)
+        nres = kwargs.pop('nres', 1)
+        nsy = kwargs.pop('nsy', 1)
+        if nres > 1:
+            bath = SplitPropagator(bath, nres)
+        if nsy > 1:
+            bath = SuzukiYoshidaPropagator(bath, nsy)
+        if scheme == 'middle':
+            super().__init__(loops, move=move, boost=boost, core=bath, **kwargs)
+        elif scheme == 'blitz':
+            super().__init__(loops, move=move, boost=boost, core=bath, blitz=True, **kwargs)
+        elif scheme in ['xi-respa', 'xo-respa', 'side']:
+            level = location if scheme == 'side' else (0 if scheme == 'xi-respa' else len(loops)-1)
+            super().__init__(loops, move=move, boost=boost, shell={level: bath}, **kwargs)
         else:
-            self.boost.addSteps(integrator, fraction, self.force[timescale])
-        self._addSubsteps(integrator, timescale-1, fraction)
+            raise InputError('wrong value of scheme parameter')
+
+
+class SIN_R_Propagator(MultipleTimeScalePropagator):
+    """
+    This class is an implementation of the Stochastic-Iso-NH-RESPA or SIN(R) method of Leimkuhler,
+    Margul, and Tuckerman :cite:`Leimkuhler_2013`. The method consists in solving the following
+    equations for each degree of freedom (DOF) in the system:
+
+    .. math::
+        & \\frac{dx}{dt} = v \\\\
+        & \\frac{dv}{dt} = \\frac{f}{m} - \\lambda v \\\\
+        & \\frac{dv_1}{dt} = - \\lambda v_1 - v_2 v_1 \\\\
+        & dv_2 = \\frac{Q_1 v_1^2 - kT}{Q_2}dt - \\gamma v_2 dt + \\sqrt{\\frac{2 \\gamma kT}{Q_2}} dW
+
+    where:
+
+    .. math::
+        \\lambda = \\frac{f v - \\frac{1}{2} Q_1 v_2 v_1^2}{m v^2 + \\frac{1}{2} Q_1 v_1^2}.
+
+    A consequence of these equations is that
+
+    .. math::
+        m v^2 + \\frac{1}{2} Q_1 v_1^2 = kT.
+
+    The equations are integrated by a reversible, multiple timescale numerical scheme.
+
+    Parameters
+    ----------
+        loops : list(int)
+            See description in :class:`MultipleTimeScaleIntegrator`.
+        temperature : unit.Quantity
+            The temperature to which the configurational sampling should correspond.
+        timeScale : unit.Quantity
+            A time scale :math:`\\tau` from which the inertial parameters are computed as
+            :math:`Q_1 = Q_2 = kT\\tau^2`.
+        frictionConstant : unit.Quantity
+            The friction constant :math:`\\gamma` present in the stochastic equation of motion for
+            per-DOF thermostat variable :math:`v_2`.
+        **kwargs : keyword arguments
+            The same keyword arguments of class :class:`MultipleTimeScalePropagator` apply here.
+
+    """
+    def __init__(self, loops, temperature, timeScale, frictionConstant, **kwargs):
+        L = kwargs.pop('L', 1)
+        split = kwargs.pop('split', False)
+        isoF = MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=True)
+        isoN = MassiveIsokineticPropagator(temperature, timeScale, L, forceDependent=False)
+        v1 = ['v1_{}'.format(i) for i in range(L)]
+        v2 = ['v2_{}'.format(i) for i in range(L)]
+        Q2 = kB*temperature*timeScale**2
+        OU = []
+        boost = []
+        for i in range(L):
+            OU.append(OrnsteinUhlenbeckPropagator(temperature, frictionConstant, v2[i], 'Q2',
+                                                  None if split else f'Q1*{v1[i]}^2 - kT', Q2=Q2))
+            if split:
+                boost.append(GenericBoostPropagator(v2[i], 'Q2', f'Q1*{v1[i]}^2 - kT', Q2=Q2))
+        DOU = ChainedPropagator(OU)
+        if split:
+            boost = ChainedPropagator(boost)
+            DOU = TrotterSuzukiPropagator(DOU, boost)
+        bath = TrotterSuzukiPropagator(DOU, isoN)
+        super().__init__(loops, None, isoF, bath, **kwargs)
 
 
 class VelocityVerletPropagator(Propagator):
