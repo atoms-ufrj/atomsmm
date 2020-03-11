@@ -111,7 +111,7 @@ class ChainedPropagator(Propagator):
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         for propagator in self.propagators:
-            propagator.addSteps(integrator, fraction)
+            propagator.addSteps(integrator, fraction, force)
 
 
 class SplitPropagator(Propagator):
@@ -140,7 +140,7 @@ class SplitPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         n = self.n
         if n == 1:
-            self.A.addSteps(integrator, fraction)
+            self.A.addSteps(integrator, fraction, force)
         else:
             integrator.addComputeGlobal('nSplit', '0')
             integrator.beginWhileBlock('nSplit < {}'.format(n))
@@ -182,9 +182,9 @@ class TrotterSuzukiPropagator(Propagator):
             self.absorbVariables(propagator)
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
-        self.B.addSteps(integrator, 0.5*fraction)
-        self.A.addSteps(integrator, fraction)
-        self.B.addSteps(integrator, 0.5*fraction)
+        self.B.addSteps(integrator, 0.5*fraction, force)
+        self.A.addSteps(integrator, fraction, force)
+        self.B.addSteps(integrator, 0.5*fraction, force)
 
 
 class SuzukiYoshidaPropagator(Propagator):
@@ -912,20 +912,20 @@ class RespaPropagator(Propagator):
                 self.absorbVariables(propagator)
         for i, n in enumerate(self.loops):
             if n > 1:
-                self.globalVariables['n{}RESPA'.format(i)] = 0
+                self.globalVariables[f'n{i}RESPA'] = 0
 
-        self.expr = ['f{}'.format(group) for group in range(self.N)]
+        self.expr = [f'f{group}' for group in range(self.N)]
         for group in range(2, self.N):
-            self.expr[group] += '-f{}'.format(group-1)
+            self.expr[group] += f'-f{group-1}'
         self.force = self.expr.copy()
 
         self._has_memory = kwargs.pop('has_memory', False)
         if self._has_memory:
             for group in range(1, self.N):
-                self.perDofVariables['fm{}'.format(group)] = 0.0
-                self.force[0] += '+fm{}'.format(group)
-                self.force[group] += '-fm{}'.format(group)
-        self.force = ['({})'.format(force) for force in self.force]
+                self.perDofVariables[f'fm{group}'] = 0.0
+                self.force[0] += f'+fm{group}'
+                self.force[group] += f'-fm{group}'
+        self.force = [f'({force})' for force in self.force]
 
         self._use_respa_switch = kwargs.pop('use_respa_switch', False)
         self._blitz = kwargs.pop('blitz', False)
@@ -940,30 +940,30 @@ class RespaPropagator(Propagator):
     def _internalSplitting(self, integrator, timescale, fraction, shell):
         if self._blitz:
             if self._has_memory and timescale > 0:
-                integrator.addComputePerDof('F{}'.format(timescale), 'f{}'.format(timescale))
+                integrator.addComputePerDof(f'F{timescale}', f'f{timescale}')
             else:
                 self.boost.addSteps(integrator, fraction, self.force[timescale])
             self._addSubsteps(integrator, timescale-1, fraction)
         else:
-            shell and shell.addSteps(integrator, 0.5*fraction)
+            shell and shell.addSteps(integrator, 0.5*fraction, self.force[timescale])
             if self._has_memory and timescale > 0:
-                integrator.addComputePerDof('fm{}'.format(timescale), self.expr[timescale])
+                integrator.addComputePerDof(f'fm{timescale}', self.expr[timescale])
             else:
                 self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
             self._addSubsteps(integrator, timescale-1, fraction)
             self.boost.addSteps(integrator, 0.5*fraction, self.force[timescale])
-            shell and shell.addSteps(integrator, 0.5*fraction)
+            shell and shell.addSteps(integrator, 0.5*fraction, self.force[timescale])
 
     def _addSubsteps(self, integrator, timescale, fraction):
         if timescale >= 0:
             n = self.loops[timescale]
             if n > 1:
-                counter = 'n{}RESPA'.format(timescale)
+                counter = f'n{timescale}RESPA'
                 integrator.addComputeGlobal(counter, '0')
-                integrator.beginWhileBlock('{} < {}'.format(counter, n))
+                integrator.beginWhileBlock(f'{counter} < {n}')
             self._internalSplitting(integrator, timescale, fraction/n, self.shell.get(timescale, None))
             if n > 1:
-                integrator.addComputeGlobal(counter, '{} + 1'.format(counter))
+                integrator.addComputeGlobal(counter, f'{counter} + 1')
                 integrator.endBlock()
         elif self.core is None:
             self.move.addSteps(integrator, fraction)
@@ -2105,7 +2105,7 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
 
 
 class ExtendedSystemPropagator(Propagator):
-    def __init__(self, parameter, mass, period, propagator):
+    def __init__(self, parameter, mass, period, propagator, group=None):
         super().__init__()
         self._propagator = propagator
         self._parameter = parameter
