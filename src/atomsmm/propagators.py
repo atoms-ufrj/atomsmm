@@ -11,7 +11,9 @@
 """
 
 import math
+import re
 
+from simtk import openmm
 from simtk import unit
 
 import atomsmm
@@ -331,7 +333,7 @@ class MassiveIsokineticPropagator(Propagator):
         self.L = L
         for i in range(L):
             self.perDofVariables['v1_{}'.format(i)] = 1/timeScale
-            self.perDofVariables['v2_{}'.format(i)] = 1/timeScale
+            self.perDofVariables['v2_{}'.format(i)] = 0
         self.perDofVariables['H'] = 0
         self.forceDependent = forceDependent
 
@@ -2100,3 +2102,59 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
         if self._split:
             integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt({self._an}*kT/m)')
             integrator.addComputeGlobal('v_eta', boost)
+
+
+class ExtendedSystemPropagator(Propagator):
+    def __init__(self, parameter, mass, period, propagator):
+        super().__init__()
+        self._propagator = propagator
+        self._parameter = parameter
+        self._per_parameter_variables = ['v', 'm', 'L']
+        self.globalVariables[f'v_{parameter}'] = 0
+        self.globalVariables[f'm_{parameter}'] = mass
+        self.globalVariables[f'L_{parameter}'] = period
+        for name, value in propagator.perDofVariables.items():
+            self._per_parameter_variables.append(name)
+            self.globalVariables[f'{name}_{parameter}'] = value
+        for name, value in propagator.globalVariables.items():
+            self._per_parameter_variables.append(name)
+            self.globalVariables[f'{name}_{parameter}'] = value
+
+    def addSteps(self, integrator, fraction=1.0, force='f'):
+        def translate(expression, parameter):
+            output = re.sub(r'\bx\b', f'{parameter}', expression)
+            for symbol in self._per_parameter_variables:
+                output = re.sub(r'\b{}\b'.format(symbol), f'{symbol}_{parameter}', output)
+            output = re.sub(r'\bf([0-9]*)\b', f'(-deriv(energy\\1,{parameter}))', output)
+            return output
+
+        aux = atomsmm.integrators._AtomsMM_Integrator(0)
+        self._propagator.addSteps(aux, fraction, force)
+        for index in range(aux.getNumComputations()):
+            computation, variable, expression = aux.getComputationStep(index)
+            if variable == 'x':
+                pp_variable = self._parameter
+                pp_expression = f'select(step(-L/2-y),y+L,select(step(y-L/2),y-L,y))'
+                pp_expression += f'; L=L_{self._parameter}'
+                pp_expression += f'; y={translate(expression, self._parameter)}'
+            elif variable in self._per_parameter_variables:
+                pp_variable = f'{variable}_{self._parameter}'
+                pp_expression = translate(expression, self._parameter)
+            if computation == openmm.CustomIntegrator.ComputeGlobal:
+                integrator.addComputeGlobal(pp_variable, pp_expression)
+            elif computation == openmm.CustomIntegrator.ComputePerDof:
+                integrator.addComputeGlobal(pp_variable, pp_expression)
+            elif computation == openmm.CustomIntegrator.ComputeSum:
+                raise Exception('ComputeSum not allowed in per-parameter integration')
+            elif computation == openmm.CustomIntegrator.ConstrainPositions:
+                integrator.addConstrainPositions()
+            elif computation == openmm.CustomIntegrator.ConstrainVelocities:
+                integrator.addConstrainVelocities()
+            elif computation == openmm.CustomIntegrator.UpdateContextState:
+                integrator.addUpdateContextState()
+            elif computation == openmm.CustomIntegrator.IfBlockStart:
+                integrator.beginIfBlock(pp_expression)
+            elif computation == openmm.CustomIntegrator.WhileBlockStart:
+                integrator.beginWhileBlock(pp_expression)
+            elif computation == openmm.CustomIntegrator.BlockEnd:
+                integrator.endBlock()
