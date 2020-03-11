@@ -37,6 +37,7 @@ from .systems import ComputingSystem  # noqa: F401
 from .systems import RESPASystem  # noqa: F401
 from .systems import SolvationSystem  # noqa: F401
 from .utils import countDegreesOfFreedom  # noqa: F401
+from .utils import evaluateForce  # noqa: F401
 from .utils import findNonbondedForce  # noqa: F401
 from .utils import hijackForce  # noqa: F401
 from .utils import splitPotentialEnergy  # noqa: F401

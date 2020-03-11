@@ -184,3 +184,45 @@ def splitPotentialEnergy(system, topology, positions, **globals):
             mask.append(False)
     energy['Total'] = sum(energy.values(), 0.0*unit.kilojoules_per_mole)
     return energy
+
+
+def evaluateForce(force, positions, boxVectors=None):
+    """
+    Computes the value of a Force_ object for a given set of particle coordinates and box
+    vectors. Whether periodic boundary conditions will be used or not depends on the
+    corresponding attribute of the Force_ object specified as the collective variable.
+
+    Parameters
+    ----------
+        positions : list(openmm.Vec3)
+            A list whose length equals the number of particles in the system and which contains
+            the coordinates of these particles.
+        boxVectors : list(openmm.Vec3), optional, default=None
+            A list with three vectors which describe the edges of the simulation box.
+
+    Returns
+    -------
+        unit.Quantity
+
+    Example
+    -------
+        >>> import afed
+        >>> from simtk import unit
+        >>> model = afed.AlanineDipeptideModel()
+        >>> psi_angle, _ = model.getDihedralAngles()
+        >>> psi = afed.DrivenCollectiveVariable('psi', psi_angle, unit.radians, period=360*unit.degrees)
+        >>> psi.evaluate(model.getPositions())
+        Quantity(value=3.141592653589793, unit=radian)
+
+    """
+
+    system = openmm.System()
+    for i in range(len(positions)):
+        system.addParticle(0)
+    if boxVectors is not None:
+        system.setDefaultPeriodicBoxVectors(*boxVectors)
+    system.addForce(deepcopy(force))
+    platform = openmm.Platform.getPlatformByName('Reference')
+    context = openmm.Context(system, openmm.CustomIntegrator(0), platform)
+    context.setPositions(positions)
+    return context.getState(getEnergy=True).getPotentialEnergy()
