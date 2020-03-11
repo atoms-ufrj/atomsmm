@@ -29,8 +29,9 @@ class Propagator:
     :math:`e^{\\delta t \\, (iL_A+iL_B)} \\approx e^{\\delta t \\, iL_A} e^{\\delta t \\, iL_B}`.
 
     """
-    globalVariables = dict()
-    perDofVariables = dict()
+    def __init__(self):
+        self.globalVariables = dict()
+        self.perDofVariables = dict()
 
     def addVariables(self, integrator):
         for (name, value) in self.globalVariables.items():
@@ -101,6 +102,7 @@ class ChainedPropagator(Propagator):
 
     """
     def __init__(self, propagators):
+        super().__init__()
         self.propagators = propagators
         for propagator in propagators:
             self.absorbVariables(propagator)
@@ -127,6 +129,7 @@ class SplitPropagator(Propagator):
 
     """
     def __init__(self, A, n):
+        super().__init__()
         self.A = A
         self.absorbVariables(A)
         self.n = n
@@ -170,6 +173,7 @@ class TrotterSuzukiPropagator(Propagator):
 
     """
     def __init__(self, A, B):
+        super().__init__()
         self.A = A
         self.B = B
         for propagator in [self.A, self.B]:
@@ -200,6 +204,7 @@ class SuzukiYoshidaPropagator(Propagator):
 
     """
     def __init__(self, A, nsy=3):
+        super().__init__()
         if nsy not in [1, 3, 7, 15]:
             raise InputError('SuzukiYoshidaPropagator accepts nsy = 1, 3, 7, or 15 only')
         self.A = A
@@ -231,6 +236,7 @@ class TranslationPropagator(Propagator):
 
     """
     def __init__(self, constrained=True):
+        super().__init__()
         self.constrained = constrained
         if constrained:
             self.perDofVariables['x0'] = 0
@@ -256,6 +262,7 @@ class VelocityBoostPropagator(Propagator):
 
     """
     def __init__(self, constrained=True):
+        super().__init__()
         self.constrained = constrained
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
@@ -317,6 +324,7 @@ class MassiveIsokineticPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, L, forceDependent):
+        super().__init__()
         self.globalVariables['Q1'] = kB*temperature*timeScale**2
         self.globalVariables['L'] = L
         self.globalVariables['LkT'] = L*kB*temperature
@@ -362,6 +370,7 @@ class NewMethodPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, L, forceDependent):
+        super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
         self.globalVariables['LkT'] = L*kT
         self.globalVariables['vlim'] = 30.0
@@ -402,6 +411,7 @@ class RestrainedLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, frictionConstant, L, kind):
+        super().__init__()
         self.globalVariables['kT'] = kT = kB*temperature
         self.globalVariables['TwoGammaByL'] = 2*frictionConstant/L
         self.globalVariables['LkT'] = L*kT
@@ -446,6 +456,7 @@ class LimitedSpeedLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, frictionConstant, L, kind):
+        super().__init__()
         self.globalVariables['LkT'] = L*kB*temperature
         self.globalVariables['one'] = 1.0
         self.globalVariables['L'] = L
@@ -511,6 +522,7 @@ class LimitedSpeedNHLPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
         self.globalVariables['LkT'] = L*kB*temperature
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['L'] = L
@@ -562,6 +574,7 @@ class LimitedSpeedStochasticPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
         kT = kB*temperature
         self.globalVariables['LkT'] = L*kT
         self.globalVariables['kT'] = kT
@@ -624,6 +637,7 @@ class LimitedSpeedStochasticVelocityPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, frictionConstant, L, kind):
+        super().__init__()
         kT = kB*temperature
         self.globalVariables['LkT'] = L*kT
         self.globalVariables['kT'] = kT
@@ -697,6 +711,7 @@ class OrnsteinUhlenbeckPropagator(Propagator):
     """
     def __init__(self, temperature, frictionConstant, velocity='v', mass='m', force=None,
                  overall=False, **globals):
+        super().__init__()
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['friction'] = frictionConstant
         self.velocity = velocity
@@ -750,6 +765,7 @@ class GenericBoostPropagator(Propagator):
 
     """
     def __init__(self, velocity='v', mass='m', force='f', perDof=True, **globals):
+        super().__init__()
         self.velocity = velocity
         self.mass = mass
         self.force = force
@@ -790,6 +806,7 @@ class GenericScalingPropagator(Propagator):
 
     """
     def __init__(self, velocity, damping, perDof=True, **globals):
+        super().__init__()
         self.velocity = velocity
         self.damping = damping
         self.perDof = perDof
@@ -876,6 +893,7 @@ class RespaPropagator(Propagator):
 
     """
     def __init__(self, loops, move=None, boost=None, core=None, shell=None, **kwargs):
+        super().__init__()
         self.loops = loops
         self.N = len(loops)
         self.move = TranslationPropagator(constrained=False) if move is None else move
@@ -1100,6 +1118,7 @@ class VelocityVerletPropagator(Propagator):
 
     """
     def __init__(self):
+        super().__init__()
         self.perDofVariables['x0'] = 0
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
@@ -1163,6 +1182,7 @@ class VelocityRescalingPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale):
+        super().__init__()
         self.tau = timeScale.value_in_unit(unit.picoseconds)
         self.dof = degreesOfFreedom
         kB = unit.BOLTZMANN_CONSTANT_kB*unit.AVOGADRO_CONSTANT_NA
@@ -1226,6 +1246,7 @@ class NoseHooverPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale, nloops=1):
+        super().__init__()
         self.nloops = nloops
         self.globalVariables['LkT'] = degreesOfFreedom*kB*temperature
         self.globalVariables['Q'] = degreesOfFreedom*kB*temperature*timeScale**2
@@ -1268,6 +1289,7 @@ class MassiveNoseHooverPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, nloops=1):
+        super().__init__()
         self.nloops = nloops
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['Q'] = kB*temperature*timeScale**2
@@ -1305,6 +1327,7 @@ class MassiveGeneralizedGaussianMomentPropagator(Propagator):
 
     """
     def __init__(self, temperature, timeScale, nloops=1):
+        super().__init__()
         self.nloops = nloops
         self.globalVariables['kT'] = kB*temperature
         self.globalVariables['Q1'] = kB*temperature*timeScale**2
@@ -1395,6 +1418,7 @@ class NoseHooverChainPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale, frictionConstant=None):
+        super().__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeScale = timeScale
@@ -1481,6 +1505,7 @@ class NoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, degreesOfFreedom, timeScale, frictionConstant=None):
+        super().__init__()
         self.temperature = temperature
         self.degreesOfFreedom = degreesOfFreedom
         self.timeScale = timeScale
@@ -1538,6 +1563,7 @@ class RegulatedTranslationPropagator(Propagator):
 
     """
     def __init__(self, temperature, n, alpha_n=1):
+        super().__init__()
         self._alpha = alpha_n
         self.globalVariables['nakT'] = self._alpha*n*kB*temperature
 
@@ -1635,6 +1661,7 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+        super().__init__()
         self._alpha = alpha_n
         self._split = split
         kT = kB*temperature
@@ -1734,6 +1761,7 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+        super().__init__()
         self._alpha = alpha_n
         self._n = n
         self._split = split
@@ -1834,6 +1862,7 @@ class RegulatedAtomicNoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+        super().__init__()
         self._alpha = alpha_n
         self._split = split
         kT = kB*temperature
@@ -1931,6 +1960,7 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+        super().__init__()
         self._alpha = alpha_n
         self._n = n
         self._split = split
@@ -2032,6 +2062,7 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
 
     """
     def __init__(self, degreesOfFreedom, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+        super().__init__()
         self._alpha = alpha_n
         self._n = n
         self._split = split
