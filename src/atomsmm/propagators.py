@@ -1565,12 +1565,12 @@ class RegulatedTranslationPropagator(Propagator):
     def __init__(self, temperature, n, alpha_n=1):
         super().__init__()
         self._alpha = alpha_n
-        self.globalVariables['nakT'] = self._alpha*n*kB*temperature
+        self._an = self._alpha*n
 
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
-        integrator.setKineticEnergyExpression(f'0.5*m*(c*tanh({alpha}*v/c))^2; c=sqrt(ankT/m)')
-        integrator.addComputePerDof('x', f'x + c*tanh({alpha}*v/c)*{fraction}*dt; c=sqrt(nakT/m)')
+        integrator.setKineticEnergyExpression(f'0.5*m*(c*tanh({alpha}*v/c))^2; c=sqrt({self._an}*kT/m)')
+        integrator.addComputePerDof('x', f'x + c*tanh({alpha}*v/c)*{fraction}*dt; c=sqrt({self._an}*kT/m)')
 
 
 class RegulatedBoostPropagator(Propagator):
@@ -1663,11 +1663,11 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
         super().__init__()
         self._alpha = alpha_n
+        self._an = self._alpha*n
         self._split = split
         kT = kB*temperature
         Q = kT*timeScale**2
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = self._alpha*n*kT
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
@@ -1676,7 +1676,7 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
         G_definition = f'; G=(m*v*c*tanh({alpha}*v/c) - kT)/Q'
-        G_definition += '; c=sqrt(ankT/m)'
+        G_definition += f'; c=sqrt({self._an}*kT/m)'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'v*exp(-v_eta*{0.5*fraction}*dt)'
         if self._split:
@@ -1766,7 +1766,6 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         self._n = n
         self._split = split
         self.globalVariables['kT'] = kB*temperature
-        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
         self.globalVariables['Q'] = kB*temperature*timeScale**2
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
@@ -1776,12 +1775,12 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         n = self._n
         alpha = self._alpha
         G_definition = f'; G=({(n+1)/(alpha*n)}*m*(c*tanh({alpha}*v/c))^2 - kT)/Q'
-        G_definition += '; c=sqrt(ankT/m)'
+        G_definition += f'; c=sqrt({alpha*n}*kT/m)'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'{1/alpha}*c*asinhz'
         scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
         scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{0.5*fraction}*dt)'
-        scaling += '; c=sqrt(ankT/m)'
+        scaling += f'; c=sqrt({alpha*n}*kT/m)'
         if self._split:
             OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
         else:
@@ -1868,7 +1867,7 @@ class RegulatedAtomicNoseHooverLangevinPropagator(Propagator):
         kT = kB*temperature
         Q = 3*kT*timeScale**2
         self.globalVariables['kT'] = kT
-        self.globalVariables['ankT'] = self._alpha*n*kT
+        self._an = self._alpha*n
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = unit.sqrt(kT/Q)
         self.globalVariables['friction'] = frictionConstant
@@ -1877,7 +1876,7 @@ class RegulatedAtomicNoseHooverLangevinPropagator(Propagator):
     def addSteps(self, integrator, fraction=1.0, force='f'):
         alpha = self._alpha
         G_definition = f'; G=(dot(m*v,c*tanh({alpha}*v/c)) - 3*kT)/Q'
-        G_definition += '; c=sqrt(ankT/m)'
+        G_definition += f'; c=sqrt({self._an}*kT/m)'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'v*exp(-v_eta*{0.5*fraction}*dt)'
         if self._split:
@@ -1966,7 +1965,7 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
         self._split = split
         Q = 3*kB*temperature*timeScale**2
         self.globalVariables['kT'] = kB*temperature
-        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
+        self._an = self._alpha*n
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = unit.sqrt(kB*temperature/Q)
         self.globalVariables['friction'] = frictionConstant
@@ -1976,12 +1975,12 @@ class TwiceRegulatedAtomicNoseHooverLangevinPropagator(Propagator):
         n = self._n
         alpha = self._alpha
         G_definition = f'; G=({(n+1)/(alpha*n)}*dot(m*c*y,c*y) - 3*kT)/Q; y=tanh({alpha}*v/c)'
-        G_definition += '; c=sqrt(ankT/m)'
+        G_definition += f'; c=sqrt({self._an}*kT/m)'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'{1/alpha}*c*asinhz'
         scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
         scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{0.5*fraction}*dt)'
-        scaling += '; c=sqrt(ankT/m)'
+        scaling += f'; c=sqrt({self._an}*kT/m)'
         if self._split:
             OU = 'v_eta*z + omega*sqrt(1-z^2)*_x(gaussian)'
         else:
@@ -2069,7 +2068,7 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
         self._Nf = degreesOfFreedom
         Q = 3*kB*temperature*timeScale**2
         self.globalVariables['kT'] = kB*temperature
-        self.globalVariables['ankT'] = self._alpha*n*kB*temperature
+        self._an = self._alpha*n
         self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = unit.sqrt(kB*temperature/Q)
         self.globalVariables['friction'] = frictionConstant
@@ -2084,20 +2083,20 @@ class TwiceRegulatedGlobalNoseHooverLangevinPropagator(Propagator):
         scaling = f'{1/alpha}*c*asinhz'
         scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
         scaling += f'; z=sinh({alpha}*v/c)*exp(-v_eta*{0.5*fraction}*dt)'
-        scaling += '; c=sqrt(ankT/m)'
+        scaling += f'; c=sqrt({self._an}*kT/m)'
         if self._split:
             OU = 'v_eta*z + omega*sqrt(1-z^2)*gaussian'
         else:
             OU = 'v_eta*z + G*(1-z)/friction + omega*sqrt(1-z^2)*gaussian' + G_definition
         OU += f'; z=exp(-friction*{fraction}*dt)'
         if self._split:
-            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt(ankT/m)')
+            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt({self._an}*kT/m)')
             integrator.addComputeGlobal('v_eta', boost)
         integrator.addComputePerDof('v', scaling)
         if not self._split:
-            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt(ankT/m)')
+            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt({self._an}*kT/m)')
         integrator.addComputeGlobal('v_eta', OU)
         integrator.addComputePerDof('v', scaling)
         if self._split:
-            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt(ankT/m)')
+            integrator.addComputeSum('sum_mvv', f'm*(c*tanh({alpha}*v/c))^2; c=sqrt({self._an}*kT/m)')
             integrator.addComputeGlobal('v_eta', boost)
