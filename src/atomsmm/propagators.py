@@ -1662,15 +1662,19 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False, adiabatic=False):
         super().__init__()
         self._alpha = alpha_n
         self._an = self._alpha*n
         self._split = split
         kT = kB*temperature
-        Q = kT*timeScale**2
-        self.globalVariables['kT'] = kT
-        self.globalVariables['Q'] = Q
+        self._adiabatic = adiabatic
+        if adiabatic:
+            self.perDofVariables['kT'] = kT
+        else:
+            Q = kT*timeScale**2
+            self.globalVariables['kT'] = kT
+            self.globalVariables['Q'] = Q
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['v_eta'] = 0
@@ -1679,6 +1683,8 @@ class RegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         alpha = self._alpha
         G_definition = f'; G=(m*v*c*tanh({alpha}*v/c) - kT)/Q'
         G_definition += f'; c=sqrt({self._an}*kT/m)'
+        if self._adiabatic:
+            G_definition += '; Q=kT/omega^2'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'v*exp(-v_eta*{0.5*fraction}*dt)'
         if self._split:
@@ -1762,13 +1768,17 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
             Another regulating parameter.
 
     """
-    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False):
+    def __init__(self, temperature, n, timeScale, frictionConstant, alpha_n=1, split=False, adiabatic=False):
         super().__init__()
         self._alpha = alpha_n
         self._n = n
         self._split = split
-        self.globalVariables['kT'] = kB*temperature
-        self.globalVariables['Q'] = kB*temperature*timeScale**2
+        self._adiabatic = adiabatic
+        if adiabatic:
+            self.perDofVariables['kT'] = kB*temperature
+        else:
+            self.globalVariables['Q'] = kB*temperature*timeScale**2
+            self.globalVariables['kT'] = kB*temperature
         self.globalVariables['omega'] = 1/timeScale
         self.globalVariables['friction'] = frictionConstant
         self.perDofVariables['v_eta'] = 0
@@ -1778,6 +1788,8 @@ class TwiceRegulatedMassiveNoseHooverLangevinPropagator(Propagator):
         alpha = self._alpha
         G_definition = f'; G=({(n+1)/(alpha*n)}*m*(c*tanh({alpha}*v/c))^2 - kT)/Q'
         G_definition += f'; c=sqrt({alpha*n}*kT/m)'
+        if self._adiabatic:
+            G_definition += '; Q=kT/omega^2'
         boost = f'v_eta + G*{0.5*fraction}*dt' + G_definition
         scaling = f'{1/alpha}*c*asinhz'
         scaling += '; asinhz=(2*step(z)-1)*log(select(step(za-1E8),2*za,za+sqrt(1+z*z))); za=abs(z)'
